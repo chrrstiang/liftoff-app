@@ -1,28 +1,27 @@
 import {
   BadRequestException,
-  InternalServerErrorException
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { Injectable } from '@nestjs/common';
 import { CreateAuthDto } from '../dto/create-auth-dto';
 import { UpdateAuthDto } from '../dto/update-auth-dto';
-import { SupabaseService } from 'src/supabase/supabase.service';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { MagicLinkAuthDTO } from '../dto/magic-link-dto';
 
 @Injectable()
 export class AuthService {
-
   /** Given a DTO with an inputted email and password, a user is logged into their account.
-   * 
+   *
    * @param createAuthDto The DTO containing the email and password to use to log in.
    * @param supabase The Supabase client.
-   * 
+   *
    * @throws if the email doesn't exist or if the password is incorrect.
    */
   async login(body: CreateAuthDto, supabase: SupabaseClient) {
     const { data, error } = await supabase.auth.signInWithPassword({
       email: body.email,
-      password: body.password
-    })
+      password: body.password,
+    });
 
     if (error) {
       throw new BadRequestException('Failed to login user: ' + error.message);
@@ -32,53 +31,80 @@ export class AuthService {
   }
 
   /** Logs a user out of the application.
-   * 
+   *
    * @param supabase The Supabase client.
    */
   async logout(supabase: SupabaseClient) {
-      const { error } = await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
 
-      if (error) {
-        throw new InternalServerErrorException('Failed to log out.');
-      }
+    if (error) {
+      throw new InternalServerErrorException('Failed to log out.');
+    }
   }
 
-  /** Creates a new user of the application. The user is created in the Auth table, 
+  /** Creates a new user of the application. The user is created in the Auth table,
    * and manually stored in the 'users' table with their email and password.
-   * 
+   *
    * @param createAuthDto The DTO containing the email and password of the new user.
    * @param supabase The Supabase client.
-   * 
+   *
    */
   async createUser(dto: CreateAuthDto, supabase: SupabaseClient) {
-
     const email = dto.email;
     const password = dto.password;
 
-    const {data, error} =  await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email: email,
-      password: password
-    })
+      password: password,
+    });
 
     if (error) {
-      throw new BadRequestException('Could not sign up user.');
+      throw new BadRequestException(`Could not sign up user: ${error.message}`);
     } else if (!data?.user?.id) {
-      throw new InternalServerErrorException("ID could not be located upon sign up.");
+      throw new InternalServerErrorException(
+        'ID could not be located upon sign up.',
+      );
+    } else if (!data.user) {
+      throw new InternalServerErrorException(
+        'Email could not be located upon sign up.',
+      );
     }
 
-    return data.session
+    return data;
   }
 
-  /** Method is called when a user attempts to update either the email or password of their 
-   * account. Given the new info in an object, their email is updated in Supabase's 
+  /** Sends a magic link to an email, allowing for user authentication as both
+   * a new user and an existing user.
+   *
+   * @param dto The DTO containing the email.
+   * @param supabase The supabase client.
+   */
+  async authWithMagicLink(dto: MagicLinkAuthDTO, supabase: SupabaseClient) {
+    const email = dto.email;
+    const redirect = dto.redirect;
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email,
+      options: {
+        shouldCreateUser: true,
+        emailRedirectTo: redirect,
+      },
+    });
+
+    if (error) {
+      throw new BadRequestException(`Could not sign up user: ${error.message}`);
+    }
+  }
+
+  /** Method is called when a user attempts to update either the email or password of their
+   * account. Given the new info in an object, their email is updated in Supabase's
    * 'users' table, and email/password is updated in the Auth section.
-   * 
+   *
    * @param updateAuthDto The DTO containing the new email to use.
    * @param supabase The Supabase Client
    */
   async update(dto: UpdateAuthDto, supabase: SupabaseClient) {
-
-    const updatedData : { email? : string, password? : string } = {};
+    const updatedData: { email?: string; password?: string } = {};
 
     if (dto.email) {
       updatedData.email = dto.email;
@@ -88,14 +114,12 @@ export class AuthService {
       updatedData.password = dto.password;
     }
 
-      const { data, error } = await supabase.auth.updateUser(updatedData);
-  
-      if (error) {
-        throw new BadRequestException('Could not update user: ' + error.message);
-      } else if (!data?.user?.id) {
-        throw new BadRequestException(
-          'Failed to identify user: Check input',
-        );
-      }
+    const { data, error } = await supabase.auth.updateUser(updatedData);
+
+    if (error) {
+      throw new BadRequestException('Could not update user: ' + error.message);
+    } else if (!data?.user?.id) {
+      throw new BadRequestException('Failed to identify user: Check input');
     }
+  }
 }

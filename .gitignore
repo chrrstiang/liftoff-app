@@ -4,9 +4,9 @@ node_modules/
 .DS_Store
 
 # Frontend specific
-frontend/.vscode/
-frontend/.expo/
+/frontend/.expo/
+/frontend/.vscode/
 
 # Backend specific  
-backend/.vscode/
-backend/dist/
+/backend/.vscode/
+/backend/dist/

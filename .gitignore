@@ -10,3 +10,5 @@ node_modules/
 # Backend specific  
 /backend/.vscode/
 /backend/dist/
+frontend/.vscode/settings.json
+/frontend/.vscode

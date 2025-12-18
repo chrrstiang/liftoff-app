@@ -66,7 +66,7 @@ export class AuthService {
       throw new InternalServerErrorException("ID could not be located upon sign up.");
     }
 
-    return data.user.id;
+    return data.session
   }
 
   /** Method is called when a user attempts to update either the email or password of their 

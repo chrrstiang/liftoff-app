@@ -30,6 +30,9 @@ yarn-error.*
 .DS_Store
 *.pem
 
+# Visual Studio Code workspace settings
+.vscode/
+
 # local env files
 .env*.local
 

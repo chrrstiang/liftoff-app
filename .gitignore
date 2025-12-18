@@ -1,0 +1,12 @@
+# Global
+node_modules/
+.env
+.DS_Store
+
+# Frontend specific
+frontend/.vscode/
+frontend/.expo/
+
+# Backend specific  
+backend/.vscode/
+backend/dist/

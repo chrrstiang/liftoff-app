@@ -5,10 +5,9 @@ node_modules/
 
 # Frontend specific
 /frontend/.expo/
-/frontend/.vscode/
+/frontend/.vscode
+/frontend/.vscode/settings.json
 
 # Backend specific  
 /backend/.vscode/
 /backend/dist/
-frontend/.vscode/settings.json
-/frontend/.vscode

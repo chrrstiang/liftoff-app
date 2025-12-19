@@ -1,184 +1,141 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  ReactNode,
-} from "react";
-import { Alert } from "react-native";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import * as SecureStore from "expo-secure-store";
-import { router } from "expo-router";
+import * as QueryParams from "expo-auth-session/build/QueryParams";
+import { makeRedirectUri } from "expo-auth-session";
+import { supabase } from "@/lib/supabase";
+import * as Linking from "expo-linking";
 
-type User = {
-  id: string;
-  email: string;
-  name: string;
-  token: string;
-};
-
-type AuthContextData = {
-  user: Omit<User, "token"> | null;
+interface AuthContextType {
   isAuthenticated: boolean;
+  checkAuthState: () => Promise<void>;
   isLoading: boolean;
+  sendMagicLink: (email: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, name: string) => Promise<void>;
-  signout: () => Promise<void>;
-  getAuthToken: () => Promise<string | null>;
-};
+  logout: () => Promise<void>;
+}
 
-const AuthContext = createContext<AuthContextData>({} as AuthContextData);
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// SecureStore keys
-const USER_KEY = "user_data";
-const TOKEN_KEY = "auth_token";
+let lastProcessedUrl: string | null = null;
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<Omit<User, "token"> | null>(null);
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Check if user is logged in on app start
+  const url = Linking.useLinkingURL();
+  const API_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+
+  // listens for deep link navigations
   useEffect(() => {
-    async function loadStoredData() {
-      try {
-        const userData = await SecureStore.getItemAsync(USER_KEY);
-        if (userData) {
-          const parsedUser = JSON.parse(userData);
-          setUser(parsedUser);
-          setIsAuthenticated(true);
-        }
-      } catch (error) {
-        console.error("Failed to load user data", error);
-      } finally {
-        setIsLoading(false);
-      }
+    if (url) {
+      console.log("Link detected:", url);
+      handleDeepLink(url);
+    }
+  }, [url]);
+
+  useEffect(() => {
+    console.log("🔥 isAuthenticated state changed to:", isAuthenticated);
+  }, [isAuthenticated]);
+
+  /** Handles the navigation from a deep link into the app.
+   * Currently, the only deep link is from signup/sign-in.
+   *
+   * @param url The URL that was clicked, redirecting the user to the app.
+   */
+  const handleDeepLink = async (url: string) => {
+    if (url === lastProcessedUrl) {
+      console.log("🔄 Same URL as before, skipping...");
+      return;
     }
 
-    loadStoredData();
-  }, []);
+    lastProcessedUrl = url;
 
-  const storeAuthData = async (userData: User) => {
-    const { token, ...userWithoutToken } = userData;
-    await SecureStore.setItemAsync(TOKEN_KEY, token);
-    await SecureStore.setItemAsync(USER_KEY, JSON.stringify(userWithoutToken));
-    setUser(userWithoutToken);
-  };
+    console.log("🔥 DEEP LINK HANDLER TRIGGERED");
 
-  const clearAuthData = async () => {
-    await SecureStore.deleteItemAsync(TOKEN_KEY);
-    await SecureStore.deleteItemAsync(USER_KEY);
-    setUser(null);
-    setIsAuthenticated(false);
-  };
+    // Parse tokens from URL
+    const { params } = QueryParams.getQueryParams(url);
+    const { access_token, refresh_token } = params;
 
-  const login = async (email: string, password: string) => {
-    try {
-      setIsLoading(true);
-      const response = await fetch("YOUR_API_URL/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
+    const { error } = await supabase.auth.setSession({
+      access_token,
+      refresh_token,
+    });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Login failed");
-      }
-
-      const userData = {
-        id: data.user.id,
-        email: data.user.email,
-        name: data.user.name,
-        token: data.token,
-      };
-
-      await storeAuthData(userData);
+    if (error) {
+      console.error("Error setting session:", error);
+    } else {
+      console.log("Session set successfully");
       setIsAuthenticated(true);
-    } catch (error) {
-      console.error("Login error:", error);
-      Alert.alert(
-        "Login Error",
-        error instanceof Error ? error.message : "Failed to login"
-      );
-      throw error;
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  const signup = async (email: string, password: string, name: string) => {
+  const checkAuthState = async () => {
     try {
-      setIsLoading(true);
-      const response = await fetch("YOUR_API_URL/signup", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password, name }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Signup failed");
-      }
-
-      const userData = {
-        id: data.user.id,
-        email: data.user.email,
-        name: data.user.name,
-        token: data.token,
-      };
-
-      await storeAuthData(userData);
-      setIsAuthenticated(true);
+      const { data: session } = await supabase.auth.getSession();
+      setIsAuthenticated(!!session?.session);
     } catch (error) {
-      console.error("Signup error:", error);
-      Alert.alert(
-        "Signup Error",
-        error instanceof Error ? error.message : "Failed to sign up"
-      );
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const signout = async () => {
-    try {
-      setIsLoading(true);
-      await clearAuthData();
+      console.error("Error checking auth state:", error);
       setIsAuthenticated(false);
-    } catch (error) {
-      console.error("Signout error:", error);
-      Alert.alert("Error", "Failed to sign out");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const getAuthToken = async (): Promise<string | null> => {
-    try {
-      return await SecureStore.getItemAsync(TOKEN_KEY);
-    } catch (error) {
-      console.error("Failed to get auth token", error);
-      return null;
+  // sends a magic link to the given email for login/signup
+  const sendMagicLink = async (email: string) => {
+    const redirect: string = makeRedirectUri();
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email,
+      options: {
+        shouldCreateUser: true,
+        emailRedirectTo: redirect,
+      },
+    });
+
+    if (error) {
+      throw new Error("Failed to send magic link: " + error.message);
     }
+  };
+
+  /** Calls the login endpoint, logging in the user and returning tokens/session data
+   * in the response. If returned successfully, then the authenticated state is set to true.
+   */
+  const login = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email,
+      password: password,
+    });
+
+    if (error) {
+      throw new Error("Failed to login user: " + error.message);
+    }
+
+    setIsAuthenticated(true);
+  };
+
+  /** Calls the logout endpoint, resetting the authenticated
+   * state to false
+   */
+  const logout = async () => {
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      throw new Error("Failed to logout: " + error.message);
+    }
+
+    setIsAuthenticated(false);
   };
 
   return (
     <AuthContext.Provider
       value={{
-        user,
         isAuthenticated,
+        checkAuthState,
         isLoading,
+        sendMagicLink,
         login,
-        signup,
-        signout,
-        getAuthToken,
+        logout,
       }}
     >
       {children}
@@ -186,10 +143,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useAuth() {
+// Custom hook to use auth context
+export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
+  if (context === undefined) {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
-}
+};

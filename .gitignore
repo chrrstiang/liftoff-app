@@ -7,6 +7,7 @@ node_modules/
 /frontend/.expo/
 /frontend/.vscode
 /frontend/.vscode/settings.json
+/frontend/nativewind-env.d.ts
 
 # Backend specific  
 /backend/.vscode/

@@ -12,6 +12,7 @@ interface AuthContextType {
   sendMagicLink: (email: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  signup: (email: string, password: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -81,6 +82,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const signup = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signUp({
+      email: email,
+      password: password,
+    });
+
+    if (error) {
+      throw new Error("Failed to sign up: " + error.message);
+    }
+  };
+
   // sends a magic link to the given email for login/signup
   const sendMagicLink = async (email: string) => {
     const redirect: string = makeRedirectUri();
@@ -136,6 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         sendMagicLink,
         login,
         logout,
+        signup,
       }}
     >
       {children}

@@ -313,7 +313,7 @@ export default function CreateProfile() {
                       setTempDate(dateOfBirth);
                       setShowDateModal(true);
                     }}
-                    className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-700"
+                    className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-800 dark:bg-zinc-900"
                   >
                     <Text className="dark:text-white">
                       {dateOfBirth.toLocaleDateString()}
@@ -416,7 +416,7 @@ export default function CreateProfile() {
                           setSelectedFederation(selectedFederation);
                           setShowFederationModal(true);
                         }}
-                        className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-700"
+                        className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-800 dark:bg-zinc-900"
                       >
                         <Text
                           className={`dark:text-white ${selectedFederation ? "text-foreground dark:text-gray-200" : "text-muted-foreground dark:text-gray-300"}`}
@@ -462,7 +462,7 @@ export default function CreateProfile() {
                           setSelectedDivision(selectedDivision);
                           setShowDivisionModal(true);
                         }}
-                        className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-700"
+                        className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-800 dark:bg-zinc-900"
                       >
                         <Text
                           className={`dark:text-white ${selectedDivision ? "text-foreground dark:text-gray-200" : "text-muted-foreground dark:text-gray-300"}`}
@@ -513,7 +513,7 @@ export default function CreateProfile() {
                           setSelectedWeightClass(selectedWeightClass);
                           setShowWeightClassModal(true);
                         }}
-                        className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-700"
+                        className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-800 dark:bg-zinc-900"
                       >
                         <Text
                           className={`dark:text-white ${selectedWeightClass ? "text-foreground dark:text-gray-200" : "text-muted-foreground dark:text-gray-300"}`}

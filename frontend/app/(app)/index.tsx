@@ -1,5 +1,4 @@
-import { Text, View } from "react-native";
-
+import { Redirect } from "expo-router";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function Index() {
@@ -13,17 +12,5 @@ export default function Index() {
     }
   }
 
-  return (
-    <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-      <Text
-        onPress={async () => {
-          // The `app/(app)/_layout.tsx` will redirect to the sign-in screen.
-          await handleLogout();
-        }}
-        style={{ fontSize: 18, color: "red" }}
-      >
-        Sign Out
-      </Text>
-    </View>
-  );
+  return <Redirect href="/login" />;
 }

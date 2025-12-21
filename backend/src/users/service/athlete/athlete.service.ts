@@ -11,6 +11,20 @@ import { UsersService } from '../users.service';
  * retrieveing profile details of an Athlete.
  * 
  */
+interface CreateAthleteData {
+  id: string;
+  federation_id?: string;
+  division_id?: string;
+  weight_class_id?: string;
+}
+
+interface UpdateAthleteData {
+  federation_id?: string;
+  division_id?: string;
+  weight_class_id?: string;
+}
+
+
 @Injectable()
 export class AthleteService {
 
@@ -33,7 +47,7 @@ export class AthleteService {
 
     this.validateCreateDTO(dto);
 
-    let athleteData: CreateAthleteData = {user_id};
+    let athleteData: CreateAthleteData = {id: user_id};
 
     if (dto.federation) {
       athleteData.federation_id = await this.findFederation(dto.federation);
@@ -56,15 +70,13 @@ export class AthleteService {
       username: username,
       gender: gender,
       date_of_birth: date_of_birth,
-      role: 'Athlete'
+      is_athlete: true
     })
     .eq('id', user_id);
 
     if (error) {
       throw new BadRequestException(`Failed to update user upon profile completion: ${error.code} - ${error.message}`);
     }
-
-    athleteData.user_id = user_id;
 
     await this.addToTable(athleteData, 'athletes');
 

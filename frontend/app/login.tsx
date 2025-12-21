@@ -87,7 +87,7 @@ export default function Login() {
                 <Text className="text-md text-muted-foreground dark:text-gray-300">
                   Don't have an account?{" "}
                   <Link
-                    href="/signup"
+                    href="/(app)/create-profile"
                     className="text-violet-500 dark:text-violet-500 underline"
                   >
                     Sign up

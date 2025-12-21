@@ -1,5 +1,7 @@
 ## 🏋🏼‍♂️ LiftOff
 
+![CI](https://github.com/chrrstiang/liftoff/workflows/CI/badge.svg)
+
 ## 🌟 Highlights
 
 - Athletes: Log your workouts directly for your coach to see ✍🏼

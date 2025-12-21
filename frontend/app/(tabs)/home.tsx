@@ -1,6 +1,6 @@
 import { View, Text, TouchableOpacity } from "react-native";
 
-import { useAuth } from "@/contexts/OldAuthContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function HomePage() {
   const { logout } = useAuth();
@@ -14,13 +14,13 @@ export default function HomePage() {
   }
 
   return (
-    <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-      <Text style={{ fontSize: 20 }}>Home</Text>
+    <View className="flex-1 justify-center items-center">
+      <Text className="text-2xl">Home</Text>
       <TouchableOpacity
-        style={{ padding: 10, backgroundColor: "red", borderRadius: 5 }}
+        className="p-2.5 bg-red-500 rounded-md"
         onPress={() => handleLogout()}
       >
-        <Text style={{ color: "white" }}>Sign Out</Text>
+        <Text className="text-white">Sign Out</Text>
       </TouchableOpacity>
     </View>
   );

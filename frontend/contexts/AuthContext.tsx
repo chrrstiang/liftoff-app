@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import * as SecureStore from "expo-secure-store";
 import * as QueryParams from "expo-auth-session/build/QueryParams";
 import { makeRedirectUri } from "expo-auth-session";
 import { supabase } from "@/lib/supabase";
 import * as Linking from "expo-linking";
+import { Session } from "@supabase/supabase-js";
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -12,6 +12,9 @@ interface AuthContextType {
   sendMagicLink: (email: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  signup: (email: string, password: string) => Promise<void>;
+  isProfileComplete: boolean;
+  session: Session | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,9 +24,10 @@ let lastProcessedUrl: string | null = null;
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isProfileComplete, setIsProfileComplete] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
 
   const url = Linking.useLinkingURL();
-  const API_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 
   // listens for deep link navigations
   useEffect(() => {
@@ -36,6 +40,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     console.log("🔥 isAuthenticated state changed to:", isAuthenticated);
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (session?.user) {
+      checkProfileCompletion(session.user.id);
+    }
+  }, [session]);
+
+  // listens to real-time auth updates in case of session expir or manual action
+  useEffect(() => {
+    checkAuthState();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setIsAuthenticated(!!session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   /** Handles the navigation from a deep link into the app.
    * Currently, the only deep link is from signup/sign-in.
@@ -52,11 +76,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     console.log("🔥 DEEP LINK HANDLER TRIGGERED");
 
-    // Parse tokens from URL
     const { params } = QueryParams.getQueryParams(url);
     const { access_token, refresh_token } = params;
 
-    const { error } = await supabase.auth.setSession({
+    const { data, error } = await supabase.auth.setSession({
       access_token,
       refresh_token,
     });
@@ -66,18 +89,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       console.log("Session set successfully");
       setIsAuthenticated(true);
+      setSession(data.session);
     }
   };
 
+  /** Checks the current authentication state */
   const checkAuthState = async () => {
     try {
       const { data: session } = await supabase.auth.getSession();
       setIsAuthenticated(!!session?.session);
+      setSession(session?.session);
     } catch (error) {
       console.error("Error checking auth state:", error);
       setIsAuthenticated(false);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  /** Checks if the user's profile is complete */
+  const checkProfileCompletion = async (userId: string) => {
+    try {
+      const { data: profile, error } = await supabase
+        .from("users")
+        .select("first_name, last_name, username, gender, date_of_birth")
+        .eq("id", userId)
+        .single();
+
+      if (error) throw error;
+
+      const isComplete =
+        profile?.first_name &&
+        profile?.last_name &&
+        profile?.username &&
+        profile?.gender &&
+        profile?.date_of_birth;
+      setIsProfileComplete(!!isComplete);
+    } catch (error) {
+      console.error("Error checking profile completion:", error);
+      setIsProfileComplete(false);
+    }
+  };
+
+  /** Signs up a new user with email and password */
+  const signup = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signUp({
+      email: email,
+      password: password,
+    });
+
+    if (error) {
+      throw new Error("Failed to sign up: " + error.message);
     }
   };
 
@@ -98,9 +160,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  /** Calls the login endpoint, logging in the user and returning tokens/session data
-   * in the response. If returned successfully, then the authenticated state is set to true.
-   */
+  /** Logs in the user with email and password */
   const login = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
       email: email,
@@ -114,9 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsAuthenticated(true);
   };
 
-  /** Calls the logout endpoint, resetting the authenticated
-   * state to false
-   */
+  // logs out
   const logout = async () => {
     const { error } = await supabase.auth.signOut();
 
@@ -136,6 +194,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         sendMagicLink,
         login,
         logout,
+        signup,
+        isProfileComplete,
+        session,
       }}
     >
       {children}

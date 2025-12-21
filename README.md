@@ -1,6 +1,6 @@
 ## 🏋🏼‍♂️ LiftOff
 
-![CI](https://github.com/chrrstiang/liftoff/workflows/CI/badge.svg)
+![CI](https://github.com/chrrstiang/liftoff/workflows/frontend-ci/badge.svg)
 
 ## 🌟 Highlights
 

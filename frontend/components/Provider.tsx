@@ -1,6 +1,9 @@
 import { AuthProvider } from "@/contexts/AuthContext";
-import { ThemeProvider } from "@react-navigation/native";
-import { DefaultTheme, DarkTheme } from "@react-navigation/native";
+import {
+  ThemeProvider,
+  DefaultTheme,
+  DarkTheme,
+} from "@react-navigation/native";
 import { useColorScheme } from "react-native";
 
 export default function Provider({ children }: { children: React.ReactNode }) {

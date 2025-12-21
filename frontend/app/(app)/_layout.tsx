@@ -4,6 +4,10 @@ import { useAuth } from "@/contexts/AuthContext";
 export default function AppLayout() {
   const { isAuthenticated, isProfileComplete } = useAuth();
 
+  if (!isAuthenticated) {
+    return <Redirect href="/login" />;
+  }
+
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Protected guard={!isProfileComplete}>

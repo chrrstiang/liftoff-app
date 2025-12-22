@@ -18,6 +18,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { supabase } from "@/lib/supabase";
 import { Check } from "lucide-react-native";
+import { router } from "expo-router";
 
 interface SelectionModalProps<T> {
   visible: boolean;
@@ -49,6 +50,20 @@ interface WeightClass {
   sort_order: boolean;
 }
 
+interface Profile {
+  first_name: string;
+  last_name: string;
+  gender: string;
+  date_of_birth: Date;
+  federation_id?: number;
+  division_id?: number;
+  weight_class_id?: number;
+  is_athlete: boolean;
+  is_coach: boolean;
+  biography?: string;
+  years_of_experience?: string;
+}
+
 export default function CreateProfile() {
   // states for actual profile request submission
   const [firstName, setFirstName] = useState("");
@@ -75,7 +90,8 @@ export default function CreateProfile() {
   );
   const [selectedWeightClass, setSelectedWeightClass] =
     useState<WeightClass | null>(null);
-  const [coachLevel, setCoachLevel] = useState("");
+  const [biography, setBiography] = useState("");
+  const [yearsOfExperience, setYearsOfExperience] = useState("");
 
   // states for fetched data
   const [federations, setFederations] = useState<Federation[]>([]);
@@ -117,6 +133,8 @@ export default function CreateProfile() {
 
   // fetch divisions that are apart of selected federation
   useEffect(() => {
+    setSelectedDivision(null);
+    setDivisions([]);
     const fetchDivisions = async () => {
       const { data, error } = await supabase
         .from("divisions")
@@ -143,6 +161,8 @@ export default function CreateProfile() {
 
   // fetch weight classes apart of selected federation
   useEffect(() => {
+    setSelectedWeightClass(null);
+    setWeightClasses([]);
     const fetchWeightClasses = async () => {
       const { data, error } = await supabase
         .from("weight_classes")
@@ -170,26 +190,32 @@ export default function CreateProfile() {
 
   // construct the request to create user profile
   const handleSubmit = async () => {
-    if (!firstName || !lastName || !gender || !dateOfBirth) {
+    if (!firstName || !lastName || !gender || !dateOfBirth || !selectedRoles) {
       Alert.alert("Error", "Please fill in all required fields");
       return;
     }
 
-    const response = await fetch(`${API_URL}/athlete/profile`, {
+    const payload: Profile = {
+      first_name: firstName,
+      last_name: lastName,
+      gender,
+      date_of_birth: dateOfBirth,
+      federation_id: selectedFederation?.id,
+      division_id: selectedDivision?.id,
+      weight_class_id: selectedWeightClass?.id,
+      is_athlete: selectedRoles.includes(ROLES.ATHLETE),
+      is_coach: selectedRoles.includes(ROLES.COACH),
+      biography: biography,
+      years_of_experience: yearsOfExperience,
+    };
+
+    const response = await fetch(`${API_URL}/users/profile`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session?.access_token}`,
       },
-      body: JSON.stringify({
-        first_name: firstName,
-        last_name: lastName,
-        gender,
-        date_of_birth: dateOfBirth.toISOString(),
-        federation_id: selectedFederation?.id,
-        division_id: selectedDivision?.id,
-        weight_class_id: selectedWeightClass?.id,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -198,8 +224,8 @@ export default function CreateProfile() {
       return;
     }
 
-    // TODO: Handle successful creation
     console.log("Profile created successfully");
+    router.replace("/(app)/(tabs)/home");
   };
 
   const toggleRole = (role: string) => {
@@ -556,33 +582,18 @@ export default function CreateProfile() {
                     </Text>
                     <View>
                       <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-1">
-                        Certification Level
+                        Biography (maximum 500 characters)
                       </Text>
-                      <View className="flex-row space-x-2">
-                        {["Level 1", "Level 2", "Level 3", "Level 4"].map(
-                          (level) => (
-                            <TouchableOpacity
-                              key={level}
-                              onPress={() => setCoachLevel(level)}
-                              className={`flex-1 h-12 items-center justify-center rounded-lg border ${
-                                coachLevel === level
-                                  ? "bg-violet-500 border-violet-500"
-                                  : "border-gray-300 dark:border-zinc-700"
-                              }`}
-                            >
-                              <Text
-                                className={`text-sm ${
-                                  coachLevel === level
-                                    ? "text-white"
-                                    : "text-foreground dark:text-gray-200"
-                                }`}
-                              >
-                                {level}
-                              </Text>
-                            </TouchableOpacity>
-                          )
-                        )}
-                      </View>
+                      <TextInput
+                        className="h-24 border border-gray-300 rounded-lg px-4 dark:bg-zinc-900 dark:border-zinc-800 dark:text-white"
+                        placeholder="Raw powerlifting coach in the MA area..."
+                        keyboardType="default"
+                        multiline={true}
+                        numberOfLines={4}
+                        maxLength={500}
+                        value={biography}
+                        onChangeText={setBiography}
+                      />
                     </View>
                     <View>
                       <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-1">
@@ -592,6 +603,8 @@ export default function CreateProfile() {
                         className="h-12 border border-gray-300 rounded-lg px-4 dark:bg-zinc-900 dark:border-zinc-800 dark:text-white"
                         placeholder="e.g., 5"
                         keyboardType="numeric"
+                        value={yearsOfExperience}
+                        onChangeText={setYearsOfExperience}
                       />
                     </View>
                   </View>

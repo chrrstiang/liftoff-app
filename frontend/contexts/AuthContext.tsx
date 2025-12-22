@@ -14,6 +14,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   signup: (email: string, password: string) => Promise<void>;
   isProfileComplete: boolean;
+  checkProfileCompletion: (userId: string) => Promise<void>;
   session: Session | null;
 }
 
@@ -124,7 +125,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profile?.username &&
         profile?.gender &&
         profile?.date_of_birth;
-      setIsProfileComplete(!!isComplete);
+
+      if (!isComplete) {
+        throw new Error("Missing profile fields");
+      }
+      console.log("Profile is now complete!");
+      setIsProfileComplete(isComplete);
     } catch (error) {
       console.error("Error checking profile completion:", error);
       setIsProfileComplete(false);
@@ -176,6 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // logs out
   const logout = async () => {
+    console.log("🔥 LOGOUT TRIGGERED");
     const { error } = await supabase.auth.signOut();
 
     if (error) {
@@ -183,6 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     setIsAuthenticated(false);
+    setSession(null);
   };
 
   return (
@@ -197,6 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signup,
         isProfileComplete,
         session,
+        checkProfileCompletion,
       }}
     >
       {children}

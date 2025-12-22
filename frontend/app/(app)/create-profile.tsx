@@ -53,6 +53,7 @@ interface WeightClass {
 interface Profile {
   first_name: string;
   last_name: string;
+  username: string;
   gender: string;
   date_of_birth: Date;
   federation_id?: number;
@@ -61,7 +62,7 @@ interface Profile {
   is_athlete: boolean;
   is_coach: boolean;
   biography?: string;
-  years_of_experience?: string;
+  years_of_experience?: number;
 }
 
 export default function CreateProfile() {
@@ -100,7 +101,7 @@ export default function CreateProfile() {
 
   // states for authentication
   const colorScheme = useColorScheme();
-  const { session } = useAuth();
+  const { session, checkProfileCompletion, logout } = useAuth();
   const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
   const ROLES = {
@@ -114,7 +115,6 @@ export default function CreateProfile() {
       const { data, error } = await supabase
         .from("federations")
         .select("id, name, code");
-      console.log("Fetched federations, ", data);
       if (error) {
         console.error("Error fetching federations:", error.message);
         return;
@@ -140,7 +140,6 @@ export default function CreateProfile() {
         .from("divisions")
         .select("id, name, minimum_age, maximum_age")
         .eq("federation_id", selectedFederation!.id);
-      console.log("Fetched divisions, ", data);
       if (error) {
         console.error("Error fetching divisions:", error.message);
         return;
@@ -169,7 +168,6 @@ export default function CreateProfile() {
         .select("id, name, sort_order")
         .eq("federation_id", selectedFederation!.id)
         .eq("gender", gender);
-      console.log("Fetched weight classes, ", data);
       if (error) {
         console.error("Error fetching weight classes:", error.message);
         return;
@@ -190,42 +188,62 @@ export default function CreateProfile() {
 
   // construct the request to create user profile
   const handleSubmit = async () => {
-    if (!firstName || !lastName || !gender || !dateOfBirth || !selectedRoles) {
-      Alert.alert("Error", "Please fill in all required fields");
-      return;
+    setIsLoading(true);
+    try {
+      if (
+        !firstName ||
+        !lastName ||
+        !gender ||
+        !dateOfBirth ||
+        !selectedRoles
+      ) {
+        Alert.alert("Error", "Please fill in all required fields");
+        return;
+      }
+
+      const payload: Profile = {
+        first_name: firstName,
+        last_name: lastName,
+        username,
+        gender,
+        date_of_birth: dateOfBirth,
+        federation_id: selectedFederation?.id,
+        division_id: selectedDivision?.id,
+        weight_class_id: selectedWeightClass?.id,
+        is_athlete: selectedRoles.includes(ROLES.ATHLETE),
+        is_coach: selectedRoles.includes(ROLES.COACH),
+        biography: biography,
+        years_of_experience: parseInt(yearsOfExperience),
+      };
+
+      const response = await fetch(`${API_URL}/users/profile`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        Alert.alert("Error", errorData.error || "Failed to create profile");
+        throw new Error(errorData.error);
+      }
+
+      console.log("Profile created successfully!");
+
+      if (session?.user?.id) {
+        console.log("Checking profile completion...");
+        await checkProfileCompletion(session?.user?.id);
+      }
+      router.replace("/(app)/(tabs)/home");
+    } catch (error) {
+      console.error("Error creating profile:", error);
+      Alert.alert("Error", "Failed to create profile");
+    } finally {
+      setIsLoading(false);
     }
-
-    const payload: Profile = {
-      first_name: firstName,
-      last_name: lastName,
-      gender,
-      date_of_birth: dateOfBirth,
-      federation_id: selectedFederation?.id,
-      division_id: selectedDivision?.id,
-      weight_class_id: selectedWeightClass?.id,
-      is_athlete: selectedRoles.includes(ROLES.ATHLETE),
-      is_coach: selectedRoles.includes(ROLES.COACH),
-      biography: biography,
-      years_of_experience: yearsOfExperience,
-    };
-
-    const response = await fetch(`${API_URL}/users/profile`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session?.access_token}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      Alert.alert("Error", errorData.error || "Failed to create profile");
-      return;
-    }
-
-    console.log("Profile created successfully");
-    router.replace("/(app)/(tabs)/home");
   };
 
   const toggleRole = (role: string) => {
@@ -617,6 +635,18 @@ export default function CreateProfile() {
                 >
                   <Text className="text-center text-white font-semibold text-base">
                     {isLoading ? "Saving..." : "Continue"}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  className="bg-violet-500 h-14 rounded-lg justify-center dark:bg-red-700"
+                  onPress={async () => {
+                    await logout();
+                    router.replace("/login");
+                  }}
+                  disabled={isLoading || selectedRoles.length === 0}
+                >
+                  <Text className="text-center text-white font-semibold text-base">
+                    {isLoading ? "Saving..." : "Logout"}
                   </Text>
                 </TouchableOpacity>
               </View>

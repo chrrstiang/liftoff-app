@@ -37,6 +37,7 @@ export class UsersService {
     const userData: UserData = {
       first_name: dto.first_name,
       last_name: dto.last_name,
+      username: dto.username,
       gender: dto.gender,
       date_of_birth: dto.date_of_birth,
       is_athlete: dto.is_athlete,
@@ -89,6 +90,7 @@ export class UsersService {
 
   // given an error returned by Supabase, displays an appropriate message
   static handleSupabaseError(error: PostgrestError, message: string) {
+    console.log(error);
     throw new BadRequestException(
       `${message}: ${error.code} - ${error.message}`,
     );

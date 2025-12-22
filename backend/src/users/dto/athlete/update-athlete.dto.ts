@@ -1,6 +1,4 @@
 import { IsOptional, IsString } from 'class-validator';
-import { CreateAthleteDto } from './create-athlete.dto';
-import { PartialType } from '@nestjs/mapped-types';
 import { ValueExists } from 'src/common/validation/decorators/validate-federation';
 
 /** Data-transfer object designed for updating an athlete record in Supabase.

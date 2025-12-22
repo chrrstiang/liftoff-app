@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseService } from 'src/supabase/supabase.service';
-import { UpdateAthleteDto } from 'src/users/dto/athlete/update-athlete.dto';
 import {
   PUBLIC_PROFILE_QUERY,
   VALID_ATHLETES_COLUMNS_QUERIES,
@@ -15,18 +14,6 @@ import { UsersService } from '../users.service';
  * retrieveing profile details of an Athlete.
  *
  */
-interface CreateAthleteData {
-  id: string;
-  federation_id?: string;
-  division_id?: string;
-  weight_class_id?: string;
-}
-
-interface UpdateAthleteData {
-  federation_id?: string;
-  division_id?: string;
-  weight_class_id?: string;
-}
 
 @Injectable()
 export class AthleteService {
@@ -37,15 +24,6 @@ export class AthleteService {
       throw new InternalServerErrorException('SupabaseService is undefined');
     }
     this.supabase = this.supabaseService.getClient();
-  }
-
-  // adds the object containing specific fields to the designated table.
-  private async addToTable(data: any, table: string) {
-    const { error } = await this.supabase.from(table).insert(data);
-
-    if (error) {
-      UsersService.handleSupabaseError(error, `Failed to insert data into ${table}`);
-    }
   }
 
   /** Queries the 'athletes' table for the row with the same user_id as the current authenticated
@@ -116,14 +94,17 @@ export class AthleteService {
     }
 
     const directFields: string[] = [];
-    const nestedFields = {};
+    const nestedFields: { [key: string]: string[] } = {};
 
     data.forEach((c) => {
       // if nested field (federation.name)
       if (c.includes('.')) {
-        const [tableName, column] = c.split('.');
+        const [tableName, column] = c.split('.') as [string, string];
 
-        if (!VALID_TABLE_FIELDS[tableName]?.includes(column)) {
+        if (
+          !(tableName in VALID_TABLE_FIELDS) ||
+          !VALID_TABLE_FIELDS[tableName as keyof typeof VALID_TABLE_FIELDS].includes(column)
+        ) {
           throw new BadRequestException(`Invalid query: '${tableName}.${column}'`);
         }
 

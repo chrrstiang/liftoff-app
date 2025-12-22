@@ -1,21 +1,7 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Patch,
-  HttpCode,
-  Query,
-  UseGuards,
-  Req,
-  Param,
-} from '@nestjs/common';
+import { Controller, Get, HttpCode, Query, UseGuards, Param } from '@nestjs/common';
 import { AthleteService } from '../../service/athlete/athlete.service';
-import { CreateAthleteDto } from '../../dto/athlete/create-athlete.dto';
 import { JwtAuthGuard } from 'src/common/validation/guards/auth-guard';
 import { AthleteExistsGuard } from 'src/common/validation/guards/athlete-exists-guard';
-import { UpdateAthleteDto } from 'src/users/dto/athlete/update-athlete.dto';
-import type { RequestWithUser } from 'src/common/types/request.interface';
 
 @Controller('athlete')
 export class AthleteController {

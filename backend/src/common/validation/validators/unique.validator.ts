@@ -25,14 +25,10 @@ export class IsUniqueValidator implements ValidatorConstraintInterface {
       console.error('Missing constraints for IsUniqueValidator');
       return false;
     }
-    const [tableName, column] = validationArguments?.constraints;
+    const [tableName, column] = validationArguments?.constraints as [string, string];
     const supabase = this.supabaseService.getClient();
 
-    const { data } = await (supabase as any)
-      .from(tableName)
-      .select('id')
-      .eq(column, value)
-      .maybeSingle();
+    const { data } = await supabase.from(tableName).select('id').eq(column, value).maybeSingle();
 
     return !data;
   }

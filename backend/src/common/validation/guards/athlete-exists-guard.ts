@@ -5,6 +5,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { SupabaseService } from 'src/supabase/supabase.service';
 
 /** This guard ensures that an ID passed to a request as a parameter exists and corresponds with
@@ -17,7 +18,7 @@ export class AthleteExistsGuard implements CanActivate {
   constructor(private supabaseService: SupabaseService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest();
+    const request: Request = context.switchToHttp().getRequest();
     const athleteId = request.params.id;
 
     if (!athleteId) {

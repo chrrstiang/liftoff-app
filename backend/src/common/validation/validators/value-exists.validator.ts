@@ -25,12 +25,12 @@ export class ValueExistsValidator implements ValidatorConstraintInterface {
       console.error('Missing constraints for ValueExistsValidator');
       return false;
     }
-    const [tableName, column] = validationArguments?.constraints;
+    const [tableName, column] = validationArguments?.constraints as [string, string];
     const supabase = this.supabaseService.getClient();
 
-    const { data } = await (supabase as any).from(tableName).select('id').eq(column, value);
+    const { data } = await supabase.from(tableName).select('id').eq(column, value);
 
-    if (data.length > 0) {
+    if (data && data.length > 0) {
       return true;
     }
 
@@ -41,7 +41,7 @@ export class ValueExistsValidator implements ValidatorConstraintInterface {
     if (!validationArguments?.constraints || validationArguments.constraints.length < 2) {
       return `${validationArguments?.property} is not a valid value.`;
     }
-    const [column] = validationArguments?.constraints;
+    const [column] = validationArguments?.constraints as [string];
     return `${validationArguments?.property} is not a valid value for ${column}.`;
   }
 }

@@ -24,11 +24,7 @@ export const VALID_TABLE_FIELDS = {
  * GET /athlete/profile
  *
  */
-export const VALID_FULL_TABLE_QUERIES = new Set([
-  'federations',
-  'divisions',
-  'weight_classes',
-]);
+export const VALID_FULL_TABLE_QUERIES = new Set(['federations', 'divisions', 'weight_classes']);
 
 /** This set contains the accessible fields of the 'athletes' record that is being queried.
  * Includes all columns besides 'user_id', as this can be used to access the auth.uid() of a user.

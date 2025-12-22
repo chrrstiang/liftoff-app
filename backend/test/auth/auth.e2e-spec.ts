@@ -127,9 +127,7 @@ describe('Auth E2E Tests', () => {
   });
 
   it('/auth/signup (POST) should return status 400 for empty body', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/auth/signup')
-      .send({});
+    const res = await request(app.getHttpServer()).post('/auth/signup').send({});
 
     expect(res.status).toBe(400);
     expect(res.body.message).toEqual([
@@ -147,10 +145,7 @@ describe('Auth E2E Tests', () => {
       .send({ password: 'DecoyPassword' });
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toEqual([
-      'email must be an email',
-      'email should not be empty',
-    ]);
+    expect(res.body.message).toEqual(['email must be an email', 'email should not be empty']);
   });
 
   it('/auth/signup (POST) should return status 400 for missing password', async () => {
@@ -181,9 +176,7 @@ describe('Auth E2E Tests', () => {
       .send({ email: 'iwillfail@gmail.com', password: 1234 });
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toEqual([
-      'password must be at least 6 characters long',
-    ]);
+    expect(res.body.message).toEqual(['password must be at least 6 characters long']);
   });
 
   // Successful login E2E test with a valid email/password
@@ -210,9 +203,7 @@ describe('Auth E2E Tests', () => {
     expect(res.status).toBe(400);
 
     // check response (login was successful if this was returned)
-    expect(res.body.message).toEqual(
-      'Failed to login user: Invalid login credentials',
-    );
+    expect(res.body.message).toEqual('Failed to login user: Invalid login credentials');
   });
 
   it('/auth/login (POST) should return 400 for incorrect password', async () => {
@@ -226,9 +217,7 @@ describe('Auth E2E Tests', () => {
     expect(res.status).toBe(400);
 
     // check response (login was successful if this was returned)
-    expect(res.body.message).toEqual(
-      'Failed to login user: Invalid login credentials',
-    );
+    expect(res.body.message).toEqual('Failed to login user: Invalid login credentials');
   });
 
   // Successful logout E2E test with a valid email/password
@@ -322,9 +311,7 @@ describe('Auth E2E Tests', () => {
       .send({ email: 'hellolady@gmail.com', password: "Don'tmatterimafail" });
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toBe(
-      'Could not update user: Auth session missing!',
-    );
+    expect(res.body.message).toBe('Could not update user: Auth session missing!');
   });
 
   it('/auth/update (PATCH) should return 400 for a invalid test email domain', async () => {

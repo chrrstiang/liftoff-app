@@ -16,9 +16,7 @@ export class SupabaseService {
     const supabaseKey = this.configService.get<string>('SUPABASE_SECRET_KEY');
 
     if (!supabaseUrl || !supabaseKey) {
-      throw new NotFoundException(
-        'Missing Supabase URL or Key in environment variables',
-      );
+      throw new NotFoundException('Missing Supabase URL or Key in environment variables');
     }
 
     this.supabase = createClient(supabaseUrl, supabaseKey);

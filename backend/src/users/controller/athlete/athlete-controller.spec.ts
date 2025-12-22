@@ -40,22 +40,17 @@ describe('AthleteController', () => {
 
     const call = await controller.createProfile(dto, request);
     expect(call).toEqual({ message: 'Profile created successfully' });
-    expect(athleteService.createProfile).toHaveBeenCalledWith(
-      dto,
-      request.user,
-    );
+    expect(athleteService.createProfile).toHaveBeenCalledWith(dto, request.user);
   });
 
   it('retrieveProfileDetails should return profile data from service', async () => {
-    const result = controller.retrieveProfileDetails(
-      'some-uuid',
-      'name,username,weight_class',
-    );
+    const result = controller.retrieveProfileDetails('some-uuid', 'name,username,weight_class');
 
-    expect(athleteService.retrieveProfileDetails).toHaveBeenCalledWith(
-      'some-uuid',
-      ['name', 'username', 'weight_class'],
-    );
+    expect(athleteService.retrieveProfileDetails).toHaveBeenCalledWith('some-uuid', [
+      'name',
+      'username',
+      'weight_class',
+    ]);
     expect(result).resolves.toEqual({
       name: 'christian',
       username: 'chrrstian',
@@ -66,10 +61,7 @@ describe('AthleteController', () => {
   it('should return profile data from service', async () => {
     controller.retrieveProfileDetails('some-uuid', undefined);
 
-    expect(athleteService.retrieveProfileDetails).toHaveBeenCalledWith(
-      'some-uuid',
-      undefined,
-    );
+    expect(athleteService.retrieveProfileDetails).toHaveBeenCalledWith('some-uuid', undefined);
   });
 
   it('controller.updateAthleteProfile makes correct calls and returns', async () => {
@@ -81,9 +73,6 @@ describe('AthleteController', () => {
 
     const call = await controller.updateAthleteProfile(dto, request);
     expect(call).toEqual({ message: 'Athlete profile updated successfully' });
-    expect(athleteService.updateAthleteProfile).toHaveBeenCalledWith(
-      request.user,
-      dto,
-    );
+    expect(athleteService.updateAthleteProfile).toHaveBeenCalledWith(request.user, dto);
   });
 });

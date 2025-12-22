@@ -25,24 +25,18 @@ export const validationExceptionFactory = (errors: ValidationError[]) => {
 
   // 1. First try property-specific mapping
   const propertySpecificMapping =
-    VALIDATION_EXCEPTION_MAPPINGS[
-      errorKey as keyof typeof VALIDATION_EXCEPTION_MAPPINGS
-    ];
+    VALIDATION_EXCEPTION_MAPPINGS[errorKey as keyof typeof VALIDATION_EXCEPTION_MAPPINGS];
   if (propertySpecificMapping) {
     return propertySpecificMapping(property);
   }
 
   // 2. Then try generic constraint mapping
   const genericMapping =
-    VALIDATION_EXCEPTION_MAPPINGS[
-      constraintKey as keyof typeof VALIDATION_EXCEPTION_MAPPINGS
-    ];
+    VALIDATION_EXCEPTION_MAPPINGS[constraintKey as keyof typeof VALIDATION_EXCEPTION_MAPPINGS];
   if (genericMapping) {
     return genericMapping(property);
   }
 
   // 3. Final fallback with the original constraint message
-  return new BadRequestException(
-    `Validation failed for ${property}: ${constraintMessage}`,
-  );
+  return new BadRequestException(`Validation failed for ${property}: ${constraintMessage}`);
 };

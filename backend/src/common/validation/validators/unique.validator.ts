@@ -15,19 +15,13 @@ import { SupabaseService } from 'src/supabase/supabase.service';
 export class IsUniqueValidator implements ValidatorConstraintInterface {
   constructor(private readonly supabaseService: SupabaseService) {}
 
-  async validate(
-    value: any,
-    validationArguments?: ValidationArguments,
-  ): Promise<boolean> {
+  async validate(value: any, validationArguments?: ValidationArguments): Promise<boolean> {
     if (!this.supabaseService) {
       console.error('SupabaseService not injected!');
       return false;
     }
 
-    if (
-      !validationArguments?.constraints ||
-      validationArguments.constraints.length < 2
-    ) {
+    if (!validationArguments?.constraints || validationArguments.constraints.length < 2) {
       console.error('Missing constraints for IsUniqueValidator');
       return false;
     }

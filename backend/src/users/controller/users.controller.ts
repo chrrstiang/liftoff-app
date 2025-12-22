@@ -1,13 +1,4 @@
-import {
-  Controller,
-  Body,
-  Post,
-  Patch,
-  HttpCode,
-  UseGuards,
-  Req,
-  Request,
-} from '@nestjs/common';
+import { Controller, Body, Post, Patch, HttpCode, UseGuards, Req, Request } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/common/validation/guards/auth-guard';
 import { UsersService } from '../service/users.service';
 import { UpdateUserDto } from '../dto/update-user.dto';
@@ -21,10 +12,7 @@ export class UserController {
   @Post('profile')
   @UseGuards(JwtAuthGuard)
   @HttpCode(201)
-  async createUserProfile(
-    @Body() dto: CreateUserDto,
-    @Req() req: RequestWithUser,
-  ) {
+  async createUserProfile(@Body() dto: CreateUserDto, @Req() req: RequestWithUser) {
     console.log('ENDPOINT FOR CREATE PROFILE REACHED 🙏🏻');
     const user = req.user;
     await this.usersService.createUserProfile(dto, user);

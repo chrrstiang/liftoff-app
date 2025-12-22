@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  InternalServerErrorException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PostgrestError, SupabaseClient, User } from '@supabase/supabase-js';
 import { SupabaseService } from 'src/supabase/supabase.service';
 import { UpdateUserDto } from '../dto/update-user.dto';
@@ -52,10 +48,7 @@ export class UsersService {
       await this.createProfile(athleteData, 'athletes');
     }
 
-    const { error } = await this.supabase
-      .from('users')
-      .update(userData)
-      .eq('id', user.id);
+    const { error } = await this.supabase.from('users').update(userData).eq('id', user.id);
 
     if (error) {
       UsersService.handleSupabaseError(error, 'Failed to create user profile');
@@ -65,10 +58,7 @@ export class UsersService {
   private async createProfile(data: AthleteData | CoachData, table: string) {
     const { error } = await this.supabase.from(table).insert(data);
     if (error) {
-      UsersService.handleSupabaseError(
-        error,
-        `Failed to create ${table} profile`,
-      );
+      UsersService.handleSupabaseError(error, `Failed to create ${table} profile`);
     }
   }
 
@@ -78,10 +68,7 @@ export class UsersService {
    * @param updateUserDto The DTO containing the updated column value.
    */
   async updateProfile(dto: UpdateUserDto, user: User) {
-    const { error } = await this.supabase
-      .from('users')
-      .update(dto)
-      .eq('id', user.id);
+    const { error } = await this.supabase.from('users').update(dto).eq('id', user.id);
 
     if (error) {
       UsersService.handleSupabaseError(error, 'Failed to update user profile');
@@ -91,8 +78,6 @@ export class UsersService {
   // given an error returned by Supabase, displays an appropriate message
   static handleSupabaseError(error: PostgrestError, message: string) {
     console.log(error);
-    throw new BadRequestException(
-      `${message}: ${error.code} - ${error.message}`,
-    );
+    throw new BadRequestException(`${message}: ${error.code} - ${error.message}`);
   }
 }

@@ -31,10 +31,7 @@ describe('User Profile (PATCH) (e2e)', () => {
   const successCases: Array<[string, UpdateUserDto]> = [
     ['Successfully update name of user', { name: 'Daniel' }],
     ['Successfully update username of user', { username: 'chrrstian.pl' }],
-    [
-      'Successfully update name and username of user',
-      { name: 'Daniel', username: 'chrrstian.pl' },
-    ],
+    ['Successfully update name and username of user', { name: 'Daniel', username: 'chrrstian.pl' }],
   ];
   const failureCases: Array<[string, UpdateUserDto, string]> = [
     [
@@ -93,9 +90,7 @@ describe('User Profile (PATCH) (e2e)', () => {
 
     supabase = supabaseService.getClient();
 
-    const login = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send(profileLogin);
+    const login = await request(app.getHttpServer()).post('/auth/login').send(profileLogin);
 
     expect(login.status).toBe(200);
     expect(login.body.message).toBe('Login successful');
@@ -131,11 +126,7 @@ describe('User Profile (PATCH) (e2e)', () => {
     expect(res.status).toBe(200);
     expect(res.body.message).toBe('User profile updated successfully');
 
-    const { data } = await supabase
-      .from('users')
-      .select('name')
-      .eq('id', updateId)
-      .single();
+    const { data } = await supabase.from('users').select('name').eq('id', updateId).single();
 
     expect(data?.name).toEqual('Daniel');
   });
@@ -149,11 +140,7 @@ describe('User Profile (PATCH) (e2e)', () => {
     expect(res.status).toBe(200);
     expect(res.body.message).toBe('User profile updated successfully');
 
-    const { data } = await supabase
-      .from('users')
-      .select('username')
-      .eq('id', updateId)
-      .single();
+    const { data } = await supabase.from('users').select('username').eq('id', updateId).single();
 
     expect(data?.username).toEqual('chrrstian.pl');
   });

@@ -1,13 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Patch,
-  Param,
-  Delete,
-  HttpCode,
-} from '@nestjs/common';
+import { Controller, Post, Body, Patch, HttpCode } from '@nestjs/common';
 import { AuthService } from '../service/auth.service';
 import { CreateAuthDto } from '../dto/create-auth-dto';
 import { UpdateAuthDto } from '../dto/update-auth-dto';
@@ -28,10 +19,7 @@ export class AuthController {
   @Post('signup')
   @HttpCode(201)
   async signUp(@Body() dto: CreateAuthDto) {
-    const data = await this.authService.createUser(
-      dto,
-      this.supabaseService.getClient(),
-    );
+    const data = await this.authService.createUser(dto, this.supabaseService.getClient());
     return {
       message: 'User created successfully',
       user: data.user,
@@ -41,10 +29,7 @@ export class AuthController {
   @Post('magic-link/send')
   @HttpCode(201)
   async authWithMagicLink(@Body() dto: MagicLinkAuthDTO) {
-    const data = await this.authService.authWithMagicLink(
-      dto,
-      this.supabaseService.getClient(),
-    );
+    await this.authService.authWithMagicLink(dto, this.supabaseService.getClient());
     return {
       message: `Magic link sent to ${dto.email}`,
     };
@@ -57,10 +42,7 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   async login(@Body() dto: CreateAuthDto) {
-    const session = await this.authService.login(
-      dto,
-      this.supabaseService.getClient(),
-    );
+    const session = await this.authService.login(dto, this.supabaseService.getClient());
     return {
       message: 'Login successful',
       access_token: session.access_token,

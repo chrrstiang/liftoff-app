@@ -29,10 +29,7 @@ export class AthleteController {
   @Get('profile/:id')
   @UseGuards(JwtAuthGuard, AthleteExistsGuard)
   @HttpCode(200)
-  async retrieveProfileDetails(
-    @Param('id') id: string,
-    @Query('data') data?: string,
-  ) {
+  async retrieveProfileDetails(@Param('id') id: string, @Query('data') data?: string) {
     const columnsArray = data ? data.split(',') : undefined;
     return this.athleteService.retrieveProfileDetails(id, columnsArray);
   }

@@ -39,20 +39,14 @@ describe('AuthController', () => {
 
   it('should call createUser with DTO and Supabase client', async () => {
     const signup = await controller.signUp(dto);
-    expect(mockAuthService.createUser).toHaveBeenCalledWith(
-      dto,
-      mockSupabaseService.getClient(),
-    );
+    expect(mockAuthService.createUser).toHaveBeenCalledWith(dto, mockSupabaseService.getClient());
     expect(mockAuthService.createUser).toHaveBeenCalledTimes(1);
     expect(signup).toEqual({ message: 'User created successfully' });
   });
 
   it('should call login with DTO and Supabase client', async () => {
     const login = await controller.login(dto);
-    expect(mockAuthService.login).toHaveBeenCalledWith(
-      dto,
-      mockSupabaseService.getClient(),
-    );
+    expect(mockAuthService.login).toHaveBeenCalledWith(dto, mockSupabaseService.getClient());
     expect(mockAuthService.login).toHaveBeenCalledTimes(1);
     expect(login.message).toEqual('Login successful');
   });
@@ -66,10 +60,7 @@ describe('AuthController', () => {
 
   it('should call update with DTO and Supabase client', async () => {
     const update = await controller.update(dto);
-    expect(mockAuthService.update).toHaveBeenCalledWith(
-      dto,
-      mockSupabaseService.getClient(),
-    );
+    expect(mockAuthService.update).toHaveBeenCalledWith(dto, mockSupabaseService.getClient());
     expect(mockAuthService.update).toHaveBeenCalledTimes(1);
     expect(update).toEqual({ message: 'User updated successfully' });
   });

@@ -15,29 +15,20 @@ import { SupabaseService } from 'src/supabase/supabase.service';
 export class ValueExistsValidator implements ValidatorConstraintInterface {
   constructor(private readonly supabaseService: SupabaseService) {}
 
-  async validate(
-    value: any,
-    validationArguments?: ValidationArguments,
-  ): Promise<boolean> {
+  async validate(value: any, validationArguments?: ValidationArguments): Promise<boolean> {
     if (!this.supabaseService) {
       console.error('SupabaseService not injected!');
       return false;
     }
 
-    if (
-      !validationArguments?.constraints ||
-      validationArguments.constraints.length < 2
-    ) {
+    if (!validationArguments?.constraints || validationArguments.constraints.length < 2) {
       console.error('Missing constraints for ValueExistsValidator');
       return false;
     }
     const [tableName, column] = validationArguments?.constraints;
     const supabase = this.supabaseService.getClient();
 
-    const { data } = await (supabase as any)
-      .from(tableName)
-      .select('id')
-      .eq(column, value);
+    const { data } = await (supabase as any).from(tableName).select('id').eq(column, value);
 
     if (data.length > 0) {
       return true;
@@ -47,10 +38,7 @@ export class ValueExistsValidator implements ValidatorConstraintInterface {
   }
 
   defaultMessage?(validationArguments?: ValidationArguments): string {
-    if (
-      !validationArguments?.constraints ||
-      validationArguments.constraints.length < 2
-    ) {
+    if (!validationArguments?.constraints || validationArguments.constraints.length < 2) {
       return `${validationArguments?.property} is not a valid value.`;
     }
     const [column] = validationArguments?.constraints;

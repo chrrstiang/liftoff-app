@@ -29,21 +29,9 @@ describe('Athlete profile (GET) (e2e)', () => {
   let token;
   const athleteId: string = '7e1cda5f-d425-426a-8cb1-8ea31a453894';
   const successTests: Array<[string, string, string]> = [
-    [
-      `Successful with no query (retrieve all fields)`,
-      PUBLIC_PROFILE_QUERY,
-      '',
-    ],
-    [
-      `Successful with one field from 'users' table`,
-      'users (name)',
-      '?data=users.name',
-    ],
-    [
-      `Successul with one field from 'athletes'`,
-      'federation_id',
-      '?data=federation_id',
-    ],
+    [`Successful with no query (retrieve all fields)`, PUBLIC_PROFILE_QUERY, ''],
+    [`Successful with one field from 'users' table`, 'users (name)', '?data=users.name'],
+    [`Successul with one field from 'athletes'`, 'federation_id', '?data=federation_id'],
     [`Successul with a table request`, 'federations (*)', '?data=federations'],
     [
       `Successful with table, nested, and direct query`,
@@ -52,17 +40,9 @@ describe('Athlete profile (GET) (e2e)', () => {
     ],
   ];
   const failureFromQueryTests: Array<[string, string, string]> = [
-    [
-      `Fail due to non-accessible direct (athletes) column`,
-      '?data=user_id',
-      'user_id',
-    ],
+    [`Fail due to non-accessible direct (athletes) column`, '?data=user_id', 'user_id'],
     [`Fail due to non-accessible full table query`, '?data=users', 'users'],
-    [
-      `Fail due to non-accessible nested column query`,
-      '?data=users.id',
-      'users.id',
-    ],
+    [`Fail due to non-accessible nested column query`, '?data=users.id', 'users.id'],
     [
       `Fail due to non-existent column`,
       '?data=users.favorite_toilet_paper',
@@ -111,9 +91,7 @@ describe('Athlete profile (GET) (e2e)', () => {
 
     supabase = supabaseService.getClient();
 
-    const login = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send(profileLogin);
+    const login = await request(app.getHttpServer()).post('/auth/login').send(profileLogin);
 
     expect(login.status).toBe(200);
     expect(login.body.message).toBe('Login successful');
@@ -168,8 +146,6 @@ describe('Athlete profile (GET) (e2e)', () => {
       .set(`Authorization`, `Bearer ${token}`);
 
     expect(res.status).toBe(404);
-    expect(res.body.message).toBe(
-      `Athlete with ID ${athleteId} could not be found`,
-    );
+    expect(res.body.message).toBe(`Athlete with ID ${athleteId} could not be found`);
   });
 });

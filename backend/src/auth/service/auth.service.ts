@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  InternalServerErrorException,
-} from '@nestjs/common';
+import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { Injectable } from '@nestjs/common';
 import { CreateAuthDto } from '../dto/create-auth-dto';
 import { UpdateAuthDto } from '../dto/update-auth-dto';
@@ -61,13 +58,9 @@ export class AuthService {
     if (error) {
       throw new BadRequestException(`Could not sign up user: ${error.message}`);
     } else if (!data?.user?.id) {
-      throw new InternalServerErrorException(
-        'ID could not be located upon sign up.',
-      );
+      throw new InternalServerErrorException('ID could not be located upon sign up.');
     } else if (!data.user) {
-      throw new InternalServerErrorException(
-        'Email could not be located upon sign up.',
-      );
+      throw new InternalServerErrorException('Email could not be located upon sign up.');
     }
 
     return data;

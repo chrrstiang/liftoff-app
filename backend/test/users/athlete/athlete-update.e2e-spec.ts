@@ -120,9 +120,7 @@ describe('Athlete profile (PATCH) (e2e)', () => {
 
     supabase = supabaseService.getClient();
 
-    const login = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send(profileLogin);
+    const login = await request(app.getHttpServer()).post('/auth/login').send(profileLogin);
 
     expect(login.status).toBe(200);
     expect(login.body.message).toBe('Login successful');
@@ -151,40 +149,37 @@ describe('Athlete profile (PATCH) (e2e)', () => {
     await app.close();
   });
 
-  test.each(successCases)(
-    `%s`,
-    async (testName: string, dto: UpdateAthleteDto) => {
-      const res = await request(app.getHttpServer())
-        .patch('/athlete/profile')
-        .set(`Authorization`, `Bearer ${token}`)
-        .send(dto);
+  test.each(successCases)(`%s`, async (testName: string, dto: UpdateAthleteDto) => {
+    const res = await request(app.getHttpServer())
+      .patch('/athlete/profile')
+      .set(`Authorization`, `Bearer ${token}`)
+      .send(dto);
 
-      expect(res.status).toBe(200);
-      expect(res.body.message).toBe('Athlete profile updated successfully');
+    expect(res.status).toBe(200);
+    expect(res.body.message).toBe('Athlete profile updated successfully');
 
-      const { data } = await supabase
-        .from('athletes')
-        .select('federations (code), divisions (name), weight_classes (name)')
-        .eq('user_id', updateId)
-        .single();
+    const { data } = await supabase
+      .from('athletes')
+      .select('federations (code), divisions (name), weight_classes (name)')
+      .eq('user_id', updateId)
+      .single();
 
-      const federations = data?.federations as unknown as {
-        code: string;
-      };
+    const federations = data?.federations as unknown as {
+      code: string;
+    };
 
-      const divisions = data?.divisions as unknown as {
-        name: string;
-      };
+    const divisions = data?.divisions as unknown as {
+      name: string;
+    };
 
-      const weight_classes = data?.weight_classes as unknown as {
-        name: string;
-      };
+    const weight_classes = data?.weight_classes as unknown as {
+      name: string;
+    };
 
-      expect(federations.code).toEqual(dto.federation);
-      expect(divisions.name).toEqual(dto.division);
-      expect(weight_classes.name).toEqual(dto.weight_class);
-    },
-  );
+    expect(federations.code).toEqual(dto.federation);
+    expect(divisions.name).toEqual(dto.division);
+    expect(weight_classes.name).toEqual(dto.weight_class);
+  });
 
   test.each(failureCases)(
     `%s`,

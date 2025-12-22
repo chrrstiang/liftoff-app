@@ -6,20 +6,13 @@ const tseslint = require('typescript-eslint');
 module.exports = [
   // Ignore patterns
   {
-    ignores: [
-      'eslint.config.js',
-      'dist/**',
-      'node_modules/**',
-      'coverage/**',
-      '*.config.js',
-    ],
+    ignores: ['eslint.config.js', 'dist/**', 'node_modules/**', 'coverage/**', '*.config.js'],
   },
-  
+
   // Base configs
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
-  eslintPluginPrettierRecommended,
-  
+
   // Language options
   {
     languageOptions: {
@@ -33,7 +26,7 @@ module.exports = [
       },
     },
   },
-  
+
   // Custom rules
   {
     rules: {
@@ -60,4 +53,5 @@ module.exports = [
       ],
     },
   },
+  eslintPluginPrettierRecommended,
 ];

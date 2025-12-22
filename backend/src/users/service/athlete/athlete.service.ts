@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  InternalServerErrorException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseService } from 'src/supabase/supabase.service';
 import { UpdateAthleteDto } from 'src/users/dto/athlete/update-athlete.dto';
@@ -48,10 +44,7 @@ export class AthleteService {
     const { error } = await this.supabase.from(table).insert(data);
 
     if (error) {
-      UsersService.handleSupabaseError(
-        error,
-        `Failed to insert data into ${table}`,
-      );
+      UsersService.handleSupabaseError(error, `Failed to insert data into ${table}`);
     }
   }
 
@@ -67,17 +60,10 @@ export class AthleteService {
     const cleanArray = this.cleanDataArray(data);
     const query = this.constructSelectQuery(cleanArray);
 
-    const select = await this.supabase
-      .from('athletes')
-      .select(query)
-      .eq('id', athleteId)
-      .single();
+    const select = await this.supabase.from('athletes').select(query).eq('id', athleteId).single();
 
     if (select.error) {
-      UsersService.handleSupabaseError(
-        select.error,
-        'Failed to retrieve profile details',
-      );
+      UsersService.handleSupabaseError(select.error, 'Failed to retrieve profile details');
     }
 
     return select.data;
@@ -100,9 +86,7 @@ export class AthleteService {
     const uniqueFields = [...new Set(fields)];
 
     // Handle full table vs nested field conflicts
-    const fullTables = uniqueFields.filter(
-      (f) => !f.includes('.') && VALID_FULL_TABLE_QUERIES[f],
-    );
+    const fullTables = uniqueFields.filter((f) => !f.includes('.') && VALID_FULL_TABLE_QUERIES[f]);
 
     // If we have full table requests, remove conflicting nested requests
     if (fullTables.length > 0) {
@@ -140,9 +124,7 @@ export class AthleteService {
         const [tableName, column] = c.split('.');
 
         if (!VALID_TABLE_FIELDS[tableName]?.includes(column)) {
-          throw new BadRequestException(
-            `Invalid query: '${tableName}.${column}'`,
-          );
+          throw new BadRequestException(`Invalid query: '${tableName}.${column}'`);
         }
 
         if (!nestedFields[tableName]) {

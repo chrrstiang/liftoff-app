@@ -79,9 +79,7 @@ describe('Athlete profile (POST) (e2e)', () => {
 
     supabase = supabaseService.getClient();
 
-    const login = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send(profileLogin);
+    const login = await request(app.getHttpServer()).post('/auth/login').send(profileLogin);
 
     expect(login.status).toBe(200);
     expect(login.body.message).toBe('Login successful');
@@ -245,9 +243,7 @@ describe('Athlete profile (POST) (e2e)', () => {
 
     const { data } = await supabase
       .from('athletes')
-      .select(
-        'user_id, division_id, federation_id, users(name,username,gender)',
-      )
+      .select('user_id, division_id, federation_id, users(name,username,gender)')
       .eq('user_id', id)
       .single();
 

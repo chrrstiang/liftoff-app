@@ -54,9 +54,7 @@ describe('AthleteService', () => {
         }),
       }),
       update: jest.fn().mockReturnValue({
-        eq: jest
-          .fn()
-          .mockResolvedValue({ data: { id: 'Some id' }, error: null }),
+        eq: jest.fn().mockResolvedValue({ data: { id: 'Some id' }, error: null }),
       }),
     };
 
@@ -94,15 +92,9 @@ describe('AthleteService', () => {
   });
 
   it('createProfile should succeed and call addToTable', async () => {
-    const findFed = jest
-      .spyOn(service as any, 'findFederation')
-      .mockResolvedValue('fed-id');
-    const findDiv = jest
-      .spyOn(service as any, 'findDivision')
-      .mockResolvedValue('div-id');
-    const findWC = jest
-      .spyOn(service as any, 'findWeightClass')
-      .mockResolvedValue('wc-id');
+    const findFed = jest.spyOn(service as any, 'findFederation').mockResolvedValue('fed-id');
+    const findDiv = jest.spyOn(service as any, 'findDivision').mockResolvedValue('div-id');
+    const findWC = jest.spyOn(service as any, 'findWeightClass').mockResolvedValue('wc-id');
 
     const athleteData = {
       federation_id: 'fed-id',
@@ -198,22 +190,19 @@ describe('AthleteService', () => {
 
     const call = service.createProfile(dto, user);
 
-    await expect(call).rejects.toThrow(
-      new BadRequestException(`Division requires a federation`),
-    );
+    await expect(call).rejects.toThrow(new BadRequestException(`Division requires a federation`));
   });
 
   it('createProfile should throw an error when findFederation select returns no data', async () => {
-    supabase
-      .from('federations')
-      .select('id')
-      .eq('code', dto.federation).single = jest.fn().mockResolvedValue({
-      data: null,
-      error: {
-        code: '10101',
-        message: "Fed doesn't exist",
-      },
-    });
+    supabase.from('federations').select('id').eq('code', dto.federation).single = jest
+      .fn()
+      .mockResolvedValue({
+        data: null,
+        error: {
+          code: '10101',
+          message: "Fed doesn't exist",
+        },
+      });
 
     const call = service.createProfile(dto, user);
 
@@ -227,9 +216,7 @@ describe('AthleteService', () => {
   });
 
   it('createProfile should throw an error when findDivision select returns no data', async () => {
-    const fedId = jest
-      .spyOn(service as any, 'findFederation')
-      .mockResolvedValue('IPF ID');
+    const fedId = jest.spyOn(service as any, 'findFederation').mockResolvedValue('IPF ID');
 
     supabase
       .from('divisions')
@@ -259,9 +246,7 @@ describe('AthleteService', () => {
   });
 
   it('createProfile should throw an error when findWeightClass select returns no data', async () => {
-    const fedId = jest
-      .spyOn(service as any, 'findFederation')
-      .mockResolvedValue('IPF ID');
+    const fedId = jest.spyOn(service as any, 'findFederation').mockResolvedValue('IPF ID');
 
     supabase
       .from('weight_classes')
@@ -333,22 +318,14 @@ describe('AthleteService', () => {
   });
 
   it("retrieveProfileDetails should successfully passes the correct query to select for 'users'", async () => {
-    await service.retrieveProfileDetails('anyrandomuuid', [
-      'users.name',
-      'users.username',
-    ]);
+    await service.retrieveProfileDetails('anyrandomuuid', ['users.name', 'users.username']);
 
-    expect(supabase.from('athletes').select).toHaveBeenCalledWith(
-      `users (name, username)`,
-    );
+    expect(supabase.from('athletes').select).toHaveBeenCalledWith(`users (name, username)`);
     expect(supabase.from('athletes').select).toHaveBeenCalledTimes(1);
   });
 
   it("retrieveProfileDetails should successfully passes the correct query to select for 'athletes'", async () => {
-    await service.retrieveProfileDetails('anyrandomuuid', [
-      'weight_classes',
-      'divisions',
-    ]);
+    await service.retrieveProfileDetails('anyrandomuuid', ['weight_classes', 'divisions']);
 
     expect(supabase.from('athletes').select).toHaveBeenCalledWith(
       `weight_classes (*), divisions (*)`,
@@ -359,9 +336,7 @@ describe('AthleteService', () => {
   it('retrieveProfileDetails should successfully passes the correct query to select all (no arg)', async () => {
     await service.retrieveProfileDetails('anyrandomuuid', undefined);
 
-    expect(supabase.from('athletes').select).toHaveBeenCalledWith(
-      PUBLIC_PROFILE_QUERY,
-    );
+    expect(supabase.from('athletes').select).toHaveBeenCalledWith(PUBLIC_PROFILE_QUERY);
     expect(supabase.from('athletes').select).toHaveBeenCalledTimes(1);
   });
 
@@ -419,9 +394,7 @@ describe('AthleteService', () => {
       'divisions',
     ]);
 
-    await expect(call).rejects.toThrow(
-      new BadRequestException(`Invalid query: 'name'`),
-    );
+    await expect(call).rejects.toThrow(new BadRequestException(`Invalid query: 'name'`));
   });
 
   it('retrieveProfileDetails should fail due to invalid nested column (federation.horse)', async () => {
@@ -440,9 +413,7 @@ describe('AthleteService', () => {
   it('retrieveProfileDetails should fail due to invalid table query (users)', async () => {
     const call = service.retrieveProfileDetails('anyrandomuuid', ['users']);
 
-    await expect(call).rejects.toThrow(
-      new BadRequestException(`Invalid query: 'users'`),
-    );
+    await expect(call).rejects.toThrow(new BadRequestException(`Invalid query: 'users'`));
   });
 
   // Add your specific tests here

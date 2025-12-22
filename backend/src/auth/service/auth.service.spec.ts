@@ -71,9 +71,7 @@ describe('AuthService', () => {
       error: { message: 'Some message' },
     });
 
-    await expect(service.createUser(dto, mockSupabase)).rejects.toThrow(
-      'Could not sign up user.',
-    );
+    await expect(service.createUser(dto, mockSupabase)).rejects.toThrow('Could not sign up user.');
   });
 
   // AuthService.createUser() throws when supabase.signUp() has undefined ID.
@@ -129,9 +127,7 @@ describe('AuthService', () => {
       error: { message: 'Something failed' },
     });
 
-    await expect(service.logout(mockSupabase)).rejects.toThrow(
-      'Failed to log out.',
-    );
+    await expect(service.logout(mockSupabase)).rejects.toThrow('Failed to log out.');
     expect(mockSupabase.auth.signOut).toHaveBeenCalled();
   });
 

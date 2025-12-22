@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  CanActivate,
-  ExecutionContext,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { SupabaseService } from 'src/supabase/supabase.service';
 import { RequestWithUser } from 'src/common/types/request.interface';
 
@@ -38,9 +33,7 @@ export class JwtAuthGuard implements CanActivate {
       return true;
     } catch (error: unknown) {
       if (error instanceof Error) {
-        throw new UnauthorizedException(
-          `Token validation failed: ${error.message}`,
-        );
+        throw new UnauthorizedException(`Token validation failed: ${error.message}`);
       }
       throw new UnauthorizedException('Token validation failed');
     }

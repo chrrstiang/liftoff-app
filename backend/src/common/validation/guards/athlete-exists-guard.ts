@@ -32,9 +32,7 @@ export class AthleteExistsGuard implements CanActivate {
       .single();
 
     if (error || !data) {
-      throw new NotFoundException(
-        `Athlete with ID ${athleteId} could not be found`,
-      );
+      throw new NotFoundException(`Athlete with ID ${athleteId} could not be found`);
     }
 
     return true;

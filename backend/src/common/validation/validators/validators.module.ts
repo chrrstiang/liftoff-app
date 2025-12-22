@@ -4,13 +4,13 @@ import { ValueExistsValidator } from './value-exists.validator';
 import { SupabaseModule } from 'src/supabase/supabase.module';
 
 @Module({
-    imports: [SupabaseModule],
-    providers: [
+  imports: [SupabaseModule],
+  providers: [
     IsUniqueValidator,
     ValueExistsValidator,
     // Add any future validators here
   ],
-    exports: [
+  exports: [
     IsUniqueValidator,
     ValueExistsValidator,
     // Export them so other modules can use them

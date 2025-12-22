@@ -8,9 +8,15 @@ import { ValidatorsModule } from './common/validation/validators/validators.modu
 import { ConfigModule } from '@nestjs/config';
 
 @Module({
-  imports: [ConfigModule.forRoot({
+  imports: [
+    ConfigModule.forRoot({
       isGlobal: true,
-    }), AuthModule, UsersModule, SupabaseModule, ValidatorsModule],
+    }),
+    AuthModule,
+    UsersModule,
+    SupabaseModule,
+    ValidatorsModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })

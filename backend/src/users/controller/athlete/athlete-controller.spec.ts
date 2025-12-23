@@ -1,74 +1,68 @@
-import { Gender } from '../../dto/create-user.dto';
+import { Test, TestingModule } from '@nestjs/testing';
 import { AthleteController } from './athlete.controller';
 import { AthleteService } from 'src/users/service/athlete/athlete.service';
+import { JwtAuthGuard } from 'src/common/validation/guards/auth-guard';
+import { AthleteExistsGuard } from 'src/common/validation/guards/athlete-exists-guard';
 
 describe('AthleteController', () => {
   let controller: AthleteController;
-  let athleteService: AthleteService;
-  let user;
-  let request;
+
+  const mockAthleteService = {
+    retrieveProfileDetails: jest.fn(),
+  };
 
   beforeEach(async () => {
-    athleteService = {
-      createProfile: jest.fn(),
-      retrieveProfileDetails: jest.fn().mockResolvedValue({
-        name: 'christian',
-        username: 'chrrstian',
-        weight_class: '67.5kg'
-      }),
-      updateAthleteProfile: jest.fn()
-    } as unknown as jest.Mocked<AthleteService>;
+    jest.clearAllMocks();
 
-    controller = new AthleteController(athleteService)
+    mockAthleteService.retrieveProfileDetails.mockResolvedValue({
+      name: 'christian',
+      username: 'chrrstian',
+      weight_class: '67.5kg',
+    });
 
-    request = {
-      user: {
-        id: 'user-uuid'
-      }
-    }
-    
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [AthleteController],
+      providers: [
+        {
+          provide: AthleteService,
+          useValue: mockAthleteService,
+        },
+      ],
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .overrideGuard(AthleteExistsGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
+
+    controller = module.get<AthleteController>(AthleteController);
   });
 
-  it('controller.createProfile makes correct calls and returns', async () => {
-    const dto = {
-      name: 'Christian',
-      username: 'chrrstian_',
-      gender: Gender.MALE,
-      date_of_birth: '2005-11-22',
-      weight_class: '67.5kg',
-      division: 'Junior',
-      team: 'Northeastern Powerlifting',
-    }
-
-    const call = await controller.createProfile(dto, request);
-    expect(call).toEqual({ message: "Profile created successfully"})
-    expect(athleteService.createProfile).toHaveBeenCalledWith(dto, request.user)
+  it('should be defined', () => {
+    expect(controller).toBeDefined();
   });
 
   it('retrieveProfileDetails should return profile data from service', async () => {
-    const result = controller.retrieveProfileDetails('some-uuid', 'name,username,weight_class');
-    
-    expect(athleteService.retrieveProfileDetails).toHaveBeenCalledWith('some-uuid', ['name', 'username', 'weight_class']);
-    expect(result).resolves.toEqual({
-      name: 'christian', username: 'chrrstian', weight_class: '67.5kg'
+    const result = await controller.retrieveProfileDetails(
+      'some-uuid',
+      'name,username,weight_class',
+    );
+
+    expect(mockAthleteService.retrieveProfileDetails).toHaveBeenCalledWith('some-uuid', [
+      'name',
+      'username',
+      'weight_class',
+    ]);
+    expect(result).toEqual({
+      name: 'christian',
+      username: 'chrrstian',
+      weight_class: '67.5kg',
     });
   });
 
-  it('should return profile data from service', async () => {
-    controller.retrieveProfileDetails('some-uuid', undefined);
-    
-    expect(athleteService.retrieveProfileDetails).toHaveBeenCalledWith('some-uuid', undefined);
-  });
+  it('should call service with undefined when no data param provided', async () => {
+    await controller.retrieveProfileDetails('some-uuid', undefined);
 
-  it('controller.updateAthleteProfile makes correct calls and returns', async () => {
-    const dto = {
-      federation: 'IPF',
-      division: 'Junior',
-      weight_class: '59kg'
-    }
-
-    const call = await controller.updateAthleteProfile(dto, request);
-    expect(call).toEqual({ message: "Athlete profile updated successfully"})
-    expect(athleteService.updateAthleteProfile).toHaveBeenCalledWith(request.user, dto)
+    expect(mockAthleteService.retrieveProfileDetails).toHaveBeenCalledWith('some-uuid', undefined);
   });
 });

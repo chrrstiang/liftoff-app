@@ -1,18 +1,22 @@
-import {
-  Controller,
-  Body,
-  Patch,
-  HttpCode,
-  UseGuards,
-  Req,
-} from '@nestjs/common';
+import { Controller, Body, Post, Patch, HttpCode, UseGuards, Req } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/common/validation/guards/auth-guard';
 import { UsersService } from '../service/users.service';
 import { UpdateUserDto } from '../dto/update-user.dto';
+import { CreateUserDto } from '../dto/create-user.dto';
+import type { RequestWithUser } from 'src/common/types/request.interface';
 
-@Controller('user')
+@Controller('users')
 export class UserController {
   constructor(private readonly usersService: UsersService) {}
+
+  @Post('profile')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(201)
+  async createUserProfile(@Body() dto: CreateUserDto, @Req() req: RequestWithUser) {
+    const user = req.user;
+    await this.usersService.createUserProfile(dto, user);
+    return { message: 'User profile created successfully!' };
+  }
 
   /** Updates the athlete row with the same user_id value as the current
    * authenticated user. Updated fields are given to the DTO and updated accordingly in the
@@ -24,7 +28,7 @@ export class UserController {
   @Patch('profile')
   @UseGuards(JwtAuthGuard)
   @HttpCode(200)
-  async updateProfile(@Body() dto: UpdateUserDto, @Req() req) {
+  async updateProfile(@Body() dto: UpdateUserDto, @Req() req: RequestWithUser) {
     const user = req.user;
     await this.usersService.updateProfile(dto, user);
     return { message: 'User profile updated successfully' };

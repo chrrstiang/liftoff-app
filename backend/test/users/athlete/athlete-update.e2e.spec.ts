@@ -28,8 +28,8 @@ describe('Athlete profile (PATCH) (e2e)', () => {
   let app: INestApplication<App>;
   let supabaseService: SupabaseService;
   let supabase: SupabaseClient;
-  let profileLogin;
-  let token;
+  let profileLogin: { email: string; password: string };
+  let token: string;
   const successCases: Array<[string, UpdateAthleteDto]> = [
     [
       'Successful update of federation/weight_class',
@@ -125,7 +125,7 @@ describe('Athlete profile (PATCH) (e2e)', () => {
     expect(login.status).toBe(200);
     expect(login.body.message).toBe('Login successful');
 
-    token = login.body.access_token;
+    token = login.body.access_token as string;
   });
 
   afterEach(async () => {

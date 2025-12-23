@@ -25,8 +25,8 @@ describe('Athlete profile (GET) (e2e)', () => {
   let app: INestApplication<App>;
   let supabaseService: SupabaseService;
   let supabase: SupabaseClient;
-  let profileLogin;
-  let token;
+  let profileLogin: { email: string; password: string };
+  let token: string;
   const athleteId: string = '7e1cda5f-d425-426a-8cb1-8ea31a453894';
   const successTests: Array<[string, string, string]> = [
     [`Successful with no query (retrieve all fields)`, PUBLIC_PROFILE_QUERY, ''],

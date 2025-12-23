@@ -9,6 +9,7 @@ import {
   IsBoolean,
   IsOptional,
   IsNumber,
+  Min,
 } from 'class-validator';
 import { IsUnique } from 'src/common/validation/decorators/unique.decorator';
 
@@ -68,9 +69,11 @@ export class CreateUserDto {
 
   @IsOptional()
   @IsString()
+  @Length(0, 500)
   biography?: string;
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
   years_of_experience?: number;
 }

@@ -46,16 +46,18 @@ describe('UsersService', () => {
 
   beforeEach(async () => {
     const mockSupabaseClient = {
-      from: jest.fn().mockReturnValue({
-        insert: jest.fn().mockResolvedValue({ data: mockAthleteData, error: null }),
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            single: jest.fn().mockResolvedValue({
-              data: mockAthleteData,
-              error: null,
-            }),
-          }),
-        }),
+      from: jest.fn().mockReturnThis(),
+      insert: jest.fn().mockReturnThis(),
+      update: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      single: jest.fn().mockResolvedValue({
+        data: mockAthleteData,
+        error: null,
+      }),
+      maybeSingle: jest.fn().mockResolvedValue({
+        data: null,
+        error: null,
       }),
     } as unknown as jest.Mocked<SupabaseClient>;
 

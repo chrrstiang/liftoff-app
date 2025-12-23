@@ -13,7 +13,6 @@ export class UserController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(201)
   async createUserProfile(@Body() dto: CreateUserDto, @Req() req: RequestWithUser) {
-    console.log('ENDPOINT FOR CREATE PROFILE REACHED 🙏🏻');
     const user = req.user;
     await this.usersService.createUserProfile(dto, user);
     return { message: 'User profile created successfully!' };
@@ -30,7 +29,6 @@ export class UserController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(200)
   async updateProfile(@Body() dto: UpdateUserDto, @Req() req: RequestWithUser) {
-    console.log('ENDPOINT FOR UPDATE PROFILE REACHED 🙏🏻');
     const user = req.user;
     await this.usersService.updateProfile(dto, user);
     return { message: 'User profile updated successfully' };

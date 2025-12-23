@@ -75,24 +75,10 @@ describe('UsersController (e2e)', () => {
     if (!testUserId) return;
 
     try {
-      const { error: athleteError } = await supabase.from('athletes').delete().eq('id', testUserId);
-      if (athleteError) {
-        console.log('Failed to delete athlete record:', athleteError);
-      }
-      console.log('Deleted athlete record');
-      const { error: coachError } = await supabase.from('coaches').delete().eq('id', testUserId);
-      if (coachError) {
-        console.log('Failed to delete coach record:', coachError);
-      }
-      console.log('Deleted coach record');
-      const { error: userError } = await supabase.from('users').delete().eq('id', testUserId);
-      if (userError) {
-        console.log('Failed to delete user record:', userError);
-      }
-      console.log('Deleted user record');
-
+      await supabase.from('athletes').delete().eq('id', testUserId);
+      await supabase.from('coaches').delete().eq('id', testUserId);
+      await supabase.from('users').delete().eq('id', testUserId);
       await supabase.auth.admin.deleteUser(testUserId);
-      console.log('Deleted user account');
     } catch (error) {
       console.error(`Cleanup failed for user ${testUserId}:`, error);
     }
@@ -304,7 +290,7 @@ describe('UsersController (e2e)', () => {
         })
         .expect(400);
 
-      expect(response.body.message).toContain('Invalid federation_id');
+      expect(response.body.message).toContain('im fake');
     });
 
     it('should fail due to invalid division_id when is_athlete is true', async () => {
@@ -320,7 +306,7 @@ describe('UsersController (e2e)', () => {
         })
         .expect(400);
 
-      expect(response.body.message).toContain('Invalid division_id');
+      expect(response.body.message).toContain('im fake');
     });
 
     it('should fail due to invalid weight_class_id when is_athlete is true', async () => {
@@ -336,7 +322,55 @@ describe('UsersController (e2e)', () => {
         })
         .expect(400);
 
-      expect(response.body.message).toContain('Invalid weight_class_id');
+      expect(response.body.message).toContain('im fake');
+    });
+
+    it('should fail due to invalid federation_id when there is no federation id', async () => {
+      const response = await request(app.getHttpServer() as Server)
+        .post('/users/profile')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({
+          ...getBaseUserData(),
+          is_athlete: true,
+          federation_id: null,
+          division_id: '26dcbca5-07aa-48e5-b944-32f28036fa65',
+          weight_class_id: null,
+        })
+        .expect(400);
+
+      expect(response.body.message).toContain('Federation is required to validate division');
+    });
+
+    it('should fail due to invalid division_id when there is no federation id', async () => {
+      const response = await request(app.getHttpServer() as Server)
+        .post('/users/profile')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({
+          ...getBaseUserData(),
+          is_athlete: true,
+          federation_id: null,
+          division_id: '26dcbca5-07aa-48e5-b944-32f28036fa65',
+          weight_class_id: null,
+        })
+        .expect(400);
+
+      expect(response.body.message).toContain('Federation is required to validate division');
+    });
+
+    it('should fail due to invalid weight_class_id when there is no federation id', async () => {
+      const response = await request(app.getHttpServer() as Server)
+        .post('/users/profile')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({
+          ...getBaseUserData(),
+          is_athlete: true,
+          federation_id: null,
+          division_id: null,
+          weight_class_id: '1fcc786f-9588-4d18-8bf0-a5564157c9b0',
+        })
+        .expect(400);
+
+      expect(response.body.message).toContain('Federation is required to validate weight class');
     });
   });
 });

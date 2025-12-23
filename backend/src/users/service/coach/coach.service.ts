@@ -5,7 +5,7 @@ import { UpdateUserDto } from 'src/users/dto/update-user.dto';
 @Injectable()
 export class CoachService {
   create(createUserDto: CreateUserDto) {
-    return 'This action adds a new coach';
+    return 'This action adds a new coach' + createUserDto.first_name;
   }
 
   findAll() {
@@ -17,7 +17,7 @@ export class CoachService {
   }
 
   update(id: number, updateUserDto: UpdateUserDto) {
-    return `This action updates a #${id} user`;
+    return `This action updates a #${id} user` + updateUserDto.first_name;
   }
 
   remove(id: number) {

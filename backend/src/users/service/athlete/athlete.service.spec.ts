@@ -74,17 +74,15 @@ describe('AthleteService - retrieveProfileDetails', () => {
     ]);
     expect(supabase.from).toHaveBeenCalledWith('athletes');
     expect(supabase.from('athletes').select).toHaveBeenCalledWith(
-      'id, users!inner(name, username), weight_classes!inner(name)',
+      'users (name, username), weight_classes (name)',
     );
     expect(
-      supabase
-        .from('athletes')
-        .select('id, users!inner(name, username), weight_classes!inner(name)').eq,
+      supabase.from('athletes').select('users (name, username), weight_classes (name)').eq,
     ).toHaveBeenCalledWith('id', 'anyrandomuuid');
     expect(
       supabase
         .from('athletes')
-        .select('id, users!inner(name, username), weight_classes!inner(name)')
+        .select('users (name, username), weight_classes (name)')
         .eq('id', 'anyrandomuuid').single,
     ).toHaveBeenCalled();
   });
@@ -96,7 +94,7 @@ describe('AthleteService - retrieveProfileDetails', () => {
       'weight_classes.name',
     ]);
     expect(supabase.from('athletes').select).toHaveBeenCalledWith(
-      'id, users!inner(name), weight_classes!inner(name)',
+      'users (name), weight_classes (name)',
     );
   });
   it('should successfully get rid of nested field due to full table query', async () => {
@@ -106,7 +104,7 @@ describe('AthleteService - retrieveProfileDetails', () => {
       'weight_classes',
     ]);
     expect(supabase.from('athletes').select).toHaveBeenCalledWith(
-      'id, users!inner(*), weight_classes!inner(*)',
+      'users (name, username), weight_classes (*)',
     );
   });
   it('should fail due to invalid direct column (name)', async () => {

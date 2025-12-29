@@ -2,6 +2,7 @@ import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { router } from "expo-router";
 
 type WorkoutName = {
   id: string;
@@ -44,7 +45,13 @@ const WeeklyWorkoutCard = () => {
         <Text className="text-2xl font-bold text-center mb-4">Week 1</Text>
         <View className="space-y-3">
           {workouts.map(({ id, name, date }, index) => (
-            <TouchableOpacity key={id} onPress={() => {}}>
+            <TouchableOpacity
+              key={id}
+              onPress={() => {
+                console.log("Directing to workout", id);
+                router.push(`/workout/${id}`);
+              }}
+            >
               <View
                 className={`flex-row justify-between items-center p-4 rounded-lg ${
                   index % 2 === 0 ? "bg-gray-50" : "bg-white"

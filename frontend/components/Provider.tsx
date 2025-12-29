@@ -5,15 +5,22 @@ import {
   DarkTheme,
 } from "@react-navigation/native";
 import { useColorScheme } from "react-native";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const queryClient = new QueryClient();
 
 export default function Provider({ children }: { children: React.ReactNode }) {
   const colorScheme = useColorScheme();
 
   return (
-    <AuthProvider>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-        {children}
-      </ThemeProvider>
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <ThemeProvider
+          value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+        >
+          {children}
+        </ThemeProvider>
+      </AuthProvider>
+    </QueryClientProvider>
   );
 }

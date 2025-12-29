@@ -15,7 +15,10 @@ export default function TabLayout() {
   }
   return (
     <Tabs>
-      <Tabs.Screen options={{ headerShown: false }} name="home" />
+      <Tabs.Screen
+        options={{ headerShown: false, title: "Home" }}
+        name="home"
+      />
       <Tabs.Screen
         options={{
           headerShown: false,
@@ -24,7 +27,10 @@ export default function TabLayout() {
         }}
         name="program/[athleteId]"
       />
-      <Tabs.Screen options={{ headerShown: false }} name="profile" />
+      <Tabs.Screen
+        options={{ headerShown: false, title: "Profile" }}
+        name="profile"
+      />
     </Tabs>
   );
 }

@@ -38,33 +38,38 @@ const WeeklyWorkoutCard = () => {
       <View className="bg-white rounded-xl shadow-md p-6 mb-4">
         <Text className="text-2xl font-bold text-center mb-4">Week 1</Text>
         <View className="space-y-3">
-          {workoutData?.map(({ id, name, date }, index) => (
-            <TouchableOpacity
-              key={id}
-              onPress={() => {
-                console.log("Directing to workout", id);
-                router.push(`/workout/${id}`);
-              }}
-            >
-              <View
-                className={`flex-row justify-between items-center p-4 rounded-lg ${
-                  index % 2 === 0 ? "bg-gray-50" : "bg-white"
-                }`}
+          {workoutData?.map(
+            (
+              { id, name, date }: { id: string; name: string; date: string },
+              index: number
+            ) => (
+              <TouchableOpacity
+                key={id}
+                onPress={() => {
+                  console.log("Directing to workout", id);
+                  router.push(`/workout/${id}`);
+                }}
               >
-                <Text className="text-lg font-medium flex-1">{name}</Text>
-                {getCurrentDayName() ===
-                  new Date(date).toLocaleDateString("en-US", {
-                    weekday: "long",
-                  }) && (
-                  <View className="bg-green-100 px-2 py-1 rounded-full ml-2">
-                    <Text className="text-green-800 text-xs font-medium">
-                      TODAY
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          ))}
+                <View
+                  className={`flex-row justify-between items-center p-4 rounded-lg ${
+                    index % 2 === 0 ? "bg-gray-50" : "bg-white"
+                  }`}
+                >
+                  <Text className="text-lg font-medium flex-1">{name}</Text>
+                  {getCurrentDayName() ===
+                    new Date(date).toLocaleDateString("en-US", {
+                      weekday: "long",
+                    }) && (
+                    <View className="bg-green-100 px-2 py-1 rounded-full ml-2">
+                      <Text className="text-green-800 text-xs font-medium">
+                        TODAY
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
+            )
+          )}
         </View>
       </View>
     </View>

@@ -48,6 +48,17 @@ export async function fetchWorkoutById(workoutId: string) {
   return data;
 }
 
+export async function fetchAthleteWorkouts(athleteId: string) {
+  const { data, error } = await supabase
+    .from("workouts")
+    .select("id, name, date")
+    .eq("athlete_id", athleteId)
+    .order("date", { ascending: true });
+
+  if (error) throw error;
+  return data;
+}
+
 export async function updateSet(updatedSet: Set) {
   console.log("Updating set:", updatedSet.id);
   console.log("Updating with", updatedSet);

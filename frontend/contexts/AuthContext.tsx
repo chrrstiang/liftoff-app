@@ -3,7 +3,7 @@ import * as QueryParams from "expo-auth-session/build/QueryParams";
 import { makeRedirectUri } from "expo-auth-session";
 import { supabase } from "@/lib/supabase";
 import * as Linking from "expo-linking";
-import { Session } from "@supabase/supabase-js";
+import { Session, User } from "@supabase/supabase-js";
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -16,6 +16,7 @@ interface AuthContextType {
   isProfileComplete: boolean;
   checkProfileCompletion: (userId: string) => Promise<void>;
   session: Session | null;
+  user: User | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -27,6 +28,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isProfileComplete, setIsProfileComplete] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
 
   const url = Linking.useLinkingURL();
 
@@ -57,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setIsAuthenticated(!!session);
+      setUser(session?.user || null);
     });
 
     return () => subscription.unsubscribe();
@@ -100,9 +103,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data: session } = await supabase.auth.getSession();
       setIsAuthenticated(!!session?.session);
       setSession(session?.session);
+      setUser(session?.session?.user || null);
     } catch (error) {
       console.error("Error checking auth state:", error);
       setIsAuthenticated(false);
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
@@ -206,6 +211,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isProfileComplete,
         session,
         checkProfileCompletion,
+        user,
       }}
     >
       {children}

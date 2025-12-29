@@ -1,36 +1,31 @@
-import { View, Text, ScrollView, TouchableOpacity } from "react-native";
-import { useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/contexts/AuthContext";
-import { router } from "expo-router";
-
-type WorkoutName = {
-  id: string;
-  name: string;
-  date: string;
-};
+import { router, useLocalSearchParams } from "expo-router";
+import { useQuery } from "@tanstack/react-query";
 
 const WeeklyWorkoutCard = () => {
-  const { session } = useAuth();
+  const { athleteId } = useLocalSearchParams();
 
-  const [workouts, setWorkouts] = useState<WorkoutName[]>([]);
-  useEffect(() => {
-    const fetchWeek = async () => {
+  const { data: workoutData, isLoading } = useQuery({
+    queryKey: ["workouts", athleteId],
+    queryFn: async () => {
       const { data, error } = await supabase
         .from("workouts")
         .select("id, name, date")
-        .eq("athlete_id", session?.user.id)
-        .order("date");
+        .eq("athlete_id", athleteId)
+        .order("date", { ascending: true });
 
-      if (!data || error) {
-        console.error("Error fetching workouts: ", error);
-        throw new Error("Failed to fetch workouts");
-      }
-
-      setWorkouts(data);
-    };
-    fetchWeek();
-  }, [session?.user.id]);
+      if (error) throw error;
+      return data;
+    },
+  });
 
   const getCurrentDayName = () => {
     const dateName = new Date().toLocaleDateString("en-US", {
@@ -39,12 +34,20 @@ const WeeklyWorkoutCard = () => {
     return dateName;
   };
 
+  if (isLoading || !workoutData) {
+    return (
+      <SafeAreaView className="flex-1 items-center justify-center bg-gray-50">
+        <ActivityIndicator size="large" />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <View className="w-full p-4">
       <View className="bg-white rounded-xl shadow-md p-6 mb-4">
         <Text className="text-2xl font-bold text-center mb-4">Week 1</Text>
         <View className="space-y-3">
-          {workouts.map(({ id, name, date }, index) => (
+          {workoutData?.map(({ id, name, date }, index) => (
             <TouchableOpacity
               key={id}
               onPress={() => {

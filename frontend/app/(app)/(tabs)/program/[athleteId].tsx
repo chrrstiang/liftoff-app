@@ -6,25 +6,16 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { supabase } from "@/lib/supabase";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
+import { fetchAthleteWorkouts } from "@/lib/api/workouts";
 
 const WeeklyWorkoutCard = () => {
-  const { athleteId } = useLocalSearchParams();
+  const { athleteId } = useLocalSearchParams<{ athleteId: string }>();
 
   const { data: workoutData, isLoading } = useQuery({
     queryKey: ["workouts", athleteId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("workouts")
-        .select("id, name, date")
-        .eq("athlete_id", athleteId)
-        .order("date", { ascending: true });
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: async () => fetchAthleteWorkouts(athleteId),
   });
 
   const getCurrentDayName = () => {

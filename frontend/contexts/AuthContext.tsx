@@ -1,15 +1,22 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import * as QueryParams from "expo-auth-session/build/QueryParams";
-import { makeRedirectUri } from "expo-auth-session";
 import { supabase } from "@/lib/supabase";
-import * as Linking from "expo-linking";
 import { Session, User } from "@supabase/supabase-js";
+
+interface UserProfile {
+  first_name: string;
+  last_name: string;
+  username: string;
+  email: string;
+  gender: string;
+  date_of_birth: string;
+  is_athlete: boolean;
+  is_coach: boolean;
+}
 
 interface AuthContextType {
   isAuthenticated: boolean;
   checkAuthState: () => Promise<void>;
   isLoading: boolean;
-  sendMagicLink: (email: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   signup: (email: string, password: string) => Promise<void>;
@@ -17,11 +24,10 @@ interface AuthContextType {
   checkProfileCompletion: (userId: string) => Promise<void>;
   session: Session | null;
   user: User | null;
+  profile: UserProfile | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-let lastProcessedUrl: string | null = null;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
@@ -29,16 +35,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isProfileComplete, setIsProfileComplete] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
-
-  const url = Linking.useLinkingURL();
-
-  // listens for deep link navigations
-  useEffect(() => {
-    if (url) {
-      console.log("Link detected:", url);
-      handleDeepLink(url);
-    }
-  }, [url]);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
     console.log("🔥 isAuthenticated state changed to:", isAuthenticated);
@@ -60,42 +57,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setIsAuthenticated(!!session);
       setUser(session?.user || null);
+
+      if (session?.user) {
+        fetchProfile(session.user.id);
+      } else {
+        setProfile(null);
+      }
+
+      setIsLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
-
-  /** Handles the navigation from a deep link into the app.
-   * Currently, the only deep link is from signup/sign-in.
-   *
-   * @param url The URL that was clicked, redirecting the user to the app.
-   */
-  const handleDeepLink = async (url: string) => {
-    if (url === lastProcessedUrl) {
-      console.log("🔄 Same URL as before, skipping...");
-      return;
-    }
-
-    lastProcessedUrl = url;
-
-    console.log("🔥 DEEP LINK HANDLER TRIGGERED");
-
-    const { params } = QueryParams.getQueryParams(url);
-    const { access_token, refresh_token } = params;
-
-    const { data, error } = await supabase.auth.setSession({
-      access_token,
-      refresh_token,
-    });
-
-    if (error) {
-      console.error("Error setting session:", error);
-    } else {
-      console.log("Session set successfully");
-      setIsAuthenticated(true);
-      setSession(data.session);
-    }
-  };
 
   /** Checks the current authentication state */
   const checkAuthState = async () => {
@@ -142,6 +115,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // fetches user profile metadata
+  const fetchProfile = async (userId: string) => {
+    const { data, error } = await supabase
+      .from("users")
+      .select(
+        "first_name, last_name, username, email, gender, date_of_birth, is_athlete, is_coach"
+      )
+      .eq("id", userId)
+      .single();
+
+    if (error) {
+      console.error("Error fetching profile:", error);
+      return;
+    }
+
+    setProfile(data);
+  };
+
   /** Signs up a new user with email and password */
   const signup = async (email: string, password: string) => {
     const { error } = await supabase.auth.signUp({
@@ -151,23 +142,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (error) {
       throw new Error("Failed to sign up: " + error.message);
-    }
-  };
-
-  // sends a magic link to the given email for login/signup
-  const sendMagicLink = async (email: string) => {
-    const redirect: string = makeRedirectUri();
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email,
-      options: {
-        shouldCreateUser: true,
-        emailRedirectTo: redirect,
-      },
-    });
-
-    if (error) {
-      throw new Error("Failed to send magic link: " + error.message);
     }
   };
 
@@ -204,7 +178,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated,
         checkAuthState,
         isLoading,
-        sendMagicLink,
         login,
         logout,
         signup,
@@ -212,6 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session,
         checkProfileCompletion,
         user,
+        profile,
       }}
     >
       {children}

@@ -3,7 +3,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ActivityIndicator } from "react-native";
 
 export default function TabLayout() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, profile } = useAuth();
+
+  if (!profile) {
+    console.error("No profile found. Redirecting to login...");
+    return <Redirect href="/login" />;
+  }
 
   if (isLoading) {
     return <ActivityIndicator />;
@@ -27,10 +32,12 @@ export default function TabLayout() {
         }}
         name="program/[athleteId]"
       />
-      <Tabs.Screen
-        options={{ headerShown: false, title: "Profile" }}
-        name="profile"
-      />
+      <Tabs.Protected guard={!profile.is_coach}>
+        <Tabs.Screen
+          options={{ headerShown: false, title: "Roster" }}
+          name="roster"
+        />
+      </Tabs.Protected>
     </Tabs>
   );
 }

@@ -1,10 +1,17 @@
 import { uploadAvatar, updateUserAvatar } from "@/lib/api/storage";
 import { Image } from "expo-image";
 import { useAuth } from "@/contexts/AuthContext";
-import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ActivityIndicator,
+  StatusBar,
+} from "react-native";
 import { useState } from "react";
 import { FontAwesome } from "@expo/vector-icons";
 import { cssInterop } from "nativewind";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 cssInterop(Image, { className: "style" });
 
@@ -39,7 +46,8 @@ export default function ProfilePage() {
   };
 
   return (
-    <View className="flex-1 bg-white p-6">
+    <SafeAreaView className="flex-1 bg-background dark:bg-zinc-950 p-6">
+      <StatusBar barStyle="default" backgroundColor="transparent" />
       <View className="items-center mt-8 mb-6">
         <View className="relative">
           <Image
@@ -48,7 +56,7 @@ export default function ProfilePage() {
                 ? { uri: profile.avatar_url }
                 : require("@/assets/images/avatar-default.png")
             }
-            className=" w-32 h-32 rounded-full"
+            className="w-32 h-32 rounded-full border-4 border-white dark:border-zinc-800"
             placeholder={require("@/assets/images/avatar-default.png")}
             contentFit="cover"
             key={profile?.avatar_url}
@@ -56,7 +64,7 @@ export default function ProfilePage() {
           <TouchableOpacity
             onPress={handleUploadAvatar}
             disabled={isUploading}
-            className="absolute -bottom-2 -right-2 bg-blue-500 p-3 rounded-full"
+            className="absolute -bottom-2 -right-2 bg-violet-500 dark:bg-violet-700 p-3 rounded-full"
           >
             {isUploading ? (
               <ActivityIndicator color="white" />
@@ -66,25 +74,33 @@ export default function ProfilePage() {
           </TouchableOpacity>
         </View>
 
-        <Text className="text-2xl font-bold mt-4">
+        <Text className="text-2xl font-bold mt-4 text-foreground dark:text-white">
           {profile?.first_name} {profile?.last_name}
         </Text>
-        <Text className="text-gray-500">{profile?.email || user?.email}</Text>
+        <Text className="text-gray-500 dark:text-gray-400">
+          {profile?.email || user?.email}
+        </Text>
       </View>
 
       <View className="mt-8">
-        <Text className="text-lg font-semibold mb-2">Account Information</Text>
-        <View className="bg-gray-50 p-4 rounded-lg">
-          <View className="flex-row justify-between py-2 border-b border-gray-100">
-            <Text className="text-gray-600">Email</Text>
-            <Text className="font-medium">{profile?.email || user?.email}</Text>
+        <Text className="text-lg font-semibold mb-2 text-foreground dark:text-white">
+          Account Information
+        </Text>
+        <View className="bg-white dark:bg-zinc-900 p-4 rounded-lg shadow-sm">
+          <View className="flex-row justify-between py-3 border-b border-gray-100 dark:border-zinc-800">
+            <Text className="text-gray-600 dark:text-gray-300">Email</Text>
+            <Text className="font-medium text-foreground dark:text-white">
+              {profile?.email || user?.email}
+            </Text>
           </View>
-          <View className="flex-row justify-between py-2">
-            <Text className="text-gray-600">Role</Text>
-            <Text className="text-blue-500 font-medium capitalize">user</Text>
+          <View className="flex-row justify-between py-3">
+            <Text className="text-gray-600 dark:text-gray-300">Role</Text>
+            <Text className="text-violet-500 dark:text-violet-400 font-medium capitalize">
+              user
+            </Text>
           </View>
         </View>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }

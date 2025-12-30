@@ -27,16 +27,18 @@ const WeeklyWorkoutCard = () => {
 
   if (isLoading || !workoutData) {
     return (
-      <SafeAreaView className="flex-1 items-center justify-center bg-gray-50">
+      <SafeAreaView className="flex-1 items-center justify-center bg-background dark:bg-zinc-950">
         <ActivityIndicator size="large" />
       </SafeAreaView>
     );
   }
 
   return (
-    <View className="w-full p-4">
-      <View className="bg-white rounded-xl shadow-md p-6 mb-4">
-        <Text className="text-2xl font-bold text-center mb-4">Week 1</Text>
+    <View className="w-full p-4 bg-background dark:bg-zinc-950">
+      <View className="bg-background dark:bg-zinc-900 rounded-xl shadow-md p-6 mb-4">
+        <Text className="text-2xl dark:text-white font-bold text-center mb-4">
+          Week 1
+        </Text>
         <View className="space-y-3">
           {workoutData?.map(
             (
@@ -52,10 +54,14 @@ const WeeklyWorkoutCard = () => {
               >
                 <View
                   className={`flex-row justify-between items-center p-4 rounded-lg ${
-                    index % 2 === 0 ? "bg-gray-50" : "bg-white"
+                    index % 2 === 0
+                      ? "bg-gray-50 dark:bg-zinc-700"
+                      : "bg-background dark:bg-zinc-800"
                   }`}
                 >
-                  <Text className="text-lg font-medium flex-1">{name}</Text>
+                  <Text className="text-lg font-medium flex-1 dark:text-white">
+                    {name}
+                  </Text>
                   {getCurrentDayName() ===
                     new Date(date).toLocaleDateString("en-US", {
                       weekday: "long",
@@ -78,11 +84,13 @@ const WeeklyWorkoutCard = () => {
 
 export default function ProgramPage() {
   return (
-    <View className="flex-1 bg-gray-100">
+    <SafeAreaView className="flex-1 bg-background dark:bg-zinc-950">
       <ScrollView className="flex-1">
-        <Text className="text-3xl font-bold px-6 pt-6 pb-2">Your Program</Text>
+        <Text className="text-3xl dark:text-white font-bold px-6 pt-6 pb-2">
+          Your Program
+        </Text>
         <WeeklyWorkoutCard />
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }

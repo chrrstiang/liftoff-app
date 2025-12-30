@@ -38,6 +38,10 @@ export default function TabLayout() {
           name="roster"
         />
       </Tabs.Protected>
+      <Tabs.Screen
+        options={{ headerShown: false, title: "Profile" }}
+        name="profile"
+      />
     </Tabs>
   );
 }

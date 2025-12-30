@@ -1,4 +1,5 @@
-import { View, Text, TouchableOpacity } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Text, TouchableOpacity } from "react-native";
 
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -14,7 +15,7 @@ export default function HomePage() {
   }
 
   return (
-    <View className="flex-1 justify-center items-center">
+    <SafeAreaView className="flex-1 justify-center items-center">
       <Text className="text-2xl">Home</Text>
       <TouchableOpacity
         className="p-2.5 bg-red-500 rounded-md"
@@ -22,6 +23,6 @@ export default function HomePage() {
       >
         <Text className="text-white">Sign Out</Text>
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }

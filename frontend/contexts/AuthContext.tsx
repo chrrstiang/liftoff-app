@@ -11,6 +11,7 @@ interface UserProfile {
   date_of_birth: string;
   is_athlete: boolean;
   is_coach: boolean;
+  avatar_url?: string | null;
 }
 
 interface AuthContextType {
@@ -25,6 +26,7 @@ interface AuthContextType {
   session: Session | null;
   user: User | null;
   profile: UserProfile | null;
+  setProfile: (profile: UserProfile | null) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -120,7 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data, error } = await supabase
       .from("users")
       .select(
-        "first_name, last_name, username, email, gender, date_of_birth, is_athlete, is_coach"
+        "first_name, last_name, username, email, gender, date_of_birth, is_athlete, is_coach, avatar_url"
       )
       .eq("id", userId)
       .single();
@@ -186,6 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         checkProfileCompletion,
         user,
         profile,
+        setProfile,
       }}
     >
       {children}

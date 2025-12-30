@@ -15,7 +15,7 @@ export default function RootLayout() {
 }
 
 function RootLayoutNav() {
-  const { isAuthenticated, isProfileComplete, isLoading } = useAuth();
+  const { isAuthenticated, isProfileComplete, isLoading, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -34,12 +34,13 @@ function RootLayoutNav() {
     } else if (
       isAuthenticated &&
       isProfileComplete &&
-      segments.some((seg) => seg === "create-profile")
+      segments.some((seg) => seg === "create-profile") &&
+      user
     ) {
       console.log("Redirecting to home");
       router.replace("/(app)/(tabs)/home");
     }
-  }, [isAuthenticated, isProfileComplete, isLoading, segments, router]);
+  }, [isAuthenticated, isProfileComplete, isLoading, segments, router, user]);
 
   if (isLoading) {
     return <ActivityIndicator />;

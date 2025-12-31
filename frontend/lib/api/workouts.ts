@@ -87,3 +87,18 @@ export async function updateSet(updatedSet: Set) {
 
   return data;
 }
+
+export async function createWorkout(workout: {
+  name: string;
+  date: string;
+  athlete_id: string;
+  coach_id: string;
+}) {
+  console.log("Creating workout:", workout);
+
+  const { data, error } = await supabase.from("workouts").insert(workout);
+
+  if (error) throw error;
+
+  return data;
+}

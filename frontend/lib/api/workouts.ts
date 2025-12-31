@@ -2,7 +2,6 @@ import { supabase } from "@/lib/supabase";
 import { Set } from "@/types/types";
 
 export async function fetchWorkoutById(workoutId: string) {
-  console.log("Fetching workout by id", workoutId);
   const { data, error } = await supabase
     .from("workouts")
     .select(
@@ -42,8 +41,6 @@ export async function fetchWorkoutById(workoutId: string) {
     console.log("No workout was found");
     throw new Error("No workout was found");
   }
-
-  console.log("Workout fetched successfully", data);
 
   return data;
 }

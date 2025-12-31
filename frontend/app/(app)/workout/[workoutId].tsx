@@ -9,10 +9,24 @@ import {
   TouchableOpacity,
   Modal,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useEffect, useState } from "react";
-import { Workout, Set, WorkoutExercise, Exercise } from "@/types/types";
+import {
+  Workout,
+  Set,
+  WorkoutExercise,
+  Exercise,
+  ExerciseFormData,
+  ExerciseFormSet,
+} from "@/types/types";
+import { Plus } from "lucide-react-native";
+import { createExercise } from "@/lib/api/exercises";
+import { useAuth } from "@/contexts/AuthContext";
 
 function SetModal({
   isVisible,
@@ -224,10 +238,264 @@ function ExerciseCard({
   );
 }
 
+function AddExerciseModal({
+  visible,
+  onClose,
+  onSave,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onSave: (data: ExerciseFormData) => void;
+}) {
+  const [formData, setFormData] = useState<ExerciseFormData>({
+    name: "",
+    workout_id: "",
+    created_by: "",
+    order: 0,
+    sets: [
+      {
+        prescribed_reps: null,
+        prescribed_intensity: null,
+        suggested_load_min: null,
+        suggested_load_max: null,
+      },
+    ],
+  });
+
+  const addSet = () => {
+    setFormData((prev) => ({
+      ...prev,
+      sets: [
+        ...prev.sets,
+        {
+          prescribed_reps: null,
+          prescribed_intensity: null,
+          suggested_load_min: null,
+          suggested_load_max: null,
+        },
+      ],
+    }));
+  };
+
+  const updateSet = (
+    index: number,
+    field: keyof ExerciseFormSet,
+    value: string | number | null
+  ) => {
+    const newSets = [...formData.sets];
+    newSets[index] = { ...newSets[index], [field]: value };
+    setFormData((prev) => ({ ...prev, sets: newSets }));
+  };
+
+  const removeSet = (index: number) => {
+    if (formData.sets.length === 1) return; // Keep at least one set
+
+    const newSets = formData.sets.filter((_, i) => i !== index);
+    setFormData((prev) => ({ ...prev, sets: newSets }));
+  };
+
+  const handleSave = () => {
+    const formattedData = {
+      ...formData,
+      sets: formData.sets.map((set, index) => ({
+        prescribed_reps: Number(set.prescribed_reps),
+        prescribed_intensity: set.prescribed_intensity || null,
+        suggested_load_min: Number(set.suggested_load_min) || null,
+        suggested_load_max: Number(set.suggested_load_max) || null,
+        set_number: index + 1,
+      })),
+    };
+
+    onSave(formattedData);
+    onClose();
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          className="flex-1"
+        >
+          <View className="flex-1 justify-center bg-black/50">
+            <View className="bg-white dark:bg-zinc-800 rounded-t-2xl p-6 max-h-[90%]">
+              <View className="flex-row justify-between items-center mb-4">
+                <Text className="text-xl font-semibold dark:text-white">
+                  Add Exercise
+                </Text>
+                <TouchableOpacity onPress={onClose}>
+                  <Text className="text-blue-500 text-lg">Close</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView className="mb-4">
+                {/* Exercise Name */}
+                <View className="mb-6">
+                  <Text className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                    Exercise Name
+                  </Text>
+                  <TextInput
+                    value={formData.name}
+                    onChangeText={(text) =>
+                      setFormData((prev) => ({ ...prev, name: text }))
+                    }
+                    placeholder="e.g., Bench Press"
+                    className="bg-gray-100 dark:bg-zinc-700 rounded-lg p-3 text-foreground dark:text-white"
+                    placeholderTextColor="#9ca3af"
+                  />
+                </View>
+                {/* Sets */}
+                <View className="mb-4">
+                  <View className="flex-row justify-between items-center mb-3">
+                    <Text className="text-lg font-medium text-foreground dark:text-white">
+                      Sets
+                    </Text>
+                    <TouchableOpacity
+                      onPress={addSet}
+                      className="bg-violet-500 dark:bg-violet-700 px-3 py-1.5 rounded-lg"
+                    >
+                      <Text className="text-white text-sm">+ Add Set</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {formData.sets.map((set, index) => (
+                    <View
+                      key={index}
+                      className="mb-4 bg-gray-100 dark:bg-zinc-700 p-3 rounded-lg"
+                    >
+                      <View className="flex-row justify-between items-center mb-2">
+                        <Text className="font-medium text-foreground dark:text-white">
+                          Set {index + 1}
+                        </Text>
+                        {formData.sets.length > 1 && (
+                          <TouchableOpacity onPress={() => removeSet(index)}>
+                            <Text className="text-red-500">Remove</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+
+                      <View className="flex-row space-x-2 mb-2">
+                        <View className="flex-1">
+                          <Text className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                            Reps
+                          </Text>
+                          <TextInput
+                            value={
+                              set.prescribed_reps
+                                ? set.prescribed_reps.toString()
+                                : ""
+                            }
+                            onChangeText={(text) =>
+                              updateSet(index, "prescribed_reps", text || null)
+                            }
+                            placeholder="12"
+                            keyboardType="number-pad"
+                            className="bg-white dark:bg-zinc-800 rounded-lg p-2 text-foreground dark:text-white text-center"
+                            placeholderTextColor="#9ca3af"
+                          />
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                            Intensity
+                          </Text>
+                          <TextInput
+                            value={
+                              set.prescribed_intensity
+                                ? set.prescribed_intensity
+                                : ""
+                            }
+                            onChangeText={(text) =>
+                              updateSet(
+                                index,
+                                "prescribed_intensity",
+                                text || null
+                              )
+                            }
+                            placeholder="RPE 7"
+                            className="bg-white dark:bg-zinc-800 rounded-lg p-2 text-foreground dark:text-white text-center"
+                            placeholderTextColor="#9ca3af"
+                          />
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                            Min
+                          </Text>
+                          <TextInput
+                            value={
+                              set.suggested_load_min
+                                ? set.suggested_load_min.toString()
+                                : ""
+                            }
+                            onChangeText={(text) =>
+                              updateSet(
+                                index,
+                                "suggested_load_min",
+                                text || null
+                              )
+                            }
+                            placeholder="0"
+                            keyboardType="number-pad"
+                            className="bg-white dark:bg-zinc-800 rounded-lg p-2 text-foreground dark:text-white text-center"
+                            placeholderTextColor="#9ca3af"
+                          />
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                            Max
+                          </Text>
+                          <TextInput
+                            value={
+                              set.suggested_load_max
+                                ? set.suggested_load_max.toString()
+                                : ""
+                            }
+                            onChangeText={(text) =>
+                              updateSet(
+                                index,
+                                "suggested_load_max",
+                                text || null
+                              )
+                            }
+                            placeholder="0"
+                            keyboardType="number-pad"
+                            className="bg-white dark:bg-zinc-800 rounded-lg p-2 text-foreground dark:text-white text-center"
+                            placeholderTextColor="#9ca3af"
+                          />
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+              {/* Save Button */}
+              <TouchableOpacity
+                onPress={handleSave}
+                disabled={!formData.name.trim()}
+                className={`mt-4 py-3 rounded-lg items-center ${
+                  !formData.name.trim()
+                    ? "bg-gray-300 dark:bg-gray-600"
+                    : "bg-violet-500 dark:bg-violet-700"
+                }`}
+              >
+                <Text className="text-white font-medium">Save Exercise</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+}
+
 export default function WorkoutDetails() {
   const { workoutId } = useLocalSearchParams<{ workoutId: string }>();
   const queryClient = useQueryClient();
   const [localWorkout, setLocalWorkout] = useState<Workout | null>(null);
+  const [showAddExerciseModal, setShowAddExerciseModal] = useState(false);
+  const { user } = useAuth();
 
   const {
     data: workout,
@@ -251,6 +519,63 @@ export default function WorkoutDetails() {
     },
   });
 
+  const addExerciseMutation = useMutation({
+    mutationFn: (exerciseData: ExerciseFormData) =>
+      createExercise(exerciseData),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workout", workoutId] });
+      setShowAddExerciseModal(false);
+    },
+    onMutate: async (newExercise) => {
+      await queryClient.cancelQueries({ queryKey: ["workout", workoutId] });
+      const previousWorkout = queryClient.getQueryData<Workout>([
+        "workout",
+        workoutId,
+      ]);
+
+      queryClient.setQueryData<Workout>(["workout", workoutId], (old) => {
+        if (!old) return old;
+
+        return {
+          ...old,
+          workout_exercises: [
+            ...old.workout_exercises,
+            {
+              id: "temp-" + Date.now(),
+              order: old.workout_exercises.length + 1,
+              notes: null,
+              exercise: {
+                id: "temp-exercise-" + Date.now(),
+                name: newExercise.name,
+              },
+              sets: newExercise.sets.map((set, index) => ({
+                id: "temp-set-" + Date.now() + "-" + index,
+                set_number: set.set_number || index + 1,
+                prescribed_reps: set.prescribed_reps,
+                prescribed_intensity: set.prescribed_intensity || null,
+                suggested_load_min: set.suggested_load_min || null,
+                suggested_load_max: set.suggested_load_max || null,
+                actual_load: null,
+                actual_intensity: null,
+                is_completed: false,
+              })),
+            },
+          ],
+        };
+      });
+      return { previousWorkout };
+    },
+    onError: (error, newExercise, context) => {
+      if (context?.previousWorkout) {
+        queryClient.setQueryData(
+          ["workout", workoutId],
+          context.previousWorkout
+        );
+      }
+      console.error("Error adding exercise", error);
+    },
+  });
+
   const handleUpdateSet = async (updatedSet: Partial<Set>) => {
     if (!localWorkout) return;
 
@@ -266,6 +591,20 @@ export default function WorkoutDetails() {
 
     setLocalWorkout(updatedWorkout);
     await updateSetMutation.mutateAsync(updatedSet as Set);
+  };
+
+  const handleSaveExercise = (exerciseData: ExerciseFormData) => {
+    if (!user) return;
+    const exercise = {
+      ...exerciseData,
+      workout_id: workoutId,
+      created_by: user?.id,
+      order: localWorkout?.workout_exercises?.length
+        ? localWorkout?.workout_exercises?.length + 1
+        : 1,
+    };
+
+    addExerciseMutation.mutate(exercise);
   };
 
   if (isLoading) {
@@ -305,8 +644,19 @@ export default function WorkoutDetails() {
           ))}
         </View>
 
-        <View className="h-8" />
+        <View className="h-24" />
       </ScrollView>
+      <TouchableOpacity
+        onPress={() => setShowAddExerciseModal(true)}
+        className="absolute bottom-16 right-8 bg-violet-500 dark:bg-violet-700 w-20 h-20 rounded-full items-center justify-center shadow-lg shadow-black/25"
+      >
+        <Plus size={36} strokeWidth={2.5} color="white" />
+      </TouchableOpacity>
+      <AddExerciseModal
+        visible={showAddExerciseModal}
+        onClose={() => setShowAddExerciseModal(false)}
+        onSave={handleSaveExercise}
+      />
     </SafeAreaView>
   );
 }

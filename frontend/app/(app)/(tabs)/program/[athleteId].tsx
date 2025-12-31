@@ -249,7 +249,7 @@ export default function ProgramPage() {
     queryFn: async () => fetchAthleteProfile(athleteId),
   });
 
-  const handleCreateWorkout = async (name: string, date: string) => {
+  const handleCreateWorkout = (name: string, date: string) => {
     if (!name.trim() || !user?.id) return;
 
     const body = { name, date, athlete_id: athleteId, coach_id: user.id };

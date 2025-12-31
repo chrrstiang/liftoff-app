@@ -1,15 +1,13 @@
 export interface Exercise {
   id: string;
   name: string;
-  description?: string;
-  video_url?: string;
 }
 
 export interface Set {
   id: string;
   set_number: number;
   prescribed_reps: number | null;
-  prescribed_intensity: number | null;
+  prescribed_intensity: string | null;
   suggested_load_min: number | null;
   suggested_load_max: number | null;
   actual_load: number | null;
@@ -46,4 +44,18 @@ export type AthleteProfileView = {
   federation_code: string | null;
   division_name: string | null;
   weight_class_name: string | null;
+};
+
+export type ExerciseFormSet = {
+  prescribed_reps: number;
+  prescribed_intensity: string | null;
+  suggested_load_min: number | null;
+  suggested_load_max: number | null;
+  set_number?: number;
+};
+export type ExerciseFormData = {
+  name: string;
+  workout_id: string;
+  created_by: string;
+  sets: ExerciseFormSet[];
 };

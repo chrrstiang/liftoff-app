@@ -9,10 +9,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAthleteWorkouts } from "@/lib/api/workouts";
+import { fetchAthleteProfile } from "@/lib/api/athlete";
+import { useAuth } from "@/contexts/AuthContext";
 
-const WeeklyWorkoutCard = () => {
-  const { athleteId } = useLocalSearchParams<{ athleteId: string }>();
-
+const WeeklyWorkoutCard = ({ athleteId }: { athleteId: string }) => {
   const { data: workoutData, isLoading } = useQuery({
     queryKey: ["workouts", athleteId],
     queryFn: async () => fetchAthleteWorkouts(athleteId),
@@ -83,13 +83,23 @@ const WeeklyWorkoutCard = () => {
 };
 
 export default function ProgramPage() {
+  const { athleteId } = useLocalSearchParams<{ athleteId: string }>();
+  const { user } = useAuth();
+
+  const { data: athlete } = useQuery({
+    queryKey: ["athlete", athleteId],
+    queryFn: async () => fetchAthleteProfile(athleteId),
+  });
+
   return (
     <SafeAreaView className="flex-1 bg-background dark:bg-zinc-950">
       <ScrollView className="flex-1">
         <Text className="text-3xl dark:text-white font-bold px-6 pt-6 pb-2">
-          Your Program
+          {user?.id === athleteId
+            ? "Your Program"
+            : `${athlete?.first_name} ${athlete?.last_name}'s program`}
         </Text>
-        <WeeklyWorkoutCard />
+        <WeeklyWorkoutCard athleteId={athleteId} />
       </ScrollView>
     </SafeAreaView>
   );

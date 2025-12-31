@@ -108,7 +108,7 @@ export default function RosterPage() {
     isRefetching,
     refetch,
   } = useQuery<AthleteProfileView[]>({
-    queryKey: ["athletes", userId],
+    queryKey: ["roster", userId],
     queryFn: () =>
       fetchRoster(userId!) as unknown as Promise<AthleteProfileView[]>,
     enabled: !!userId,

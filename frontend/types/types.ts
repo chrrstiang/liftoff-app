@@ -47,7 +47,7 @@ export type AthleteProfileView = {
 };
 
 export type ExerciseFormSet = {
-  prescribed_reps: number;
+  prescribed_reps: number | null;
   prescribed_intensity: string | null;
   suggested_load_min: number | null;
   suggested_load_max: number | null;
@@ -57,5 +57,6 @@ export type ExerciseFormData = {
   name: string;
   workout_id: string;
   created_by: string;
+  order: number;
   sets: ExerciseFormSet[];
 };

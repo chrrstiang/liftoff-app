@@ -35,3 +35,15 @@ export interface Workout {
   updated_at: string;
   workout_exercises: WorkoutExercise[];
 }
+
+export type AthleteProfileView = {
+  coach_id: string;
+  athlete_id: string;
+  first_name: string;
+  last_name: string;
+  username: string;
+  avatar_url: string | null;
+  federation_code: string | null;
+  division_name: string | null;
+  weight_class_name: string | null;
+};

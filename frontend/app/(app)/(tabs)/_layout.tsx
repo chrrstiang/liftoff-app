@@ -24,18 +24,20 @@ export default function TabLayout() {
         options={{ headerShown: false, title: "Home" }}
         name="home"
       />
-      <Tabs.Screen
-        options={{
-          headerShown: false,
-          title: "Program",
-          href: `/program/${user.id}` as RelativePathString,
-        }}
-        name="program/[athleteId]"
-      />
-      <Tabs.Protected guard={!profile.is_coach}>
+      <Tabs.Protected guard={profile.is_athlete}>
+        <Tabs.Screen
+          options={{
+            headerShown: false,
+            title: "Program",
+            href: `/program/${user.id}` as RelativePathString,
+          }}
+          name="program/[athleteId]"
+        />
+      </Tabs.Protected>
+      <Tabs.Protected guard={profile.is_coach}>
         <Tabs.Screen
           options={{ headerShown: false, title: "Roster" }}
-          name="roster"
+          name="roster/roster"
         />
       </Tabs.Protected>
       <Tabs.Screen

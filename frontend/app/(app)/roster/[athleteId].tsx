@@ -12,10 +12,12 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchAthleteProfile } from "@/lib/api/athlete";
 import { AthleteProfileView } from "@/types/types";
 
+/* Display of athlete profile from roster tab*/
 export default function AthleteDetails() {
   const { athleteId } = useLocalSearchParams<{ athleteId: string }>();
   const router = useRouter();
 
+  // fetching athlete profile
   const {
     data: athleteData,
     isLoading,

@@ -213,6 +213,7 @@ export default function ProgramPage() {
 
   const queryClient = useQueryClient();
 
+  // mutation handling for workout creation
   const createWorkoutMutation = useMutation({
     mutationFn: (body: {
       name: string;
@@ -244,6 +245,7 @@ export default function ProgramPage() {
     },
   });
 
+  // fetching athlete profile
   const { data: athlete } = useQuery({
     queryKey: ["athlete", athleteId],
     queryFn: async () => fetchAthleteProfile(athleteId),

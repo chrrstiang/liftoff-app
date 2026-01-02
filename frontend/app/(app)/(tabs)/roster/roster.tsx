@@ -22,6 +22,7 @@ function AthleteCard({ athlete }: { athlete: AthleteProfileView }) {
 
   const queryClient = useQueryClient();
 
+  // prefetch athlete profile on press for instant loading
   const prefetchAthleteProfile = (
     athleteId: string,
     athleteData: AthleteProfileView
@@ -102,6 +103,7 @@ export default function RosterPage() {
   const userId = user?.id;
   const [searchQuery, setSearchQuery] = useState("");
 
+  // fetching roster
   const {
     data: athletes = [],
     isLoading,
@@ -114,6 +116,7 @@ export default function RosterPage() {
     enabled: !!userId,
   });
 
+  // filtering athletes based on search query
   const filteredAthletes = useMemo(() => {
     if (!searchQuery) return athletes;
 

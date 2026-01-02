@@ -288,7 +288,7 @@ function AddExerciseModal({
   };
 
   const removeSet = (index: number) => {
-    if (formData.sets.length === 1) return; // Keep at least one set
+    if (formData.sets.length === 1) return;
 
     const newSets = formData.sets.filter((_, i) => i !== index);
     setFormData((prev) => ({ ...prev, sets: newSets }));
@@ -497,6 +497,7 @@ export default function WorkoutDetails() {
   const [showAddExerciseModal, setShowAddExerciseModal] = useState(false);
   const { user } = useAuth();
 
+  // fetching workout by id
   const {
     data: workout,
     isLoading,
@@ -506,12 +507,14 @@ export default function WorkoutDetails() {
     queryFn: () => fetchWorkoutById(workoutId),
   });
 
+  // update local state with workout data
   useEffect(() => {
     if (isSuccess) {
       setLocalWorkout(workout);
     }
   }, [isSuccess, workout]);
 
+  // mutation handling for set logging
   const updateSetMutation = useMutation({
     mutationFn: (updatedSet: Set) => updateSet(updatedSet),
     onSuccess: () => {
@@ -519,6 +522,7 @@ export default function WorkoutDetails() {
     },
   });
 
+  // mutation handling for exercise creation
   const addExerciseMutation = useMutation({
     mutationFn: (exerciseData: ExerciseFormData) =>
       createExercise(exerciseData),

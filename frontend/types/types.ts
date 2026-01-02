@@ -60,3 +60,9 @@ export type ExerciseFormData = {
   order: number;
   sets: ExerciseFormSet[];
 };
+
+export type CoachRequest = {
+  id: string;
+  created_at: string;
+  coach: { id: string; username: string; avatar_url: string | null };
+};

@@ -64,5 +64,9 @@ export type ExerciseFormData = {
 export type CoachRequest = {
   id: string;
   created_at: string;
-  coach: { id: string; username: string; avatar_url: string | null };
+  coach_id: string;
+  athlete_id: string;
+  status: string;
+  coach_username: string;
+  coach_avatar_url: string | null;
 };

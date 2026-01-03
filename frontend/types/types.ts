@@ -70,3 +70,17 @@ export type CoachRequest = {
   coach_username: string;
   coach_avatar_url: string | null;
 };
+
+export type UserProfileEnriched = {
+  athlete_id: string;
+  first_name: string;
+  last_name: string;
+  username: string;
+  avatar_url: string | null;
+  federation_id: string | null;
+  federation_code: string | null;
+  weight_class_id: string | null;
+  weight_class_name: string | null;
+  division_id: string | null;
+  division_name: string | null;
+};

@@ -13,7 +13,7 @@ import { CoachRequest } from "@/types/types";
 
 /* Home page tab */
 export default function HomePage() {
-  const { profile, user } = useAuth();
+  const { profile, user, logout } = useAuth();
 
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -47,9 +47,16 @@ export default function HomePage() {
   return (
     <SafeAreaView className="flex-1 bg-background dark:bg-zinc-950 p-4">
       <View className="flex-row justify-between items-center mb-6">
-        <Text className="text-3xl font-bold text-foreground dark:text-white">
-          Welcome back, {profile?.first_name || "Athlete"}
-        </Text>
+        <TouchableOpacity
+          onPress={async () => {
+            await logout();
+            router.replace("/login");
+          }}
+        >
+          <Text className="text-3xl font-bold text-foreground dark:text-white">
+            Welcome back, {profile?.first_name || "Athlete"}
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity
           onPress={() => setShowNotifications(true)}
           className="relative"

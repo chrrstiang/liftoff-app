@@ -10,3 +10,12 @@ export async function fetchRoster(coachId: string) {
   if (error) throw error;
   return data;
 }
+
+export async function sendInvite(athleteId: string, coachId: string) {
+  const { error } = await supabase
+    .from("coach_requests")
+    .insert({ athlete_id: athleteId, coach_id: coachId, status: "pending" });
+
+  if (error) throw error;
+  return { success: true };
+}

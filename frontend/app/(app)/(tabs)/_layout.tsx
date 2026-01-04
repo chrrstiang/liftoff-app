@@ -1,23 +1,18 @@
-import { Redirect, RelativePathString, Tabs } from "expo-router";
+import { RelativePathString, Tabs } from "expo-router";
 import { useAuth } from "@/contexts/AuthContext";
-import { ActivityIndicator } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 
 export default function TabLayout() {
   const { user, isLoading, profile } = useAuth();
 
-  if (!profile) {
-    console.error("No profile found. Redirecting to login...");
-    return <Redirect href="/login" />;
+  if (isLoading || !user || !profile) {
+    return (
+      <View className="flex-1 justify-center items-center bg-background dark:bg-zinc-950">
+        <ActivityIndicator size="large" color="#7c3aed" />
+      </View>
+    );
   }
 
-  if (isLoading) {
-    return <ActivityIndicator />;
-  }
-
-  if (!user) {
-    console.error("No user found. Redirecting to login...");
-    return <Redirect href="/login" />;
-  }
   return (
     <Tabs>
       <Tabs.Screen

@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { supabase } from "@/lib/supabase";
 import { Session, User } from "@supabase/supabase-js";
 
@@ -16,12 +22,12 @@ interface UserProfile {
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  checkAuthState: () => Promise<void>;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   signup: (email: string, password: string) => Promise<void>;
   isProfileComplete: boolean;
+  fetchProfile: (userId: string) => Promise<void>;
   checkProfileCompletion: (userId: string) => Promise<void>;
   session: Session | null;
   user: User | null;
@@ -43,53 +49,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log("🔥 isAuthenticated state changed to:", isAuthenticated);
   }, [isAuthenticated]);
 
-  useEffect(() => {
-    if (session?.user) {
-      checkProfileCompletion(session.user.id);
-    }
-  }, [session]);
-
-  // listens to real-time auth updates in case of session expir or manual action
-  useEffect(() => {
-    checkAuthState();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setIsAuthenticated(!!session);
-      setUser(session?.user || null);
-
-      if (session?.user) {
-        fetchProfile(session.user.id);
-      } else {
-        setProfile(null);
-      }
-
-      setIsLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  /** Checks the current authentication state */
-  const checkAuthState = async () => {
-    try {
-      const { data: session } = await supabase.auth.getSession();
-      setIsAuthenticated(!!session?.session);
-      setSession(session?.session);
-      setUser(session?.session?.user || null);
-    } catch (error) {
-      console.error("Error checking auth state:", error);
-      setIsAuthenticated(false);
-      setUser(null);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   /** Checks if the user's profile is complete */
-  const checkProfileCompletion = async (userId: string) => {
+  const checkProfileCompletion = useCallback(async (userId: string) => {
     try {
       const { data: profile, error } = await supabase
         .from("users")
@@ -99,26 +60,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) throw error;
 
-      const isComplete =
+      const isComplete = !!(
         profile?.first_name &&
         profile?.last_name &&
         profile?.username &&
         profile?.gender &&
-        profile?.date_of_birth;
+        profile?.date_of_birth
+      );
 
       if (!isComplete) {
         throw new Error("Missing profile fields");
       }
-      console.log("Profile is now complete!");
       setIsProfileComplete(isComplete);
     } catch (error) {
       console.error("Error checking profile completion:", error);
       setIsProfileComplete(false);
     }
-  };
+  }, []);
 
   // fetches user profile metadata
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from("users")
       .select(
@@ -131,9 +92,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error("Error fetching profile:", error);
       return;
     }
-
     setProfile(data);
-  };
+  }, []);
+
+  // listens to real-time auth updates in case of session expire or manual action
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setIsLoading(true);
+
+      setSession(session);
+      setIsAuthenticated(!!session);
+      setUser(session?.user || null);
+
+      if (session?.user) {
+        await fetchProfile(session.user.id);
+        await checkProfileCompletion(session.user.id);
+      } else {
+        setProfile(null);
+        setIsProfileComplete(false);
+      }
+      setIsLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [fetchProfile, checkProfileCompletion]);
 
   /** Signs up a new user with email and password */
   const signup = async (email: string, password: string) => {
@@ -157,33 +141,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) {
       throw new Error("Failed to login user: " + error.message);
     }
-
-    setIsAuthenticated(true);
   };
 
   // logs out
   const logout = async () => {
-    console.log("🔥 LOGOUT TRIGGERED");
     const { error } = await supabase.auth.signOut();
 
     if (error) {
       throw new Error("Failed to logout: " + error.message);
     }
-
-    setIsAuthenticated(false);
-    setSession(null);
   };
 
   return (
     <AuthContext.Provider
       value={{
         isAuthenticated,
-        checkAuthState,
         isLoading,
         login,
         logout,
         signup,
         isProfileComplete,
+        fetchProfile,
         session,
         checkProfileCompletion,
         user,

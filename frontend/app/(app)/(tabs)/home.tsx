@@ -50,7 +50,6 @@ export default function HomePage() {
         <TouchableOpacity
           onPress={async () => {
             await logout();
-            router.replace("/login");
           }}
         >
           <Text className="text-3xl font-bold text-foreground dark:text-white">

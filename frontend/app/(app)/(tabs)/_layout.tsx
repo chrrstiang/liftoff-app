@@ -19,6 +19,13 @@ export default function TabLayout() {
         options={{ headerShown: false, title: "Home" }}
         name="home"
       />
+      <Tabs.Screen
+        options={{
+          headerShown: false,
+          title: "Messages",
+        }}
+        name="conversations/conversations"
+      />
       <Tabs.Protected guard={profile.is_athlete}>
         <Tabs.Screen
           options={{

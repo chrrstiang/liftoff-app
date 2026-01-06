@@ -84,3 +84,32 @@ export type UserProfileEnriched = {
   division_id: string | null;
   division_name: string | null;
 };
+
+export type UserConversation = {
+  conversation_id: string;
+  name: string | null;
+  avatar_url: string | null;
+  updated_at: string;
+  user_id: string;
+  last_read_at: string | null;
+  last_message_content: string | null;
+  last_message_sent_at: string | null;
+  last_message_sender_id: string | null;
+  unread_count: number;
+  other_user_name: string | null;
+  other_user_avatar_url: string | null;
+  other_user_id: string | null;
+};
+
+export type Message = {
+  id: string;
+  conversation_id: string;
+  content: string;
+  sender_id: string;
+  sender_avatar_url: string | null;
+  sender_first_name: string;
+  sender_last_name: string;
+  sent_at: string;
+  message_type: "text" | "image" | "video" | "file";
+  media_url: string | null;
+};

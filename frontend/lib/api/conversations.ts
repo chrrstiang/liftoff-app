@@ -29,3 +29,25 @@ export async function fetchMessages(conversationId: string) {
 
   return data;
 }
+
+export interface SendMessageParams {
+  conversation_id: string;
+  user_id: string;
+  content: string;
+  message_type: string;
+  media_url?: string;
+}
+
+export async function sendMessage(body: SendMessageParams) {
+  const { data, error } = await supabase
+    .from("messages")
+    .insert([body])
+    .select();
+
+  if (error) {
+    console.error("Error sending message:", error);
+    throw error;
+  }
+
+  return data;
+}

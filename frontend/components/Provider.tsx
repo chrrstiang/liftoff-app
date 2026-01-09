@@ -6,6 +6,7 @@ import {
 } from "@react-navigation/native";
 import { useColorScheme } from "react-native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 
 const queryClient = new QueryClient();
 
@@ -18,7 +19,7 @@ export default function Provider({ children }: { children: React.ReactNode }) {
         <ThemeProvider
           value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
         >
-          {children}
+          <KeyboardProvider>{children}</KeyboardProvider>
         </ThemeProvider>
       </AuthProvider>
     </QueryClientProvider>

@@ -13,6 +13,8 @@ import { FontAwesome } from "@expo/vector-icons";
 import { cssInterop } from "nativewind";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+const STORAGE_BASE_URL = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/avatars/`;
+
 cssInterop(Image, { className: "style" });
 
 export default function ProfilePage() {
@@ -53,7 +55,7 @@ export default function ProfilePage() {
           <Image
             source={
               profile?.avatar_url
-                ? { uri: profile.avatar_url }
+                ? { uri: STORAGE_BASE_URL + profile.avatar_url }
                 : require("@/assets/images/avatar-default.png")
             }
             className="w-32 h-32 rounded-full border-4 border-white dark:border-zinc-800"

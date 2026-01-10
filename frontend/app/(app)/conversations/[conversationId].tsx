@@ -234,7 +234,7 @@ export default function Conversation() {
         </View>
       </View>
       <KeyboardAvoidingView
-        className="flex-1"
+        className="flex-1 pt-10"
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={0}
       >

@@ -9,20 +9,56 @@ import {
 import { UserConversation } from "@/types/types";
 import { Image } from "expo-image";
 import { FontAwesome } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchConversations } from "@/lib/api/conversations";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "expo-router";
+import { supabase } from "@/lib/supabase";
+import { useEffect, useRef } from "react";
+import { RealtimeChannel } from "@supabase/supabase-js";
 
 export default function ConversationsScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   const { data: conversations, isLoading } = useQuery({
-    queryKey: ["conversations"],
+    queryKey: ["conversations", user?.id],
     queryFn: () => fetchConversations(user?.id || ""),
   });
+
+  // real-time listener for conversation update
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel("user_conversations")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "conversations",
+        },
+        () => {
+          console.log("Trigger for conversation update, invalidating queries");
+          queryClient.invalidateQueries({
+            queryKey: ["conversations", user?.id],
+          });
+        }
+      )
+      .subscribe();
+
+    channelRef.current = channel;
+
+    return () => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
+    };
+  }, [user?.id, queryClient]);
 
   const renderConversation = ({ item }: { item: UserConversation }) => (
     <TouchableOpacity

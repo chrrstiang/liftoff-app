@@ -17,15 +17,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Message } from "@/types/types";
 import {
   fetchConversations,
+  fetchMessageById,
   fetchMessages,
+  markAsRead,
   sendMessage,
 } from "@/lib/api/conversations";
 import { FontAwesome } from "@expo/vector-icons";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { uploadImageMessage } from "@/lib/api/storage";
 import { Image } from "expo-image";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { supabase } from "@/lib/supabase";
+import { RealtimeChannel } from "@supabase/supabase-js";
 
 export default function Conversation() {
   const [message, setMessage] = useState("");
@@ -34,9 +38,10 @@ export default function Conversation() {
   const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
 
   const queryClient = useQueryClient();
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   const { data: conversations } = useQuery({
-    queryKey: ["conversations"],
+    queryKey: ["conversations", user?.id],
     queryFn: () => fetchConversations(user?.id || ""),
   });
 
@@ -47,7 +52,11 @@ export default function Conversation() {
     refetch,
   } = useQuery({
     queryKey: ["messages", conversationId],
-    queryFn: () => fetchMessages(conversationId),
+    queryFn: () => {
+      const messages = fetchMessages(conversationId);
+      markAsRead(conversationId, user?.id || "");
+      return messages;
+    },
   });
 
   const sendMessageMutation = useMutation({
@@ -135,6 +144,53 @@ export default function Conversation() {
       queryClient.invalidateQueries({ queryKey: ["messages", conversationId] });
     },
   });
+
+  // real-time listener for message insert
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`conversation-${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        async (payload) => {
+          console.log("New payload for message", payload);
+
+          const newMessage = await fetchMessageById(payload.new.id);
+
+          if (newMessage) {
+            queryClient.setQueryData<Message[]>(
+              ["messages", conversationId],
+              (old = []) => {
+                if (old.some((m) => m.id === newMessage.id)) {
+                  return old;
+                }
+                return [...old, newMessage];
+              }
+            );
+
+            queryClient.invalidateQueries({
+              queryKey: ["conversations", user.id],
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    channelRef.current = channel;
+
+    return () => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
+    };
+  }, [user?.id, conversationId, queryClient]);
 
   const pickImage = async () => {
     try {

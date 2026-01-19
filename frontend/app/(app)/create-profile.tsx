@@ -87,7 +87,7 @@ export default function CreateProfile() {
   const [selectedFederation, setSelectedFederation] =
     useState<Federation | null>(null);
   const [selectedDivision, setSelectedDivision] = useState<Division | null>(
-    null
+    null,
   );
   const [selectedWeightClass, setSelectedWeightClass] =
     useState<WeightClass | null>(null);
@@ -248,7 +248,7 @@ export default function CreateProfile() {
 
   const toggleRole = (role: string) => {
     setSelectedRoles((prev) =>
-      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
+      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role],
     );
   };
 
@@ -703,7 +703,7 @@ function SelectionModal<T>({
                     item,
                     selectedItem
                       ? keyExtractor(selectedItem) === keyExtractor(item)
-                      : false
+                      : false,
                   )}
                 </TouchableOpacity>
               ))}

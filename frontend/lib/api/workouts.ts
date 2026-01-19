@@ -27,10 +27,14 @@ export async function fetchWorkoutById(workoutId: string) {
           is_completed
         )
       )
-    `
+    `,
     )
     .eq("id", workoutId)
+    .order("order", { referencedTable: "workout_exercises" })
+    .order("set_number", { referencedTable: "sets" })
     .single();
+
+  console.log("Workout fetched successfully", JSON.stringify(data));
 
   if (error) {
     console.log("failed to fetch workout", error);

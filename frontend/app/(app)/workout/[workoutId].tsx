@@ -40,10 +40,10 @@ function SetModal({
   onSave: (updatedSet: Partial<Set>) => void;
 }) {
   const [actualLoad, setActualLoad] = useState<string>(
-    set.actual_load?.toString() || ""
+    set.actual_load?.toString() || "",
   );
   const [actualIntensity, setActualIntensity] = useState<string>(
-    set.actual_intensity?.toString() || ""
+    set.actual_intensity?.toString() || "",
   );
 
   const handleSave = () => {
@@ -280,7 +280,7 @@ function AddExerciseModal({
   const updateSet = (
     index: number,
     field: keyof ExerciseFormSet,
-    value: string | number | null
+    value: string | number | null,
   ) => {
     const newSets = [...formData.sets];
     newSets[index] = { ...newSets[index], [field]: value };
@@ -411,7 +411,7 @@ function AddExerciseModal({
                               updateSet(
                                 index,
                                 "prescribed_intensity",
-                                text || null
+                                text || null,
                               )
                             }
                             placeholder="RPE 7"
@@ -433,7 +433,7 @@ function AddExerciseModal({
                               updateSet(
                                 index,
                                 "suggested_load_min",
-                                text || null
+                                text || null,
                               )
                             }
                             placeholder="0"
@@ -456,7 +456,7 @@ function AddExerciseModal({
                               updateSet(
                                 index,
                                 "suggested_load_max",
-                                text || null
+                                text || null,
                               )
                             }
                             placeholder="0"
@@ -573,7 +573,7 @@ export default function WorkoutDetails() {
       if (context?.previousWorkout) {
         queryClient.setQueryData(
           ["workout", workoutId],
-          context.previousWorkout
+          context.previousWorkout,
         );
       }
       console.error("Error adding exercise", error);
@@ -588,7 +588,7 @@ export default function WorkoutDetails() {
       workout_exercises: localWorkout.workout_exercises.map((we) => ({
         ...we,
         sets: we.sets.map((s) =>
-          s.id === updatedSet.id ? { ...s, ...updatedSet } : s
+          s.id === updatedSet.id ? { ...s, ...updatedSet } : s,
         ),
       })),
     };
@@ -654,7 +654,12 @@ export default function WorkoutDetails() {
         onPress={() => setShowAddExerciseModal(true)}
         className="absolute bottom-16 right-8 bg-violet-500 dark:bg-violet-700 w-20 h-20 rounded-full items-center justify-center shadow-lg shadow-black/25"
       >
-        <Plus size={36} strokeWidth={2.5} color="white" />
+        <Plus
+          size={36}
+          absoluteStrokeWidth={true}
+          strokeWidth={2.5}
+          color="white"
+        />
       </TouchableOpacity>
       <AddExerciseModal
         visible={showAddExerciseModal}

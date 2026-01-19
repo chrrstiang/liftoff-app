@@ -1,4 +1,4 @@
-import "@/global.css";
+import "../global.css";
 
 import { Slot, useRouter, useSegments } from "expo-router";
 import { useEffect, useMemo } from "react";

@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import { Set } from "@/types/types";
+import { Set, WorkoutExercise } from "@/types/types";
 
 export async function fetchWorkoutById(workoutId: string) {
   const { data, error } = await supabase
@@ -30,11 +30,15 @@ export async function fetchWorkoutById(workoutId: string) {
     `,
     )
     .eq("id", workoutId)
-    .order("order", { referencedTable: "workout_exercises" })
-    .order("set_number", { referencedTable: "sets" })
     .single();
 
-  console.log("Workout fetched successfully", JSON.stringify(data));
+  // sort by order and set number
+  data.workout_exercises.sort(
+    (a: WorkoutExercise, b: WorkoutExercise) => a.order - b.order,
+  );
+  data.workout_exercises.forEach((workoutExercise: WorkoutExercise) => {
+    workoutExercise.sets.sort((a: Set, b: Set) => a.set_number - b.set_number);
+  });
 
   if (error) {
     console.log("failed to fetch workout", error);
@@ -61,8 +65,6 @@ export async function fetchAthleteWorkouts(athleteId: string) {
 }
 
 export async function updateSet(updatedSet: Set) {
-  console.log("Updating set:", updatedSet.id);
-  console.log("Updating with", updatedSet);
   const { data, error } = await supabase
     .from("sets")
     .update({
@@ -84,8 +86,6 @@ export async function updateSet(updatedSet: Set) {
     throw new Error("Failed to update set: No data returned");
   }
 
-  console.log("Data of set: ", data);
-
   return data;
 }
 
@@ -95,8 +95,6 @@ export async function createWorkout(workout: {
   athlete_id: string;
   coach_id: string;
 }) {
-  console.log("Creating workout:", workout);
-
   const { data, error } = await supabase.from("workouts").insert(workout);
 
   if (error) throw error;

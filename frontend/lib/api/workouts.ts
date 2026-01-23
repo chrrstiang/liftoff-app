@@ -101,3 +101,16 @@ export async function createWorkout(workout: {
 
   return data;
 }
+
+// implement this
+export async function fetchTemplateWorkouts(coachId: string) {
+  const { data, error } = await supabase
+    .from("workout_templates")
+    .select("*")
+    .eq("coach_id", coachId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  return data;
+}

@@ -1,6 +1,7 @@
 export interface Exercise {
   id: string;
   name: string;
+  order?: number;
 }
 
 export interface Set {
@@ -10,9 +11,9 @@ export interface Set {
   prescribed_intensity: string | null;
   suggested_load_min: number | null;
   suggested_load_max: number | null;
-  actual_load: number | null;
-  actual_intensity: number | null;
-  is_completed: boolean;
+  actual_load?: number | null;
+  actual_intensity?: number | null;
+  is_completed?: boolean;
 }
 
 export interface WorkoutExercise {
@@ -28,10 +29,9 @@ export interface Workout {
   name: string;
   date: string;
   notes: string | null;
-  athlete_id: string;
+  athlete_id?: string;
   created_at: string;
-  updated_at: string;
-  workout_exercises: WorkoutExercise[];
+  workout_exercises?: WorkoutExercise[];
 }
 
 export type AthleteProfileView = {

@@ -31,7 +31,7 @@ export interface Workout {
   notes: string | null;
   athlete_id?: string;
   created_at: string;
-  workout_exercises?: WorkoutExercise[];
+  workout_exercises: WorkoutExercise[];
 }
 
 export type AthleteProfileView = {

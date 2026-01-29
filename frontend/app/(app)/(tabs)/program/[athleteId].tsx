@@ -22,7 +22,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useState } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import ExerciseSelector from "@/components/ExerciseSelector";
-import { User } from "@supabase/supabase-js";
+import { WorkoutTemplate, ExerciseTemplate } from "@/types/types";
 
 const WeeklyWorkoutCard = ({ athleteId }: { athleteId: string }) => {
   const { data: workoutData, isLoading } = useQuery({
@@ -102,32 +102,21 @@ const WeeklyWorkoutCard = ({ athleteId }: { athleteId: string }) => {
   );
 };
 
-// WorkoutTemplate type definition
-type WorkoutTemplate = {
-  id: string;
-  name: string;
-  notes: string | null;
-};
-
-type Exercise = {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-};
-
 function WorkoutModal({
   visible,
   onClose,
   onCreateWorkout,
   isCreating,
-  user,
 }: {
   visible: boolean;
   onClose: () => void;
-  onCreateWorkout: (name: string, date: string, exercises: Exercise[]) => void;
+  onCreateWorkout: (
+    name: string,
+    date: string,
+    exercises: ExerciseTemplate[],
+    isTemplate: boolean,
+  ) => void;
   isCreating: boolean;
-  user: User | null;
 }) {
   const [showWorkoutForm, setShowWorkoutForm] = useState(false);
   const [workoutName, setWorkoutName] = useState("");
@@ -135,8 +124,13 @@ function WorkoutModal({
   const [tempDate, setTempDate] = useState(new Date());
   const [showDateModal, setShowDateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedExercises, setSelectedExercises] = useState<Exercise[]>([]);
+  const [selectedExercises, setSelectedExercises] = useState<
+    ExerciseTemplate[]
+  >([]);
+  const [selectedTemplate, setSelectedTemplate] =
+    useState<WorkoutTemplate | null>(null);
   const colorScheme = useColorScheme();
+  const { user } = useAuth();
 
   const { data: templateWorkouts = [], isLoading: templatesLoading } = useQuery(
     {
@@ -153,39 +147,58 @@ function WorkoutModal({
         template.notes.toLowerCase().includes(searchQuery.toLowerCase())),
   );
 
-  // sets workout name and shows workout form
+  // sets selected template - toggles selection
   const handleSelectTemplate = (template: WorkoutTemplate) => {
-    setWorkoutName(template.name);
+    setSelectedTemplate(selectedTemplate?.id === template.id ? null : template);
+  };
+
+  // clears selected template and shows workout form
+  const handleCreateNewWorkout = () => {
+    setSelectedTemplate(null);
     setShowWorkoutForm(true);
   };
 
-  // clears workout name and shows workout form
-  const handleCreateNewWorkout = () => {
-    setWorkoutName("");
-    setShowWorkoutForm(true);
+  // creates workout from selected template
+  const handleAddWorkoutFromTemplate = () => {
+    if (!selectedTemplate) return;
+
+    onCreateWorkout(
+      selectedTemplate.name,
+      new Date().toISOString(),
+      selectedExercises,
+      true,
+    );
+    setSelectedTemplate(null);
+    setSelectedExercises([]);
   };
 
   // creates workout and closes modal
   const handleCreateWorkout = () => {
     if (!workoutName.trim()) return;
-    onCreateWorkout(workoutName, workoutDate.toISOString(), selectedExercises);
+    onCreateWorkout(
+      workoutName,
+      workoutDate.toISOString(),
+      selectedExercises,
+      false,
+    );
     setWorkoutName("");
     setWorkoutDate(new Date());
     setSelectedExercises([]);
     setShowWorkoutForm(false);
   };
 
-  // closes modal and clears workout name
+  // closes modal and clears state
   const handleCancel = () => {
     setWorkoutName("");
     setWorkoutDate(new Date());
     setSelectedExercises([]);
+    setSelectedTemplate(null);
     setShowWorkoutForm(false);
     onClose();
   };
 
   // adds exercise to selected exercises
-  const handleExerciseSelect = (exercise: Exercise) => {
+  const handleExerciseSelect = (exercise: ExerciseTemplate) => {
     setSelectedExercises([...selectedExercises, exercise]);
   };
 
@@ -196,30 +209,42 @@ function WorkoutModal({
     );
   };
 
-  const renderTemplateItem = ({ item }: { item: WorkoutTemplate }) => (
-    <TouchableOpacity
-      onPress={() => handleSelectTemplate(item)}
-      className="bg-white dark:bg-zinc-800 rounded-lg p-4 mb-3 border border-gray-200 dark:border-zinc-700"
-    >
-      <View className="flex-row justify-between items-start">
-        <View className="flex-1">
-          <Text className="text-lg font-semibold dark:text-white mb-1">
-            {item.name}
-          </Text>
-          {item.notes && (
-            <Text className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-              {item.notes}
+  const renderTemplateItem = ({ item }: { item: WorkoutTemplate }) => {
+    const isSelected = selectedTemplate?.id === item.id;
+    return (
+      <TouchableOpacity
+        onPress={() => handleSelectTemplate(item)}
+        className={`bg-white dark:bg-zinc-800 rounded-lg p-4 mb-3 border ${
+          isSelected
+            ? "border-green-500 dark:border-green-700 bg-green-50 dark:bg-green-900/20"
+            : "border-gray-200 dark:border-zinc-700"
+        }`}
+      >
+        <View className="flex-row justify-between items-start">
+          <View className="flex-1">
+            <Text className="text-lg font-semibold dark:text-white mb-1">
+              {item.name}
             </Text>
-          )}
-          <View className="bg-blue-100 dark:bg-blue-900 px-2 py-1 rounded-full self-start">
-            <Text className="text-blue-800 dark:text-blue-200 text-xs font-medium">
-              Template
-            </Text>
+            {item.notes && (
+              <Text className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                {item.notes}
+              </Text>
+            )}
+            <View className="bg-blue-100 dark:bg-blue-900 px-2 py-1 rounded-full self-start">
+              <Text className="text-blue-800 dark:text-blue-200 text-xs font-medium">
+                Template
+              </Text>
+            </View>
           </View>
+          {isSelected && (
+            <View className="bg-green-500 dark:bg-green-700 rounded-full p-1">
+              <Text className="text-white text-xs font-bold">✓</Text>
+            </View>
+          )}
         </View>
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <Modal
@@ -280,14 +305,26 @@ function WorkoutModal({
             </ScrollView>
 
             <View className="p-6">
-              <TouchableOpacity
-                onPress={handleCreateNewWorkout}
-                className="border-2 border-green-500 dark:border-green-700 rounded-lg p-4 items-center bg-transparent"
-              >
-                <Text className="text-green-500 dark:text-green-700 font-medium text-lg">
-                  Create New Workout
-                </Text>
-              </TouchableOpacity>
+              {selectedTemplate ? (
+                <TouchableOpacity
+                  onPress={handleAddWorkoutFromTemplate}
+                  className="bg-green-500 dark:bg-green-700 rounded-lg p-4 items-center"
+                  disabled={isCreating}
+                >
+                  <Text className="text-white font-medium text-lg">
+                    Add Workout
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  onPress={handleCreateNewWorkout}
+                  className="border-2 border-green-500 dark:border-green-700 rounded-lg p-4 items-center bg-transparent"
+                >
+                  <Text className="text-green-500 dark:text-green-700 font-medium text-lg">
+                    Create New Workout
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </>
         ) : (
@@ -436,9 +473,15 @@ export default function ProgramPage() {
   const handleCreateWorkout = (
     name: string,
     date: string,
-    exercises: Exercise[],
+    exercises: ExerciseTemplate[],
+    isTemplate: boolean,
   ) => {
     if (!name.trim() || !user?.id) return;
+
+    if (isTemplate) {
+      // TODO: Implement template creation
+      return;
+    }
 
     const body = {
       name,
@@ -480,7 +523,6 @@ export default function ProgramPage() {
           onClose={handleModalClose}
           onCreateWorkout={handleCreateWorkout}
           isCreating={createWorkoutMutation.isPending}
-          user={user}
         />
       </ScrollView>
     </SafeAreaView>

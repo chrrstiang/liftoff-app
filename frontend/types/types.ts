@@ -1,3 +1,29 @@
+export interface WorkoutTemplate {
+  id: string;
+  name: string;
+  notes: string | null;
+  workout_exercises: WorkoutExerciseTemplate[];
+}
+
+export interface WorkoutExerciseTemplate {
+  id: string;
+  order: number;
+  exercise: ExerciseTemplate[];
+  sets: SetTemplate[];
+}
+
+export interface ExerciseTemplate {
+  id: string;
+  name: string;
+}
+
+export interface SetTemplate {
+  id: string;
+  set_number: number;
+  prescribed_reps: number | null;
+  prescribed_intensity: string | null;
+}
+
 export interface Exercise {
   id: string;
   name: string;

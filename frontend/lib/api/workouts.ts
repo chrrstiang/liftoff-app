@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import { Set, WorkoutExercise } from "@/types/types";
+import { Set, WorkoutExercise, WorkoutTemplate } from "@/types/types";
 
 export async function fetchWorkoutById(workoutId: string) {
   const { data, error } = await supabase
@@ -102,15 +102,54 @@ export async function createWorkout(workout: {
   return data;
 }
 
-// used to fetch template workouts when creating workout
-export async function fetchTemplateWorkouts(coachId: string) {
+// used to fetch template workouts for workout creation
+export async function fetchTemplateWorkouts(userId: string) {
   const { data, error } = await supabase
     .from("workout_templates")
-    .select("id, name, notes")
-    .eq("coach_id", coachId)
+    .select(
+      `
+      id,
+      name,
+      notes,
+      workout_exercises:workout_exercise_templates (
+      id,
+      order,
+      exercise:exercise_templates (
+          id,
+          name
+        ),
+        sets:set_templates (
+          id,
+          set_number,
+          prescribed_reps,
+          prescribed_intensity
+        )
+      )
+    `,
+    )
+    .eq("coach_id", userId)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
+  if (!data) return [];
 
-  return data;
+  // sort workout_exercises by order
+  data.forEach((workout) => {
+    workout.workout_exercises = workout.workout_exercises.sort(
+      (a, b) => a.order - b.order,
+    );
+  });
+
+  // sort sets by set number
+  data.forEach((workout) => {
+    workout.workout_exercises.forEach((workoutExercise) => {
+      workoutExercise.sets = workoutExercise.sets.sort(
+        (a, b) => a.set_number - b.set_number,
+      );
+    });
+  });
+
+  console.log("data", JSON.stringify(data, null, 2));
+
+  return data as WorkoutTemplate[];
 }

@@ -13,74 +13,50 @@ const EXERCISES = [
   {
     id: "1",
     name: "Bench Press",
-    description: "Barbell chest press",
-    category: "Chest",
   },
   {
     id: "2",
     name: "Squat",
-    description: "Barbell back squat",
-    category: "Legs",
   },
   {
     id: "3",
     name: "Deadlift",
-    description: "Conventional deadlift",
-    category: "Back",
   },
   {
     id: "4",
     name: "Pull-up",
-    description: "Bodyweight pull-ups",
-    category: "Back",
   },
   {
     id: "5",
     name: "Overhead Press",
-    description: "Barbell shoulder press",
-    category: "Shoulders",
   },
   {
     id: "6",
     name: "Bicep Curl",
-    description: "Dumbbell bicep curls",
-    category: "Arms",
   },
   {
     id: "7",
     name: "Tricep Dip",
-    description: "Bodyweight tricep dips",
-    category: "Arms",
   },
   {
     id: "8",
     name: "Leg Press",
-    description: "Machine leg press",
-    category: "Legs",
   },
   {
     id: "9",
     name: "Lat Pulldown",
-    description: "Cable lat pulldowns",
-    category: "Back",
   },
   {
     id: "10",
     name: "Lateral Raise",
-    description: "Dumbbell lateral raises",
-    category: "Shoulders",
   },
   {
     id: "11",
     name: "Leg Curl",
-    description: "Machine leg curls",
-    category: "Legs",
   },
   {
     id: "12",
     name: "Calf Raise",
-    description: "Standing calf raises",
-    category: "Legs",
   },
 ];
 
@@ -97,11 +73,8 @@ export default function ExerciseSelector({
 }: ExerciseSelectorProps) {
   const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredExercises = EXERCISES.filter(
-    (exercise) =>
-      exercise.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      exercise.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      exercise.category.toLowerCase().includes(searchQuery.toLowerCase()),
+  const filteredExercises = EXERCISES.filter((exercise) =>
+    exercise.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const isExerciseSelected = (exerciseId: string) => {
@@ -130,14 +103,6 @@ export default function ExerciseSelector({
             <Text className="text-lg font-semibold dark:text-white mb-1">
               {item.name}
             </Text>
-            <Text className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-              {item.description}
-            </Text>
-            <View className="bg-blue-100 dark:bg-blue-900 px-2 py-1 rounded-full self-start">
-              <Text className="text-blue-800 dark:text-blue-200 text-xs font-medium">
-                {item.category}
-              </Text>
-            </View>
           </View>
           {isSelected && (
             <View className="bg-green-500 dark:bg-green-700 rounded-full p-1">

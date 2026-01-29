@@ -102,11 +102,11 @@ export async function createWorkout(workout: {
   return data;
 }
 
-// implement this
+// used to fetch template workouts when creating workout
 export async function fetchTemplateWorkouts(coachId: string) {
   const { data, error } = await supabase
     .from("workout_templates")
-    .select("*")
+    .select("id, name, notes")
     .eq("coach_id", coachId)
     .order("created_at", { ascending: false });
 

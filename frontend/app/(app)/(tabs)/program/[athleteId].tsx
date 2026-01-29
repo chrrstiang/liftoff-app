@@ -12,12 +12,17 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createWorkout, fetchAthleteWorkouts } from "@/lib/api/workouts";
+import {
+  createWorkout,
+  fetchAthleteWorkouts,
+  fetchTemplateWorkouts,
+} from "@/lib/api/workouts";
 import { fetchAthleteProfile } from "@/lib/api/athlete";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import ExerciseSelector from "@/components/ExerciseSelector";
+import { User } from "@supabase/supabase-js";
 
 const WeeklyWorkoutCard = ({ athleteId }: { athleteId: string }) => {
   const { data: workoutData, isLoading } = useQuery({
@@ -97,59 +102,13 @@ const WeeklyWorkoutCard = ({ athleteId }: { athleteId: string }) => {
   );
 };
 
-// Dummy template workout data
-const TEMPLATE_WORKOUTS = [
-  {
-    id: "1",
-    name: "Upper Body Strength",
-    description: "Chest, back, shoulders, and arms",
-    category: "Strength",
-  },
-  {
-    id: "2",
-    name: "Lower Body Power",
-    description: "Squats, deadlifts, and explosive movements",
-    category: "Power",
-  },
-  {
-    id: "3",
-    name: "HIIT Cardio",
-    description: "High intensity interval training",
-    category: "Cardio",
-  },
-  {
-    id: "4",
-    name: "Core & Stability",
-    description: "Core strengthening and balance work",
-    category: "Core",
-  },
-  {
-    id: "5",
-    name: "Full Body Circuit",
-    description: "Complete body workout in circuit format",
-    category: "Full Body",
-  },
-  {
-    id: "6",
-    name: "Recovery Yoga",
-    description: "Gentle stretching and mobility work",
-    category: "Recovery",
-  },
-  {
-    id: "7",
-    name: "Sprint Training",
-    description: "Speed and acceleration work",
-    category: "Speed",
-  },
-  {
-    id: "8",
-    name: "Plyometric Power",
-    description: "Jump training and explosive movements",
-    category: "Power",
-  },
-];
+// WorkoutTemplate type definition
+type WorkoutTemplate = {
+  id: string;
+  name: string;
+  notes: string | null;
+};
 
-// Exercise type definition
 type Exercise = {
   id: string;
   name: string;
@@ -162,11 +121,13 @@ function WorkoutModal({
   onClose,
   onCreateWorkout,
   isCreating,
+  user,
 }: {
   visible: boolean;
   onClose: () => void;
   onCreateWorkout: (name: string, date: string, exercises: Exercise[]) => void;
   isCreating: boolean;
+  user: User | null;
 }) {
   const [showWorkoutForm, setShowWorkoutForm] = useState(false);
   const [workoutName, setWorkoutName] = useState("");
@@ -177,15 +138,23 @@ function WorkoutModal({
   const [selectedExercises, setSelectedExercises] = useState<Exercise[]>([]);
   const colorScheme = useColorScheme();
 
-  const filteredTemplates = TEMPLATE_WORKOUTS.filter(
-    (template) =>
+  const { data: templateWorkouts = [], isLoading: templatesLoading } = useQuery(
+    {
+      queryKey: ["templateWorkouts", user?.id],
+      queryFn: () => (user?.id ? fetchTemplateWorkouts(user.id) : []),
+      enabled: !!user?.id,
+    },
+  );
+
+  const filteredTemplates = templateWorkouts.filter(
+    (template: WorkoutTemplate) =>
       template.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      template.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      template.category.toLowerCase().includes(searchQuery.toLowerCase()),
+      (template.notes &&
+        template.notes.toLowerCase().includes(searchQuery.toLowerCase())),
   );
 
   // sets workout name and shows workout form
-  const handleSelectTemplate = (template: (typeof TEMPLATE_WORKOUTS)[0]) => {
+  const handleSelectTemplate = (template: WorkoutTemplate) => {
     setWorkoutName(template.name);
     setShowWorkoutForm(true);
   };
@@ -227,11 +196,7 @@ function WorkoutModal({
     );
   };
 
-  const renderTemplateItem = ({
-    item,
-  }: {
-    item: (typeof TEMPLATE_WORKOUTS)[0];
-  }) => (
+  const renderTemplateItem = ({ item }: { item: WorkoutTemplate }) => (
     <TouchableOpacity
       onPress={() => handleSelectTemplate(item)}
       className="bg-white dark:bg-zinc-800 rounded-lg p-4 mb-3 border border-gray-200 dark:border-zinc-700"
@@ -241,12 +206,14 @@ function WorkoutModal({
           <Text className="text-lg font-semibold dark:text-white mb-1">
             {item.name}
           </Text>
-          <Text className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-            {item.description}
-          </Text>
+          {item.notes && (
+            <Text className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              {item.notes}
+            </Text>
+          )}
           <View className="bg-blue-100 dark:bg-blue-900 px-2 py-1 rounded-full self-start">
             <Text className="text-blue-800 dark:text-blue-200 text-xs font-medium">
-              {item.category}
+              Template
             </Text>
           </View>
         </View>
@@ -289,19 +256,27 @@ function WorkoutModal({
             </Text>
             {/* Template Workouts */}
             <ScrollView className="flex-1 px-6">
-              <FlatList
-                data={filteredTemplates}
-                renderItem={renderTemplateItem}
-                keyExtractor={(item) => item.id}
-                scrollEnabled={false}
-                ListEmptyComponent={
-                  <View className="flex-1 items-center justify-center py-8">
-                    <Text className="text-gray-500 dark:text-gray-400">
-                      No templates found
-                    </Text>
-                  </View>
-                }
-              />
+              {templatesLoading ? (
+                <View className="flex-1 items-center justify-center py-8">
+                  <Text className="text-gray-500 dark:text-gray-400">
+                    Loading templates...
+                  </Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={filteredTemplates}
+                  renderItem={renderTemplateItem}
+                  keyExtractor={(item) => item.id}
+                  scrollEnabled={false}
+                  ListEmptyComponent={
+                    <View className="flex-1 items-center justify-center py-8">
+                      <Text className="text-gray-500 dark:text-gray-400">
+                        No templates found
+                      </Text>
+                    </View>
+                  }
+                />
+              )}
             </ScrollView>
 
             <View className="p-6">
@@ -505,6 +480,7 @@ export default function ProgramPage() {
           onClose={handleModalClose}
           onCreateWorkout={handleCreateWorkout}
           isCreating={createWorkoutMutation.isPending}
+          user={user}
         />
       </ScrollView>
     </SafeAreaView>

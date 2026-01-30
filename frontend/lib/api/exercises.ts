@@ -1,4 +1,4 @@
-import { ExerciseFormData } from "@/types/types";
+import { ExerciseFormData, ExerciseTemplate } from "@/types/types";
 import { supabase } from "../supabase";
 
 export async function createExercise(exerciseData: ExerciseFormData) {
@@ -57,4 +57,39 @@ export async function createExercise(exerciseData: ExerciseFormData) {
   }
 
   console.log("Sets added successfully", sets);
+}
+
+export async function fetchExerciseTemplates(coachId: string) {
+  const { data, error } = await supabase
+    .from("exercises")
+    .select(
+      `
+      id, 
+      name,
+      templates:exercise_templates (
+        id, 
+        name, 
+        sets:exercise_default_set_templates(
+          id, 
+          set_number, 
+          prescribed_reps, 
+          prescribed_intensity
+        )
+      )
+    `,
+    )
+    .neq("exercise_template_id", null)
+    .eq("created_by", coachId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  // sort sets by set number
+  data.forEach((exercise) => {
+    exercise.templates.forEach((template) => {
+      template.sets = template.sets.sort((a, b) => a.set_number - b.set_number);
+    });
+  });
+
+  return data as ExerciseTemplate[];
 }

@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
-import { Set, WorkoutExercise, WorkoutTemplate } from "@/types/types";
+import { ExerciseFormSet, Set, WorkoutExercise } from "@/types/types";
+import { createExercise } from "./exercises";
 
 export async function fetchWorkoutById(workoutId: string) {
   const { data, error } = await supabase
@@ -94,10 +95,29 @@ export async function createWorkout(workout: {
   date: string;
   athlete_id: string;
   coach_id: string;
+  exercises: {
+    name: string;
+    order: number;
+    sets: ExerciseFormSet[];
+  }[];
 }) {
-  const { data, error } = await supabase.from("workouts").insert(workout);
+  const { data, error } = await supabase
+    .from("workouts")
+    .insert(workout)
+    .select()
+    .single();
 
   if (error) throw error;
+
+  for (const exercise of workout.exercises) {
+    await createExercise({
+      name: exercise.name,
+      workout_id: data.id,
+      created_by: workout.coach_id,
+      order: exercise.order,
+      sets: exercise.sets,
+    });
+  }
 
   return data;
 }
@@ -111,14 +131,15 @@ export async function fetchTemplateWorkouts(userId: string) {
       id,
       name,
       notes,
-      workout_exercises:workout_exercise_templates (
+      workout_exercises (
       id,
       order,
-      exercise:exercise_templates (
+      notes,
+      exercise (
           id,
           name
         ),
-        sets:set_templates (
+        sets (
           id,
           set_number,
           prescribed_reps,
@@ -151,5 +172,5 @@ export async function fetchTemplateWorkouts(userId: string) {
 
   console.log("data", JSON.stringify(data, null, 2));
 
-  return data as WorkoutTemplate[];
+  return data;
 }

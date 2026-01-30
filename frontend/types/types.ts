@@ -2,19 +2,17 @@ export interface WorkoutTemplate {
   id: string;
   name: string;
   notes: string | null;
-  workout_exercises: WorkoutExerciseTemplate[];
-}
-
-export interface WorkoutExerciseTemplate {
-  id: string;
-  order: number;
-  exercise: ExerciseTemplate[];
-  sets: SetTemplate[];
+  workout_exercises: WorkoutExercise[];
 }
 
 export interface ExerciseTemplate {
   id: string;
   name: string;
+  templates: {
+    id: string;
+    name: string;
+    sets: SetTemplate[];
+  }[];
 }
 
 export interface SetTemplate {
@@ -27,7 +25,6 @@ export interface SetTemplate {
 export interface Exercise {
   id: string;
   name: string;
-  order?: number;
 }
 
 export interface Set {
@@ -35,8 +32,8 @@ export interface Set {
   set_number: number;
   prescribed_reps: number | null;
   prescribed_intensity: string | null;
-  suggested_load_min: number | null;
-  suggested_load_max: number | null;
+  suggested_load_min?: number | null;
+  suggested_load_max?: number | null;
   actual_load?: number | null;
   actual_intensity?: number | null;
   is_completed?: boolean;

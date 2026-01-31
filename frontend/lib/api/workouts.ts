@@ -157,7 +157,7 @@ export async function createWorkout(workout: {
       workout_exercise_id: newWorkoutExercise.id,
     }));
 
-    const { data: setRecords, error: setRecordError } = await supabase
+    const { error: setRecordError } = await supabase
       .from("sets")
       .insert(setsToInsert);
 

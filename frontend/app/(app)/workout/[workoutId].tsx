@@ -546,6 +546,7 @@ export default function WorkoutDetails() {
             ...old.workout_exercises,
             {
               id: "temp-" + Date.now(),
+              name: newExercise.name,
               order: old.workout_exercises.length + 1,
               notes: null,
               exercise: {

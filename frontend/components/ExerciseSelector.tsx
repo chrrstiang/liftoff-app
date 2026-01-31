@@ -7,62 +7,14 @@ import {
   FlatList,
 } from "react-native";
 import { useState } from "react";
-
-// Dummy exercise data
-const EXERCISES = [
-  {
-    id: "1",
-    name: "Bench Press",
-  },
-  {
-    id: "2",
-    name: "Squat",
-  },
-  {
-    id: "3",
-    name: "Deadlift",
-  },
-  {
-    id: "4",
-    name: "Pull-up",
-  },
-  {
-    id: "5",
-    name: "Overhead Press",
-  },
-  {
-    id: "6",
-    name: "Bicep Curl",
-  },
-  {
-    id: "7",
-    name: "Tricep Dip",
-  },
-  {
-    id: "8",
-    name: "Leg Press",
-  },
-  {
-    id: "9",
-    name: "Lat Pulldown",
-  },
-  {
-    id: "10",
-    name: "Lateral Raise",
-  },
-  {
-    id: "11",
-    name: "Leg Curl",
-  },
-  {
-    id: "12",
-    name: "Calf Raise",
-  },
-];
+import { ExerciseTemplate } from "@/types/types";
+import { fetchExerciseTemplates } from "@/lib/api/exercises";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface ExerciseSelectorProps {
-  selectedExercises: typeof EXERCISES;
-  onExerciseSelect: (exercise: (typeof EXERCISES)[0]) => void;
+  selectedExercises: ExerciseTemplate[];
+  onExerciseSelect: (exercise: ExerciseTemplate) => void;
   onExerciseRemove: (exerciseId: string) => void;
 }
 
@@ -72,8 +24,17 @@ export default function ExerciseSelector({
   onExerciseRemove,
 }: ExerciseSelectorProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [expandedExercise, setExpandedExercise] = useState<string | null>(null);
 
-  const filteredExercises = EXERCISES.filter((exercise) =>
+  const { user } = useAuth();
+
+  const { data: templates = [] } = useQuery({
+    queryKey: ["templateExercises", user?.id],
+    queryFn: () => (user?.id ? fetchExerciseTemplates(user.id) : []),
+    enabled: !!user?.id,
+  });
+
+  const filteredExercises = templates.filter((exercise) =>
     exercise.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
@@ -81,36 +42,75 @@ export default function ExerciseSelector({
     return selectedExercises.some((exercise) => exercise.id === exerciseId);
   };
 
-  const renderExerciseItem = ({ item }: { item: (typeof EXERCISES)[0] }) => {
+  const renderExerciseItem = ({ item }: { item: ExerciseTemplate }) => {
     const isSelected = isExerciseSelected(item.id);
+    const isExpanded = expandedExercise === item.id;
+
     return (
-      <TouchableOpacity
-        onPress={() => {
-          if (isSelected) {
-            onExerciseRemove(item.id);
-          } else {
-            onExerciseSelect(item);
-          }
-        }}
-        className={`bg-white dark:bg-zinc-800 rounded-lg p-4 mb-3 border ${
-          isSelected
-            ? "border-green-500 dark:border-green-700 bg-green-50 dark:bg-green-900/20"
-            : "border-gray-200 dark:border-zinc-700"
-        }`}
-      >
-        <View className="flex-row justify-between items-start">
-          <View className="flex-1">
-            <Text className="text-lg font-semibold dark:text-white mb-1">
-              {item.name}
-            </Text>
-          </View>
-          {isSelected && (
-            <View className="bg-green-500 dark:bg-green-700 rounded-full p-1">
-              <Text className="text-white text-xs font-bold">✓</Text>
+      <View className="mb-3">
+        <TouchableOpacity
+          onPress={() => {
+            if (isSelected) {
+              onExerciseRemove(item.id);
+            } else {
+              // Toggle dropdown for non-selected exercises
+              setExpandedExercise(isExpanded ? null : item.id);
+            }
+          }}
+          className={`bg-white dark:bg-zinc-800 rounded-lg p-4 border ${
+            isSelected
+              ? "border-green-500 dark:border-green-700 bg-green-50 dark:bg-green-900/20"
+              : "border-gray-200 dark:border-zinc-700"
+          }`}
+        >
+          <View className="flex-row justify-between items-start">
+            <View className="flex-1">
+              <Text className="text-lg font-semibold dark:text-white mb-1">
+                {item.name}
+              </Text>
+              {!isSelected && (
+                <Text className="text-sm text-gray-500 dark:text-gray-400">
+                  {item.templates.length} template
+                  {item.templates.length !== 1 ? "s" : ""} available
+                </Text>
+              )}
             </View>
-          )}
-        </View>
-      </TouchableOpacity>
+            <View className="flex-row items-center">
+              {!isSelected && (
+                <Text className="text-gray-400 dark:text-gray-500 mr-2">
+                  {isExpanded ? "▼" : "▶"}
+                </Text>
+              )}
+              {isSelected && (
+                <View className="bg-green-500 dark:bg-green-700 rounded-full p-1">
+                  <Text className="text-white text-xs font-bold">✓</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Template Dropdown */}
+        {isExpanded && !isSelected && (
+          <View className="mt-2 ml-4 mr-2">
+            {item.templates.map((template) => (
+              <TouchableOpacity
+                key={template.id}
+                onPress={() => {
+                  // Select the exercise with this template
+                  onExerciseSelect(item);
+                  setExpandedExercise(null);
+                }}
+                className="bg-gray-50 dark:bg-zinc-700 rounded-lg p-3 mb-2 border border-gray-200 dark:border-zinc-600"
+              >
+                <Text className="text-base font-medium dark:text-white">
+                  {template.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
     );
   };
 

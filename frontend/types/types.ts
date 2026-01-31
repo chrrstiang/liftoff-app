@@ -72,8 +72,8 @@ export type AthleteProfileView = {
 export type ExerciseFormSet = {
   prescribed_reps: number | null;
   prescribed_intensity: string | null;
-  suggested_load_min: number | null;
-  suggested_load_max: number | null;
+  suggested_load_min?: number | null;
+  suggested_load_max?: number | null;
   set_number?: number;
 };
 export type ExerciseFormData = {

@@ -1,5 +1,10 @@
 import { supabase } from "@/lib/supabase";
-import { ExerciseFormSet, Set, WorkoutExercise } from "@/types/types";
+import {
+  ExerciseFormSet,
+  Set,
+  WorkoutExercise,
+  WorkoutTemplate,
+} from "@/types/types";
 import { createExercise } from "./exercises";
 
 export async function fetchWorkoutById(workoutId: string) {
@@ -93,7 +98,7 @@ export async function updateSet(updatedSet: Set) {
 export async function createWorkout(workout: {
   name: string;
   date: string;
-  athlete_id: string;
+  athlete_id: string | null;
   coach_id: string;
   exercises: {
     name: string;
@@ -103,7 +108,12 @@ export async function createWorkout(workout: {
 }) {
   const { data, error } = await supabase
     .from("workouts")
-    .insert(workout)
+    .insert({
+      name: workout.name,
+      date: workout.date,
+      athlete_id: workout.athlete_id,
+      coach_id: workout.coach_id,
+    })
     .select()
     .single();
 
@@ -124,8 +134,9 @@ export async function createWorkout(workout: {
 
 // used to fetch template workouts for workout creation
 export async function fetchTemplateWorkouts(userId: string) {
+  console.log("Fetching Workouts");
   const { data, error } = await supabase
-    .from("workout_templates")
+    .from("workouts")
     .select(
       `
       id,
@@ -135,7 +146,7 @@ export async function fetchTemplateWorkouts(userId: string) {
       id,
       order,
       notes,
-      exercise (
+      exercise:exercises (
           id,
           name
         ),
@@ -149,10 +160,10 @@ export async function fetchTemplateWorkouts(userId: string) {
     `,
     )
     .eq("coach_id", userId)
+    .eq("is_template", true)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  if (!data) return [];
 
   // sort workout_exercises by order
   data.forEach((workout) => {
@@ -170,7 +181,5 @@ export async function fetchTemplateWorkouts(userId: string) {
     });
   });
 
-  console.log("data", JSON.stringify(data, null, 2));
-
-  return data;
+  return data as unknown as WorkoutTemplate[];
 }

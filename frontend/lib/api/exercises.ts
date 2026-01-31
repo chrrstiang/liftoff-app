@@ -60,29 +60,33 @@ export async function createExercise(exerciseData: ExerciseFormData) {
 }
 
 export async function fetchExerciseTemplates(coachId: string) {
+  console.log("Fetching exercise templates for coach", coachId);
+
+  // Get exercises created by this coach that have templates
   const { data, error } = await supabase
     .from("exercises")
     .select(
       `
-      id, 
+      id,
       name,
       templates:exercise_templates (
-        id, 
-        name, 
-        sets:exercise_default_set_templates(
-          id, 
-          set_number, 
-          prescribed_reps, 
+        id,
+        name,
+        sets:exercise_default_set_templates (
+          id,
+          set_number,
+          prescribed_reps,
           prescribed_intensity
         )
       )
     `,
     )
-    .neq("exercise_template_id", null)
     .eq("created_by", coachId)
-    .order("created_at", { ascending: false });
+    .not("templates", "is", null)
+    .order("name", { ascending: true });
 
   if (error) throw error;
+  if (!data) return [];
 
   // sort sets by set number
   data.forEach((exercise) => {
@@ -90,6 +94,8 @@ export async function fetchExerciseTemplates(coachId: string) {
       template.sets = template.sets.sort((a, b) => a.set_number - b.set_number);
     });
   });
+
+  console.log("Exercise templates", JSON.stringify(data, null, 2));
 
   return data as ExerciseTemplate[];
 }

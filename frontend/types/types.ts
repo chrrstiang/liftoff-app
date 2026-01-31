@@ -41,6 +41,7 @@ export interface Set {
 
 export interface WorkoutExercise {
   id: string;
+  name: string;
   order: number;
   notes: string | null;
   exercise: Exercise;

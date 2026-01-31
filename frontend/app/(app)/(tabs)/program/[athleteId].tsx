@@ -22,7 +22,17 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useState } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import ExerciseSelector from "@/components/ExerciseSelector";
-import { WorkoutTemplate, ExerciseTemplate } from "@/types/types";
+import {
+  WorkoutTemplate,
+  ExerciseTemplate,
+  ExerciseFormSet,
+  SetTemplate,
+} from "@/types/types";
+
+type SelectedExercise = {
+  exercise: ExerciseTemplate;
+  selectedTemplate: { id: string; name: string; sets: SetTemplate[] };
+};
 
 const WeeklyWorkoutCard = ({ athleteId }: { athleteId: string }) => {
   const { data: workoutData, isLoading } = useQuery({
@@ -113,7 +123,13 @@ function WorkoutModal({
   onCreateWorkout: (
     name: string,
     date: string,
-    exercises: ExerciseTemplate[],
+    exercises: {
+      id: string;
+      name: string;
+      order: number;
+      notes?: string;
+      sets: ExerciseFormSet[];
+    }[],
     isTemplate: boolean,
   ) => void;
   isCreating: boolean;
@@ -125,7 +141,7 @@ function WorkoutModal({
   const [showDateModal, setShowDateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedExercises, setSelectedExercises] = useState<
-    ExerciseTemplate[]
+    SelectedExercise[]
   >([]);
   const [selectedTemplate, setSelectedTemplate] =
     useState<WorkoutTemplate | null>(null);
@@ -149,38 +165,75 @@ function WorkoutModal({
 
   // sets selected template - toggles selection
   const handleSelectTemplate = (template: WorkoutTemplate) => {
+    console.log(
+      "📋 [UI] Template selected:",
+      template.name,
+      "ID:",
+      template.id,
+    );
     setSelectedTemplate(selectedTemplate?.id === template.id ? null : template);
-  };
-
-  // clears selected template and shows workout form
-  const handleCreateNewWorkout = () => {
-    setSelectedTemplate(null);
-    setShowWorkoutForm(true);
+    setWorkoutName(template.name);
   };
 
   // creates workout from selected template
   const handleAddWorkoutFromTemplate = () => {
-    if (!selectedTemplate) return;
+    if (!selectedTemplate || !workoutName.trim()) return;
 
-    onCreateWorkout(
+    console.log(
+      "📋 [UI] Creating workout from template:",
       selectedTemplate.name,
-      new Date().toISOString(),
-      selectedExercises,
-      true,
+      "as:",
+      workoutName,
     );
+
+    const exercises = selectedTemplate.workout_exercises.map((we) => {
+      return {
+        id: we.exercise.id,
+        name: we.name,
+        order: we.order,
+        sets: we.sets.map((s) => ({
+          set_number: s.set_number,
+          prescribed_reps: s.prescribed_reps,
+          prescribed_intensity: s.prescribed_intensity,
+        })),
+      };
+    });
+
+    onCreateWorkout(workoutName, workoutDate.toISOString(), exercises, true);
+    console.log("📋 [UI] Template workout creation initiated");
     setSelectedTemplate(null);
     setSelectedExercises([]);
+    setWorkoutName("");
+    setWorkoutDate(new Date());
+    setShowWorkoutForm(false);
   };
 
   // creates workout and closes modal
   const handleCreateWorkout = () => {
     if (!workoutName.trim()) return;
-    onCreateWorkout(
+
+    console.log(
+      "💪 [UI] Creating custom workout:",
       workoutName,
-      workoutDate.toISOString(),
-      selectedExercises,
-      false,
+      "with",
+      selectedExercises.length,
+      "exercises",
     );
+
+    // Convert selected exercises to the proper format with sets
+    const exercises = selectedExercises.map((selectedExercise, index) => ({
+      id: selectedExercise.exercise.id,
+      name: selectedExercise.selectedTemplate.name,
+      order: index + 1,
+      sets: selectedExercise.selectedTemplate.sets.map((set: SetTemplate) => ({
+        set_number: set.set_number,
+        prescribed_reps: set.prescribed_reps,
+        prescribed_intensity: set.prescribed_intensity,
+      })),
+    }));
+
+    onCreateWorkout(workoutName, workoutDate.toISOString(), exercises, false);
+    console.log("💪 [UI] Custom workout creation initiated");
     setWorkoutName("");
     setWorkoutDate(new Date());
     setSelectedExercises([]);
@@ -198,14 +251,27 @@ function WorkoutModal({
   };
 
   // adds exercise to selected exercises
-  const handleExerciseSelect = (exercise: ExerciseTemplate) => {
-    setSelectedExercises([...selectedExercises, exercise]);
+  const handleExerciseSelect = (
+    exercise: ExerciseTemplate,
+    selectedTemplate: { id: string; name: string; sets: SetTemplate[] },
+  ) => {
+    console.log(
+      "🏋️ [UI] Exercise selected:",
+      exercise.name,
+      "with template:",
+      selectedTemplate.name,
+    );
+    setSelectedExercises([
+      ...selectedExercises,
+      { exercise, selectedTemplate },
+    ]);
   };
 
   // removes exercise from selected exercises
   const handleExerciseRemove = (exerciseId: string) => {
+    console.log("🏋️ [UI] Exercise removed:", exerciseId);
     setSelectedExercises(
-      selectedExercises.filter((ex) => ex.id !== exerciseId),
+      selectedExercises.filter((ex) => ex.exercise.id !== exerciseId),
     );
   };
 
@@ -266,19 +332,56 @@ function WorkoutModal({
 
         {!showWorkoutForm ? (
           <>
-            <View className="px-6 pt-4">
-              <TextInput
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search templates..."
-                className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-3 text-foreground dark:text-white mb-4"
-                placeholderTextColor="#9ca3af"
-              />
+            <View className="px-6 pt-6">
+              <Text className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                Workout Details
+              </Text>
+
+              <View className="mb-4">
+                <Text className="text-sm text-gray-600 dark:text-gray-300 mb-1">
+                  Workout Name
+                </Text>
+                <TextInput
+                  value={workoutName}
+                  onChangeText={setWorkoutName}
+                  placeholder="Enter workout name"
+                  className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-3 text-foreground dark:text-white"
+                  placeholderTextColor="#9ca3af"
+                />
+              </View>
+
+              <View className="mb-4">
+                <Text className="text-sm text-gray-600 dark:text-gray-300 mb-1">
+                  Date
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setTempDate(workoutDate);
+                    setShowDateModal(true);
+                  }}
+                  className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-800 dark:bg-zinc-900"
+                >
+                  <Text className="dark:text-white">
+                    {workoutDate.toLocaleDateString()}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                Choose Template
+              </Text>
+
+              <View className="mb-4">
+                <TextInput
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Search templates..."
+                  className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-3 text-foreground dark:text-white"
+                  placeholderTextColor="#9ca3af"
+                />
+              </View>
             </View>
 
-            <Text className="px-6 text-lg font-medium text-gray-700 dark:text-gray-300 mb-3">
-              Choose from templates
-            </Text>
             {/* Template Workouts */}
             <ScrollView className="flex-1 px-6">
               {templatesLoading ? (
@@ -317,7 +420,11 @@ function WorkoutModal({
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
-                  onPress={handleCreateNewWorkout}
+                  onPress={() => {
+                    setSelectedTemplate(null);
+                    setShowWorkoutForm(true);
+                    setWorkoutName("");
+                  }}
                   className="border-2 border-green-500 dark:border-green-700 rounded-lg p-4 items-center bg-transparent"
                 >
                   <Text className="text-green-500 dark:text-green-700 font-medium text-lg">
@@ -357,49 +464,6 @@ function WorkoutModal({
                   {workoutDate.toLocaleDateString()}
                 </Text>
               </TouchableOpacity>
-              <Modal
-                visible={showDateModal}
-                transparent={true}
-                animationType="slide"
-                onRequestClose={() => setShowDateModal(false)}
-              >
-                <View className="flex-1 justify-end bg-black/50">
-                  <View className="bg-white dark:bg-zinc-800 rounded-t-2xl p-6">
-                    <View className="flex-row justify-between items-center mb-4">
-                      <TouchableOpacity onPress={() => setShowDateModal(false)}>
-                        <Text className="text-blue-500 text-lg">Cancel</Text>
-                      </TouchableOpacity>
-                      <Text className="text-lg font-semibold dark:text-white">
-                        Select Date
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setWorkoutDate(tempDate);
-                          setShowDateModal(false);
-                        }}
-                      >
-                        <Text className="text-blue-500 text-lg font-semibold">
-                          Done
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                    <View className="w-full items-center">
-                      <DateTimePicker
-                        value={tempDate}
-                        mode="date"
-                        display="spinner"
-                        onChange={(_, selectedDate) => {
-                          if (selectedDate) {
-                            setTempDate(selectedDate);
-                          }
-                        }}
-                        minimumDate={new Date()}
-                        themeVariant={colorScheme === "dark" ? "dark" : "light"}
-                      />
-                    </View>
-                  </View>
-                </View>
-              </Modal>
             </View>
             {/* Exercise Selector */}
             <ExerciseSelector
@@ -420,6 +484,51 @@ function WorkoutModal({
             </View>
           </View>
         )}
+
+        {/* Date Picker Modal - Available for both template and custom workout views */}
+        <Modal
+          visible={showDateModal}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowDateModal(false)}
+        >
+          <View className="flex-1 justify-end bg-black/50">
+            <View className="bg-white dark:bg-zinc-800 rounded-t-2xl p-6">
+              <View className="flex-row justify-between items-center mb-4">
+                <TouchableOpacity onPress={() => setShowDateModal(false)}>
+                  <Text className="text-blue-500 text-lg">Cancel</Text>
+                </TouchableOpacity>
+                <Text className="text-lg font-semibold dark:text-white">
+                  Select Date
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setWorkoutDate(tempDate);
+                    setShowDateModal(false);
+                  }}
+                >
+                  <Text className="text-blue-500 text-lg font-semibold">
+                    Done
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View className="w-full items-center">
+                <DateTimePicker
+                  value={tempDate}
+                  mode="date"
+                  display="spinner"
+                  onChange={(_, selectedDate) => {
+                    if (selectedDate) {
+                      setTempDate(selectedDate);
+                    }
+                  }}
+                  minimumDate={new Date()}
+                  themeVariant={colorScheme === "dark" ? "dark" : "light"}
+                />
+              </View>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </Modal>
   );
@@ -437,8 +546,14 @@ export default function ProgramPage() {
     mutationFn: (body: {
       name: string;
       date: string;
-      athlete_id: string;
+      athlete_id: string | null;
       coach_id: string;
+      exercises: {
+        id: string;
+        name: string;
+        order: number;
+        sets: ExerciseFormSet[];
+      }[];
     }) => createWorkout(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workouts", athleteId] });
@@ -473,25 +588,29 @@ export default function ProgramPage() {
   const handleCreateWorkout = (
     name: string,
     date: string,
-    exercises: ExerciseTemplate[],
-    isTemplate: boolean,
+    exercises: {
+      id: string;
+      name: string;
+      order: number;
+      notes?: string;
+      sets: ExerciseFormSet[];
+    }[],
   ) => {
-    if (!name.trim() || !user?.id) return;
+    if (!name?.trim() || !user?.id || !athleteId) return;
 
-    if (isTemplate) {
-      // TODO: Implement template creation
-      return;
-    }
+    console.log("💪 [PARENT] Creating workout:", {
+      name,
+      date,
+      exercise_count: exercises.length,
+    });
 
-    const body = {
+    createWorkoutMutation.mutate({
       name,
       date,
       athlete_id: athleteId,
       coach_id: user.id,
       exercises,
-    };
-
-    createWorkoutMutation.mutate(body);
+    });
   };
 
   const handleModalClose = () => {

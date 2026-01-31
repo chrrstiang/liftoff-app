@@ -5,7 +5,6 @@ import {
   WorkoutExercise,
   WorkoutTemplate,
 } from "@/types/types";
-import { createExercise } from "./exercises";
 
 export async function fetchWorkoutById(workoutId: string) {
   const { data, error } = await supabase
@@ -15,6 +14,7 @@ export async function fetchWorkoutById(workoutId: string) {
       *,
       workout_exercises (
         id,
+        name:display_name,
         order,
         notes,
         exercise:exercises (
@@ -101,12 +101,23 @@ export async function createWorkout(workout: {
   athlete_id: string | null;
   coach_id: string;
   exercises: {
+    id: string;
     name: string;
     order: number;
+    notes?: string;
     sets: ExerciseFormSet[];
   }[];
 }) {
-  const { data, error } = await supabase
+  console.log("💪 [API] Creating workout:", {
+    name: workout.name,
+    date: workout.date,
+    athlete_id: workout.athlete_id,
+    exercise_count: workout.exercises.length,
+    is_template: workout.athlete_id === null,
+  });
+
+  // initialize new workout record
+  const { data: newWorkout, error: workoutError } = await supabase
     .from("workouts")
     .insert({
       name: workout.name,
@@ -117,24 +128,48 @@ export async function createWorkout(workout: {
     .select()
     .single();
 
-  if (error) throw error;
+  if (workoutError) throw workoutError;
 
+  console.log("💪 [API] Workout created successfully:", newWorkout.id);
+
+  let curr;
+  // create workout_exercise record for each exercise
   for (const exercise of workout.exercises) {
-    await createExercise({
-      name: exercise.name,
-      workout_id: data.id,
-      created_by: workout.coach_id,
-      order: exercise.order,
-      sets: exercise.sets,
-    });
+    curr = exercise;
+
+    const { data: newWorkoutExercise, error: workoutExerciseError } =
+      await supabase
+        .from("workout_exercises")
+        .insert({
+          workout_id: newWorkout.id,
+          exercise_id: curr.id,
+          display_name: exercise.name,
+          order: curr.order,
+          notes: curr.notes,
+        })
+        .select()
+        .single();
+
+    if (workoutExerciseError) throw workoutExerciseError;
+
+    const setsToInsert = exercise.sets.map((set) => ({
+      ...set,
+      workout_exercise_id: newWorkoutExercise.id,
+    }));
+
+    const { data: setRecords, error: setRecordError } = await supabase
+      .from("sets")
+      .insert(setsToInsert);
+
+    if (setRecordError) throw setRecordError;
   }
 
-  return data;
+  return newWorkout;
 }
 
 // used to fetch template workouts for workout creation
 export async function fetchTemplateWorkouts(userId: string) {
-  console.log("Fetching Workouts");
+  console.log("📋 [API] Fetching template workouts for coach:", userId);
   const { data, error } = await supabase
     .from("workouts")
     .select(
@@ -144,6 +179,7 @@ export async function fetchTemplateWorkouts(userId: string) {
       notes,
       workout_exercises (
       id,
+      name:display_name,
       order,
       notes,
       exercise:exercises (
@@ -164,6 +200,12 @@ export async function fetchTemplateWorkouts(userId: string) {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
+
+  console.log(
+    "📋 [API] Template workouts fetched:",
+    data?.length || 0,
+    "workouts",
+  );
 
   // sort workout_exercises by order
   data.forEach((workout) => {

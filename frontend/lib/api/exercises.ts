@@ -60,7 +60,7 @@ export async function createExercise(exerciseData: ExerciseFormData) {
 }
 
 export async function fetchExerciseTemplates(coachId: string) {
-  console.log("Fetching exercise templates for coach", coachId);
+  console.log("🏋️ [API] Fetching exercise templates for coach:", coachId);
 
   // Get exercises created by this coach that have templates
   const { data, error } = await supabase
@@ -95,7 +95,11 @@ export async function fetchExerciseTemplates(coachId: string) {
     });
   });
 
-  console.log("Exercise templates", JSON.stringify(data, null, 2));
+  console.log(
+    "🏋️ [API] Exercise templates fetched:",
+    data?.length || 0,
+    "exercises",
+  );
 
   return data as ExerciseTemplate[];
 }

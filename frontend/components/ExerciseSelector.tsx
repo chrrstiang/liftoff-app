@@ -7,14 +7,20 @@ import {
   FlatList,
 } from "react-native";
 import { useState } from "react";
-import { ExerciseTemplate } from "@/types/types";
+import { ExerciseTemplate, SetTemplate } from "@/types/types";
 import { fetchExerciseTemplates } from "@/lib/api/exercises";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface ExerciseSelectorProps {
-  selectedExercises: ExerciseTemplate[];
-  onExerciseSelect: (exercise: ExerciseTemplate) => void;
+  selectedExercises: {
+    exercise: ExerciseTemplate;
+    selectedTemplate: { id: string; name: string; sets: SetTemplate[] };
+  }[];
+  onExerciseSelect: (
+    exercise: ExerciseTemplate,
+    selectedTemplate: { id: string; name: string; sets: SetTemplate[] },
+  ) => void;
   onExerciseRemove: (exerciseId: string) => void;
 }
 
@@ -39,7 +45,9 @@ export default function ExerciseSelector({
   );
 
   const isExerciseSelected = (exerciseId: string) => {
-    return selectedExercises.some((exercise) => exercise.id === exerciseId);
+    return selectedExercises.some(
+      (selectedExercise) => selectedExercise.exercise.id === exerciseId,
+    );
   };
 
   const renderExerciseItem = ({ item }: { item: ExerciseTemplate }) => {
@@ -98,7 +106,7 @@ export default function ExerciseSelector({
                 key={template.id}
                 onPress={() => {
                   // Select the exercise with this template
-                  onExerciseSelect(item);
+                  onExerciseSelect(item, template);
                   setExpandedExercise(null);
                 }}
                 className="bg-gray-50 dark:bg-zinc-700 rounded-lg p-3 mb-2 border border-gray-200 dark:border-zinc-600"
@@ -152,16 +160,16 @@ export default function ExerciseSelector({
             Selected Exercises ({selectedExercises.length})
           </Text>
           <View className="flex flex-wrap gap-2">
-            {selectedExercises.map((exercise) => (
+            {selectedExercises.map((selectedExercise) => (
               <View
-                key={exercise.id}
+                key={selectedExercise.exercise.id}
                 className="bg-green-100 dark:bg-green-900 px-3 py-1 rounded-full flex-row items-center"
               >
                 <Text className="text-green-800 dark:text-green-200 text-sm font-medium">
-                  {exercise.name}
+                  {selectedExercise.selectedTemplate.name}
                 </Text>
                 <TouchableOpacity
-                  onPress={() => onExerciseRemove(exercise.id)}
+                  onPress={() => onExerciseRemove(selectedExercise.exercise.id)}
                   className="ml-2"
                 >
                   <Text className="text-green-600 dark:text-green-400 text-xs font-bold">

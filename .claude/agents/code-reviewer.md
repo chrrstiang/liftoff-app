@@ -35,7 +35,8 @@ Per-package — verify which side you're on before flagging:
 Also:
 - `RequestWithUser` imported with `import type`.
 - Backend formatting is an ESLint **error** (`printWidth: 100`) — but don't hand-review whitespace; just note if `npx eslint` would fail.
-- New e2e specs must be named `*.e2e-spec.ts` (the `.e2e.spec.ts` form silently never runs) and must call `useContainer(app.select(AppModule), { fallbackOnErrors: true })`.
+- New e2e specs should be named `*.e2e-spec.ts`, and must mirror `main.ts`: the same `ValidationPipe` options, `app.useGlobalFilters(new GlobalExceptionFilter())`, and `useContainer(app.select(AppModule), { fallbackOnErrors: true })`.
+- Multi-table writes must validate before the first write and compensate on failure — there's no transaction. Flag any new write sequence that can leave partial state without cleanup.
 - New Tailwind classes outside `app/` or `components/` won't be generated — the `content` globs don't cover them.
 - File naming: match the nearest sibling. This repo is inconsistent on purpose-by-accident; don't demand a global style.
 

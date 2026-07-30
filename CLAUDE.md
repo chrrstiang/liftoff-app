@@ -64,10 +64,11 @@ Feature-branch pushes skip e2e, so e2e breakage first surfaces at PR time. Run `
 - `docs/ARCHITECTURE.md` — auth flow, request lifecycle, API surface, known gaps
 - `docs/DB-SCHEMA.md` — inferred schema
 
-**Ignore `frontend/README.md` and `backend/README.md`.** Both are unmodified create-expo-app / NestJS boilerplate. They contain no project-specific information and the frontend one advertises a `reset-project` script that is broken (see `frontend/CLAUDE.md`). The root `README.md` is an accurate product pitch but has no setup instructions.
+**Ignore `frontend/README.md` and `backend/README.md`.** Both are unmodified create-expo-app / NestJS boilerplate with no project-specific information — the frontend one still documents a `reset-project` script that has since been removed. The root `README.md` is an accurate product pitch but has no setup instructions.
 
 ## Working norms
 
 - This is a solo student project in active development. Prefer finishing the flow at hand over broad refactors.
-- Several defects are **documented on purpose** rather than fixed — see the "Known defects" section of `docs/ARCHITECTURE.md`. Don't silently repair them as a side effect of unrelated work; each is a behavior change that deserves its own commit.
+- A few known limitations are **documented on purpose** rather than fixed — see "Known limitations" in `docs/ARCHITECTURE.md`. Don't silently change them as a side effect of unrelated work.
 - Don't add dependencies without asking. There is deliberately no state library, no API client, and no ORM yet.
+- All API errors share one shape: `{ statusCode, message, timestamp, path, method }`. `message` is an array for validation failures, a string otherwise.

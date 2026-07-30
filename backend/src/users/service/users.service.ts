@@ -40,10 +40,9 @@ export class UsersService {
       is_coach: dto.is_coach,
     };
 
-    if (dto.is_coach) {
-      await this.createProfile(coachData, 'coaches');
-    }
-
+    // Validate everything BEFORE writing anything. These writes span three tables
+    // and Supabase gives us no transaction here, so validating up front is what
+    // keeps the common failure cases from leaving a half-created profile behind.
     if (dto.is_athlete) {
       if (dto.division_id) {
         await this.validateDivision(dto.division_id, dto.federation_id);
@@ -52,13 +51,31 @@ export class UsersService {
       if (dto.weight_class_id) {
         await this.validateWeightClass(dto.weight_class_id, dto.federation_id, dto.gender);
       }
-      await this.createProfile(athleteData, 'athletes');
     }
 
-    const { error } = await this.supabase.from('users').update(userData).eq('id', user.id);
+    // A write can still fail for reasons we can't pre-check (constraint violation,
+    // dropped connection). Track what landed so we can compensate.
+    const insertedTables: string[] = [];
 
-    if (error) {
-      UsersService.handleSupabaseError(error, 'Failed to create user profile');
+    try {
+      if (dto.is_coach) {
+        await this.createProfile(coachData, 'coaches');
+        insertedTables.push('coaches');
+      }
+
+      if (dto.is_athlete) {
+        await this.createProfile(athleteData, 'athletes');
+        insertedTables.push('athletes');
+      }
+
+      const { error } = await this.supabase.from('users').update(userData).eq('id', user.id);
+
+      if (error) {
+        UsersService.handleSupabaseError(error, 'Failed to create user profile');
+      }
+    } catch (error) {
+      await this.rollbackInsertedProfiles(insertedTables, user.id);
+      throw error;
     }
   }
 
@@ -66,6 +83,33 @@ export class UsersService {
     const { error } = await this.supabase.from(table).insert(data);
     if (error) {
       UsersService.handleSupabaseError(error, `Failed to create ${table} profile`);
+    }
+  }
+
+  /** Best-effort compensation for a partially completed createUserProfile.
+   *
+   * This is not a transaction rollback — if a delete fails the row is simply
+   * orphaned, so failures are logged rather than thrown. Throwing here would
+   * replace the original error with a less useful one and hide the real cause.
+   *
+   * @param tables Tables that were successfully inserted into, in insertion order.
+   * @param userId The id of the user whose rows should be removed.
+   */
+  private async rollbackInsertedProfiles(tables: string[], userId: string) {
+    for (const table of [...tables].reverse()) {
+      try {
+        const { error } = await this.supabase.from(table).delete().eq('id', userId);
+        if (error) {
+          console.error(
+            `Rollback failed: could not remove ${table} row for user ${userId}: ${error.message}`,
+          );
+        }
+      } catch (rollbackError) {
+        console.error(
+          `Rollback threw while removing ${table} row for user ${userId}:`,
+          rollbackError,
+        );
+      }
     }
   }
 

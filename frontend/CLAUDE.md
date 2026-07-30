@@ -53,7 +53,7 @@ Four files must stay in sync; breaking any one makes styles silently stop applyi
 - `babel.config.js` — `jsxImportSource: "nativewind"` + the `nativewind/babel` preset
 - `nativewind-env.d.ts` — the type reference that makes `className` typecheck
 
-⚠️ **`content` globs cover only `./app/**` and `./components/**`.** Tailwind classes written anywhere else (`contexts/`, `lib/`) are never generated and will silently do nothing. Add the glob if you need styles outside those two directories.
+`content` globs cover `./app`, `./components`, `./contexts`, and `./lib`. **If you add a new top-level directory containing styled components, add its glob too** — classes outside the globs are silently never generated, which looks like a broken component rather than a config problem.
 
 ## State
 
@@ -104,6 +104,6 @@ The Supabase client is configured with AsyncStorage persistence, `autoRefreshTok
 
 ## Gotchas
 
-- **Never run `npm run reset-project`.** It points at `./scripts/reset-project.js`, which does not exist in this repo — and if it did, it would delete the contents of `app/`. It's leftover create-expo-app boilerplate.
 - `assets/images/` is still the default create-expo-app artwork, not real branding.
+- The create-expo-app `reset-project` script has been removed (it pointed at a missing file and would have deleted `app/`). Don't reintroduce it.
 - `README.md` in this directory is unmodified boilerplate — ignore it.

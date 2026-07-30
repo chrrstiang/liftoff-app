@@ -63,10 +63,12 @@ client fetch
   → Service               supabaseService.getClient() → query builder;
                           errors funnel through handleSupabaseError
   → Supabase (Postgres)   service-role key — RLS is bypassed
-  → error response        DEFAULT NEST SHAPE
+  → GlobalExceptionFilter { statusCode, message, timestamp, path, method }
 ```
 
-The last line is the surprise. `GlobalExceptionFilter` and `validationExceptionFactory` are both implemented, and would produce `{ statusCode, message, timestamp, path, method }` and constraint-specific exceptions respectively — but neither is registered in `src/main.ts`. They are referenced only by the two e2e specs that never execute. See "Known defects" below.
+Every error leaves through `GlobalExceptionFilter`, registered in `src/main.ts`. It reads `exception.getResponse()` rather than `exception.message`, which matters: for a `ValidationPipe` failure `exception.message` is only `"Bad Request Exception"`, so reading it would discard the per-field detail. As a result `message` is an **array** of field messages for validation errors and a **string** for manually thrown exceptions. Anything that isn't an `HttpException` is logged server-side and masked as a generic 500.
+
+`validationExceptionFactory` (+ `exception-mappings.ts`) is implemented but **deliberately not registered**: it inspects only `errors[0]`, so it would collapse a six-field validation failure into a single message. Enabling it is a product decision about error verbosity, not a fix.
 
 Because the service-role key bypasses RLS, **authorization is entirely an application-code concern.** `JwtAuthGuard` establishes *who* the caller is; nothing automatic constrains *what rows* they can touch. Every query must scope itself explicitly.
 
@@ -101,15 +103,17 @@ A single `users` row can be **both** athlete and coach — the `is_athlete` / `i
 
 `UsersService.createUserProfile` therefore:
 
-1. Inserts a `coaches` row if `is_coach` (`biography`, `years_of_experience`).
-2. If `is_athlete`, cross-validates before inserting:
+1. **Validates first, writes nothing.** If `is_athlete`:
    - `division_id` must belong to the given `federation_id`
    - `weight_class_id` must match both `federation_id` **and** `gender`
    - either check without a `federation_id` is a 400
-3. Inserts the `athletes` row.
-4. Updates the `users` row with the general fields.
+2. Inserts a `coaches` row if `is_coach`, then an `athletes` row if `is_athlete`, recording each success.
+3. Updates the `users` row with the general fields.
+4. If step 2 or 3 fails, deletes the rows recorded in step 2, in reverse order.
 
-These are **application-level** foreign-key checks — there's no guarantee the database enforces the same, so keep them when touching this path. Note the sequence isn't transactional: a failure at step 4 leaves the athlete/coach rows already inserted.
+These are **application-level** foreign-key checks — there's no guarantee the database enforces the same, so keep them when touching this path.
+
+**On atomicity:** the Supabase client offers no transaction, so this is validate-early plus compensating deletes, not a real rollback. Validation moved ahead of the writes because that's where the realistic failures live (a bad division used to insert a coach row before it was ever checked). The compensation covers the rest — constraint violations, dropped connections — on a best-effort basis: a failed delete is logged, never thrown, so the original error still surfaces. A genuine transaction would mean moving this into a Postgres function and calling it via RPC, which is the right move if this flow grows.
 
 See `docs/DB-SCHEMA.md` for tables and columns.
 
@@ -138,18 +142,16 @@ Only one of these is called by the frontend at all (`POST /users/profile`).
 
 ---
 
-## 6. Known defects
+## 6. Known limitations
 
-Documented deliberately rather than fixed — each is a behavior change deserving its own commit and review. Please don't repair them as a side effect of unrelated work.
+The defects previously listed here have been fixed (see §8). What remains is deliberate or unverified rather than broken:
 
-1. **Error-handling layers unregistered.** `GlobalExceptionFilter` and `validationExceptionFactory` are implemented but absent from `src/main.ts`. All error responses use default Nest shape. Wiring them changes every error response in the API.
-2. **Two e2e specs never run.** `jest-e2e.json` has `testRegex: ".e2e-spec.ts$"`, but `athlete-retrieve.e2e.spec.ts` and `athlete-update.e2e.spec.ts` use `.e2e.spec.ts`. Fix by renaming the files or widening the regex to `\.e2e[-.]spec\.ts$`.
-3. **…and they'd fail anyway.** Both `POST /auth/login`, a route that does not exist. They need rewriting against Supabase auth (as `users.e2e-spec.ts` does) before they can pass.
-4. **`test/helpers/authHelper.ts` is dead and wrong.** Never imported, and reads `SUPABASE_URL` / `SUPABASE_ANON_KEY` — names neither the app nor CI defines.
-5. **`users.name` vs `first_name`/`last_name`.** `select.queries.ts` allowlists `users.name` and `PUBLIC_PROFILE_QUERY` selects it, but every write path uses `first_name` / `last_name`. If the default `GET /athlete/profile/:id` fails on an unknown column, this is why. Needs checking against the live schema — `role` is likewise allowlisted but never written.
-6. **Frontend `reset-project` script is broken** — points at a missing `scripts/reset-project.js` and would delete `app/` if it existed.
-7. **Tailwind `content` globs omit `contexts/` and `lib/`**, so classes written there are silently never generated.
-8. **`createUserProfile` is not transactional** (see §4).
+1. **`validationExceptionFactory` is unregistered by choice.** It reports only `errors[0]`, so enabling it trades multi-field validation feedback for friendlier wording. Its mappings also reference properties no DTO has (`email`, `password`, `age`, `phone`) and state a 3–20 username length where the DTO says 3–30.
+2. **`users.email` and `users.role` are unverified.** Both are allowlisted for `?data=` queries but never written by the app, and `role` looks vestigial next to `is_athlete` / `is_coach`. They're excluded from the default `PUBLIC_PROFILE_QUERY` so it can't fail on a missing column, but an explicit `?data=users.role` may error against the live schema.
+3. **`athletes.team_id` and `athletes.coach_id` are allowlisted but never written** — placeholders for the unbuilt teams and roster features. There is no `teams` table referenced anywhere.
+4. **`createUserProfile` still isn't truly transactional** (see §4). Validate-early plus compensating deletes narrows the window; it doesn't close it.
+5. **`users.e2e-spec.ts` hardcodes remote UUIDs** for federation, division, and weight class, so it only runs against a project containing those exact rows. `athlete-retrieve.e2e-spec.ts` shows the portable alternative — look reference data up at runtime.
+6. **`PATCH /athlete/profile` was specced but never built.** `UpdateAthleteDto` captures the intended request shape — name-based `federation` / `division` / `weight_class` (e.g. `'IPF'`, `'Junior'`, `'66kg'`) rather than IDs, which would need resolving to IDs and cross-validating against gender and federation. The e2e spec that described this behavior was removed, since a test for unbuilt code only misleads. This is the design record for whoever builds it.
 
 ---
 
@@ -163,3 +165,24 @@ Not bugs — just not built yet. Useful for calibrating expectations.
 - **No deploy workflow.** CI validates; nothing ships.
 - **No `.env.example`** in either package, so env vars must be reverse-engineered from source.
 - **Coach features are entirely unbuilt** despite the scaffolding, and the three tab screens are stubs.
+
+---
+
+## 8. Fixed defects
+
+Kept as a record, because several of these changed observable behavior and a few produced non-obvious traps worth not re-introducing.
+
+| Was | Now |
+|---|---|
+| `GlobalExceptionFilter` implemented but never registered; errors used default Nest shape | Registered in `main.ts`. Also rewritten to read `exception.getResponse()` — the original read `exception.message`, which for validation errors is only `"Bad Request Exception"`, so registering it as written would have silently destroyed per-field validation detail. Pinned by `global-exception-filter.spec.ts`. |
+| Two e2e specs invisible to the runner (`.e2e.spec.ts` vs `testRegex: .e2e-spec.ts$`) | `testRegex` widened to `\.e2e[-.]spec\.ts$`; all three suites now run |
+| `athlete-retrieve` spec authenticated via `POST /auth/login`, a nonexistent route, against a hardcoded athlete row | Rewritten: Supabase `signUp` for the token, fixture user + athlete row created and torn down in place, reference data looked up at runtime |
+| `athlete-update` spec tested `PATCH /athlete/profile`, which does not exist | Deleted; intent preserved in §6.6 |
+| `test/helpers/authHelper.ts` dead code reading undefined env names (`SUPABASE_URL`, `SUPABASE_ANON_KEY`) | Deleted |
+| `select.queries.ts` selected `users.name`, a column nothing writes — likely breaking the default profile query | Uses `first_name`, `last_name`. `role` dropped from the default query but still allowlisted |
+| `createUserProfile` inserted a `coaches` row *before* validating athlete fields, and had no cleanup | Validates before any write; tracks inserts and compensates on failure |
+| `users.e2e-spec.ts` omitted `forbidNonWhitelisted` and the filter, so it tested a config production didn't use | Mirrors `main.ts` |
+| Frontend `reset-project` script pointed at a missing file and would have deleted `app/` | Removed from `package.json` |
+| Tailwind `content` globs omitted `contexts/` and `lib/` | Both added |
+
+Verified at the time of the change: backend lint, `tsc --noEmit`, `build`, and 33/33 unit tests pass; frontend lint and type-check pass. The e2e suites compile and load but **were not run** — they need live Supabase credentials, which CI supplies on PRs to `main`.

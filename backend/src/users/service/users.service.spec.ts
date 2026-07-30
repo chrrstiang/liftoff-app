@@ -5,9 +5,25 @@ import { SupabaseClient, User } from '@supabase/supabase-js';
 import { SupabaseService } from 'src/supabase/supabase.service';
 import { Gender } from '../dto/create-user.dto';
 
+/** The mocked query builder. Every method returns the same object, so `chain.insert`
+ * is the same jest.fn() as `supabase.from('athletes').insert` — this handle just makes
+ * it addressable without fighting SupabaseClient's types.
+ */
+interface MockChain {
+  from: jest.Mock;
+  insert: jest.Mock;
+  update: jest.Mock;
+  delete: jest.Mock;
+  select: jest.Mock;
+  eq: jest.Mock;
+  single: jest.Mock;
+  maybeSingle: jest.Mock;
+}
+
 describe('UsersService', () => {
   let service: UsersService;
   let supabase: jest.Mocked<SupabaseClient>;
+  let chain: MockChain;
 
   const mockUser = {
     id: 'test-user-id',
@@ -49,6 +65,7 @@ describe('UsersService', () => {
       from: jest.fn().mockReturnThis(),
       insert: jest.fn().mockReturnThis(),
       update: jest.fn().mockReturnThis(),
+      delete: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
       single: jest.fn().mockResolvedValue({
@@ -77,6 +94,7 @@ describe('UsersService', () => {
 
     service = module.get<UsersService>(UsersService);
     supabase = mockSupabaseClient;
+    chain = mockSupabaseClient as unknown as MockChain;
   });
 
   afterEach(() => {
@@ -141,6 +159,53 @@ describe('UsersService', () => {
       await expect(service.createUserProfile(mockCreateUserDto, mockUser as User)).rejects.toThrow(
         BadRequestException,
       );
+    });
+
+    it('should validate the division before writing anything', async () => {
+      // Both roles, so a coach row would be inserted before the athlete fields are
+      // ever checked if validation did not run first.
+      const bothRolesDto = {
+        ...mockCreateUserDto,
+        is_coach: true,
+        biography: 'Experienced coach',
+        years_of_experience: 5,
+      };
+      // No matching division row -> validateDivision rejects.
+      chain.single = jest.fn().mockResolvedValue({ data: null, error: null });
+
+      await expect(service.createUserProfile(bothRolesDto, mockUser as User)).rejects.toThrow(
+        BadRequestException,
+      );
+
+      // The point of the reorder: a bad division must not leave a coach row behind.
+      expect(chain.insert).not.toHaveBeenCalled();
+      expect(chain.update).not.toHaveBeenCalled();
+    });
+
+    it('should roll back the athlete row when the users update fails', async () => {
+      const error = { code: '23505', message: 'User update failed' };
+      chain.update = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({ error }),
+      });
+
+      await expect(service.createUserProfile(mockCreateUserDto, mockUser as User)).rejects.toThrow(
+        BadRequestException,
+      );
+
+      // delete() is only reachable from the rollback path.
+      expect(chain.delete).toHaveBeenCalled();
+      expect(chain.eq).toHaveBeenCalledWith('id', mockUser.id);
+    });
+
+    it('should not attempt a rollback when nothing was inserted', async () => {
+      const error = { code: '23505', message: 'Athlete creation failed' };
+      chain.insert = jest.fn().mockReturnValue({ error });
+
+      await expect(service.createUserProfile(mockCreateUserDto, mockUser as User)).rejects.toThrow(
+        BadRequestException,
+      );
+
+      expect(chain.delete).not.toHaveBeenCalled();
     });
   });
 

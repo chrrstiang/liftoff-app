@@ -23,17 +23,18 @@ Read `backend/CLAUDE.md` before starting. Reference implementations:
 
 ## E2E tests (only when the request genuinely needs the full stack)
 
-Before writing one, tell the user what it costs: **e2e hits the real remote Supabase project.** It creates real auth users, depends on hardcoded pre-existing UUIDs, and leaks orphaned records if a test fails mid-run. There is no local database to run against. Often a unit test is the right answer instead.
+Before writing one, tell the user what it costs: **e2e hits the real remote Supabase project.** It creates real auth users and leaks orphaned records if a test fails mid-run. There is no local database to run against, and it cannot be run without credentials. Often a unit test is the right answer instead.
 
 If proceeding, these are hard requirements:
 
-1. **Name the file `*.e2e-spec.ts`** — hyphen, not dot. `test/jest-e2e.json` has `testRegex: ".e2e-spec.ts$"`, so `*.e2e.spec.ts` files are silently never executed. Two specs in the repo are broken this exact way.
+1. **Name the file `*.e2e-spec.ts`** — hyphen. `testRegex` accepts both `.e2e-spec.ts` and `.e2e.spec.ts`, but hyphen is the convention.
 2. **Include `useContainer(app.select(AppModule), { fallbackOnErrors: true })`** in the bootstrap. Without it the DI-backed `@IsUnique` / `@ValueExists` validators fail.
-3. **Match `main.ts`'s pipe config** — `new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })` — or your test asserts against different behavior than production. Note `users.e2e-spec.ts` omits `forbidNonWhitelisted` and thus already drifts.
-4. **Do not register `GlobalExceptionFilter` or `validationExceptionFactory`** unless the test is specifically about them. They are *not* wired into the running app, so registering them in a test means asserting an error shape production never returns. This is exactly what makes the two broken specs misleading.
-5. **Authenticate via Supabase**, as `users.e2e-spec.ts` does (`supabase.auth.signUp()` then use the returned access token). Do **not** POST to `/auth/login` — no such route exists. Do not use `test/helpers/authHelper.ts`; it's dead code reading env var names nothing defines.
-6. **Clean up in `afterEach`** — delete from `athletes`, `coaches`, `users`. Generate unique emails (`test-${Date.now()}-${Math.random()}@…`) so reruns don't collide.
-7. Run: `cd backend && npm run test:e2e`
+3. **Mirror `main.ts` exactly** — `new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })` **and** `app.useGlobalFilters(new GlobalExceptionFilter())`. Both existing specs do this. Omitting the filter means asserting an error shape production doesn't return.
+4. **Know the error shape** you're asserting against: `{ statusCode, message, timestamp, path, method }`, where `message` is an **array** of per-field messages for validation failures and a **string** for manually thrown exceptions. Do **not** register `validationExceptionFactory` — it isn't wired into production, and it reports only the first error.
+5. **Authenticate via Supabase** — `supabase.auth.signUp()`, then use the returned session's access token. There is no `/auth/login` route.
+6. **Look reference data up at runtime** rather than hardcoding UUIDs. `athlete-retrieve.e2e-spec.ts` queries for a division and a matching weight class in `beforeAll`, which keeps the suite portable across Supabase projects; `users.e2e-spec.ts` hardcodes them and is the pattern to avoid.
+7. **Clean up what you create** — delete from `athletes`, `coaches`, `users`, then `supabase.auth.admin.deleteUser`. Generate unique emails so reruns don't collide.
+8. Run: `cd backend && npm run test:e2e`
 
 ## General
 

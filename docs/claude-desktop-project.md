@@ -68,9 +68,15 @@ main.ts calls useContainer(app.select(AppModule), { fallbackOnErrors: true }). A
 ValidationPipe runs whitelist + forbidNonWhitelisted, so any undeclared request field is
 a 400 and every new field needs a DTO change.
 
-IMPORTANT: a GlobalExceptionFilter and a validationExceptionFactory are both implemented
-but NEVER registered in main.ts. Error responses use default Nest shape. Don't assume the
-custom error envelope is live.
+Every error response has the shape { statusCode, message, timestamp, path, method }, via a
+GlobalExceptionFilter registered in main.ts. `message` is an ARRAY of per-field messages
+for validation failures and a string otherwise. Non-HttpException throws are masked as a
+generic 500. A validationExceptionFactory also exists but is deliberately NOT registered,
+because it reports only the first validation error.
+
+Writes spanning multiple tables (createUserProfile touches coaches, athletes, users) have
+no transaction available: the pattern is validate-everything-first, then track inserts and
+compensate with deletes on failure. Preserve that if you extend such a flow.
 
 ## Data model (reconstructed from code — no migrations exist in the repo)
 
@@ -272,7 +278,7 @@ e2e only on PRs to main.
 
 **Worth uploading to project knowledge** (from this repo):
 
-- `docs/ARCHITECTURE.md` — auth flow, request lifecycle, API surface, known defects
+- `docs/ARCHITECTURE.md` — auth flow, request lifecycle, API surface, known limitations
 - `docs/DB-SCHEMA.md` — the inferred schema
 - `CLAUDE.md`, `frontend/CLAUDE.md`, `backend/CLAUDE.md`
 

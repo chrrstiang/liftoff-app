@@ -24,6 +24,7 @@ import { SupabaseService } from '../../src/supabase/supabase.service';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { Server } from 'http';
 import { useContainer } from 'class-validator';
+import { GlobalExceptionFilter } from '../../src/common/filters/global-exception-filter';
 
 describe('UsersController (e2e)', () => {
   let app: INestApplication;
@@ -39,14 +40,18 @@ describe('UsersController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
-    useContainer(app.select(AppModule), { fallbackOnErrors: true });
 
+    // Mirror src/main.ts exactly, so these assertions describe production behavior.
+    useContainer(app.select(AppModule), { fallbackOnErrors: true });
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
+        forbidNonWhitelisted: true,
         transform: true,
       }),
     );
+    app.useGlobalFilters(new GlobalExceptionFilter());
+
     await app.init();
 
     supabaseService = moduleFixture.get<SupabaseService>(SupabaseService);

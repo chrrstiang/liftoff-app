@@ -34,5 +34,7 @@ Follow the existing `users` module rather than Nest CLI defaults. Read `backend/
 - Single quotes, `printWidth: 100`. Prettier violations are ESLint **errors**.
 - Match the naming of the nearest sibling files — this codebase is inconsistent (kebab-case files, PascalCase entities, mixed spec naming). Don't mass-rename.
 - **Do not copy `coach.controller.ts` / `coach.service.ts`** — they're unimplemented scaffolding returning string literals, with no guards.
-- If the endpoint reads a table via a caller-supplied field list, extend the allowlists in `common/types/select.queries.ts` deliberately — and never add `user_id`.
-- If you need an e2e spec, name it `*.e2e-spec.ts` (hyphen — the dot form is not matched by `testRegex` and silently never runs) and include `useContainer(app.select(AppModule), { fallbackOnErrors: true })` in the bootstrap or the async validators will fail.
+- If the endpoint reads a table via a caller-supplied field list, extend the allowlists in `common/types/select.queries.ts` deliberately — and never add `user_id`. Keep `PUBLIC_PROFILE_QUERY` restricted to columns that are definitely populated, since it's the default response and must not fail.
+- Errors are shaped by the globally registered `GlobalExceptionFilter`: `{ statusCode, message, timestamp, path, method }`. Just throw the appropriate Nest exception; don't format responses yourself.
+- If the endpoint writes to more than one table, follow `createUserProfile`: validate everything before the first write, then track inserts and compensate on failure. There is no transaction available.
+- If you need an e2e spec, name it `*.e2e-spec.ts` and mirror `main.ts` in the bootstrap — the `ValidationPipe` options, `app.useGlobalFilters(new GlobalExceptionFilter())`, and `useContainer(app.select(AppModule), { fallbackOnErrors: true })` (without which the async validators fail).

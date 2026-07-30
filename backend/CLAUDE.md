@@ -39,7 +39,7 @@ src/
     entities/         UserData.ts, AthleteData.ts, CoachData.ts
   common/
     exceptions/       missing-id.ts, not-unique.ts
-    filters/          global-exception-filter.ts        ← NOT registered, see below
+    filters/          global-exception-filter.ts        ← registered globally in main.ts
     types/            request.interface.ts, select.queries.ts
     validation/       decorators/ guards/ pipes/ validators/
 ```
@@ -61,18 +61,20 @@ Route Supabase errors through `handleSupabaseError` rather than throwing ad hoc.
 
 ## Validation and error handling
 
-Read this section before touching either. **Two of the three layers are written but never wired**, so reading the source tells you the wrong thing about runtime behavior.
-
-**Actually active** — `src/main.ts` registers exactly two things:
+`src/main.ts` registers three things:
 
 ```ts
 useContainer(app.select(AppModule), { fallbackOnErrors: true });
 app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+app.useGlobalFilters(new GlobalExceptionFilter());
 ```
 
 Consequences:
 - An undeclared body field is a **400**, not ignored. New request fields require a DTO change.
-- Errors return in **default Nest shape**.
+- **Every** error response has the shape `{ statusCode, message, timestamp, path, method }`.
+- Non-`HttpException` throws are logged server-side and masked as a generic 500, so internal details never reach the client.
+
+`message` is whichever is more informative: for `ValidationPipe` failures it's the **array** of per-field messages, for manually thrown exceptions it's the string. The filter reads `exception.getResponse()` rather than `exception.message` to achieve that — `exception.message` for a validation error is just `"Bad Request Exception"`, which is why the naive version of this filter silently destroys validation detail. `global-exception-filter.spec.ts` pins that behavior; don't "simplify" it back.
 
 **DTO validation** uses `class-validator`, including DB-backed async validators that inject `SupabaseService` via `ValidatorsModule`:
 
@@ -81,14 +83,19 @@ Consequences:
 
 The `useContainer` call above is *what makes that DI work*. **Any new e2e bootstrap must repeat it**, or these validators silently fail. DTOs inherit: `CreateUserDto` → `CreateAthleteDto` / `CreateCoachDto`; `UpdateUserDto extends PartialType(CreateUserDto)`.
 
-**Written but NOT registered** (verified — `main.ts` references neither, and the only imports are in the two e2e specs that never run):
-
-- `common/validation/pipes/exception-factory.ts` — `validationExceptionFactory`, which would map constraint keys like `username.isUnique` to specific exceptions via `exception-mappings.ts`
-- `common/filters/global-exception-filter.ts` — `GlobalExceptionFilter`, which would shape every error as `{ statusCode, message, timestamp, path, method }`
-
-Wiring these up is a real behavior change (it alters every error response and would break clients asserting on the current shape). Do it as its own deliberate commit, not as cleanup.
+**Deliberately NOT registered**: `common/validation/pipes/exception-factory.ts` (`validationExceptionFactory`) and its `exception-mappings.ts`. They map constraint keys like `username.isUnique` to friendlier single messages, but the factory only ever inspects `errors[0]` — so a form with six empty fields would report one error instead of six. Registering it is a deliberate product tradeoff, not a cleanup. The mappings also reference properties no DTO has (`email`, `password`, `age`, `phone`).
 
 Custom exceptions live in `common/exceptions/` with the suffix dropped from the filename: `missing-id.ts` → `MissingIdException extends NotFoundException`, `not-unique.ts` → `NotUniqueException extends BadRequestException`.
+
+## Writes that span tables
+
+`UsersService.createUserProfile` touches `coaches`, `athletes`, and `users`. There is **no transaction available** through the Supabase client, so the method is structured defensively and the order matters:
+
+1. All cross-field validation (division↔federation, weight-class↔federation↔gender) runs **before any write**.
+2. Inserts are tracked in `insertedTables` as they succeed.
+3. If a later step fails, `rollbackInsertedProfiles` deletes them in reverse order.
+
+Rollback is **best-effort**: failures there are logged, never thrown, so the original error still reaches the caller. Keep that property — throwing from rollback replaces the real cause with a misleading one. If you add a fourth write to this flow, add it to the tracked set too.
 
 ## The sparse-fieldset `?data=` pattern
 
@@ -110,12 +117,12 @@ Anything off-allowlist throws `BadRequestException`. `PUBLIC_PROFILE_QUERY` is t
 
 **E2E** — `npm run test:e2e`, config `test/jest-e2e.json`. Uses supertest against an in-process app (`app.getHttpServer()`), so no separate server process — **but it requires real Supabase credentials**, because `SupabaseService` throws at construction when env is missing.
 
-⚠️ **E2E is not hermetic. It mutates a shared live project.**
+⚠️ **E2E is not hermetic. It mutates a shared live project.** Both suites create real auth users via `supabase.auth.signUp()` and clean up afterward; a mid-test failure leaks orphaned records. Treat a local e2e run as a write to production data, and prefer letting CI run it.
 
-- `test/users/users.e2e-spec.ts` calls `supabase.auth.signUp()` per test and cleans up in `afterEach`. A mid-test failure leaks orphaned auth users.
-- It hardcodes remote UUIDs for federation, division, and weight class that must already exist in whatever project the credentials point at.
+Two things to follow when adding a spec:
 
-Treat a local e2e run as a write to production data, and prefer letting CI run it.
+- **Look reference data up at runtime.** `athlete-retrieve.e2e-spec.ts` queries for a division and a matching weight class in `beforeAll`, so it's portable across Supabase projects. `users.e2e-spec.ts` still hardcodes remote UUIDs — the older, more brittle pattern.
+- **Mirror `main.ts` exactly** — the same `ValidationPipe` options *and* `app.useGlobalFilters(new GlobalExceptionFilter())`. Both existing specs do. Drift here means asserting against an error shape production doesn't return.
 
 ## Conventions
 
@@ -139,10 +146,9 @@ Loaded via `ConfigModule.forRoot({ isGlobal: true })`. `SupabaseService` throws 
 ## Gotchas
 
 - **`npm run lint` is `eslint --fix` and rewrites your files.** Use `npx eslint "{src,apps,libs,test}/**/*.ts"` to check without mutating. Because CI runs the `--fix` form and discards the result, pure formatting violations *pass* CI and then reappear as local diff noise.
-- **E2E `testRegex` is `.e2e-spec.ts$`** (hyphen). `test/users/athlete/athlete-retrieve.e2e.spec.ts` and `athlete-update.e2e.spec.ts` use a **dot** and therefore never run. Name new e2e files `*.e2e-spec.ts`.
-- Those two files would also fail if enabled: they `POST /auth/login`, and no such route or `AuthController` exists.
-- `test/helpers/authHelper.ts` is dead code — never imported, and it reads `SUPABASE_URL` / `SUPABASE_ANON_KEY`, which neither the app nor CI defines.
+- **Name e2e files `*.e2e-spec.ts`.** `testRegex` is now `\.e2e[-.]spec\.ts$` so both hyphen and dot forms are picked up, but the hyphen form is the convention. (Two specs were silently never running before the regex was widened.)
 - **`coach.controller.ts` / `coach.service.ts` are unimplemented Nest CLI scaffolding.** The service returns string literals like `` `This action returns all users` `` and the routes have no guards. Not a pattern to imitate, and not working features.
-- `select.queries.ts` allowlists `users.name` and `PUBLIC_PROFILE_QUERY` selects `users (name, ...)`, but everything that *writes* the users table uses `first_name` / `last_name`. If the default `GET /athlete/profile/:id` errors on an unknown column, that's why. Confirm against the live schema before changing either side.
+- `VALID_TABLE_FIELDS.users` also allowlists `email` and `role`, neither of which the app ever writes. `role` in particular looks vestigial — superseded by `is_athlete` / `is_coach`. Both are opt-in via `?data=`; the default `PUBLIC_PROFILE_QUERY` deliberately omits them so it can't fail on a missing column. Verify against the live schema before relying on either.
 - File naming is genuinely inconsistent — `entities/` is PascalCase (`UserData.ts`) while everything else is kebab-case, and specs mix `users.controller.spec.ts` with `athlete-controller.spec.ts`. **Match the nearest sibling file** rather than inventing a house style or mass-renaming.
+- `PATCH /athlete/profile` does **not** exist, though `UpdateAthleteDto` (name-based `federation` / `division` / `weight_class`) is written and unused — it's the shape a future endpoint was meant to take. See `docs/ARCHITECTURE.md`.
 - `README.md` in this directory is unmodified NestJS boilerplate — ignore it.

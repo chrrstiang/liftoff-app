@@ -29,9 +29,10 @@ Extends Supabase's `auth.users`. The row is created by Supabase Auth on signup w
 | `date_of_birth` | date | ISO date string |
 | `is_athlete` | boolean | Independent of `is_coach` — both may be true |
 | `is_coach` | boolean | |
-| `email` | text | ⚠️ Allowlisted in `VALID_TABLE_FIELDS`, never written by app code — presumably mirrored from `auth.users` |
-| `role` | text | ⚠️ Allowlisted and selected, **never written**. Purpose unknown; may be vestigial, superseded by the two booleans |
-| `name` | ? | ⚠️ **Existence doubtful.** Allowlisted and selected by `PUBLIC_PROFILE_QUERY`, but every write path uses `first_name`/`last_name`. Either a stale leftover or an unpopulated column. See defect #5 in `docs/ARCHITECTURE.md` |
+| `email` | text | ⚠️ Allowlisted in `VALID_TABLE_FIELDS`, never written by app code — presumably mirrored from `auth.users`. Opt-in via `?data=` only |
+| `role` | text | ⚠️ Allowlisted, **never written**. Likely vestigial, superseded by `is_athlete` / `is_coach`. Removed from the default profile query so it can't break it; an explicit `?data=users.role` may still error |
+
+There is **no `name` column** in the app's model. `select.queries.ts` used to select one, which would have broken the default profile query; it now uses `first_name` and `last_name`.
 
 The five columns checked by `checkProfileCompletion` — `first_name`, `last_name`, `username`, `gender`, `date_of_birth` — are what gate app access.
 
@@ -150,5 +151,5 @@ supabase db dump --schema public > docs/schema.sql
 <!-- ── PASTE REAL SCHEMA BELOW ──────────────────────────────────────────
 Replace this block with actual table definitions. Once real, delete the
 "INFERRED" banner at the top of this file and the doubtful-column warnings
-above (users.name, users.role, athletes.team_id, athletes.coach_id).
+above (users.email, users.role, athletes.team_id, athletes.coach_id).
 ──────────────────────────────────────────────────────────────────────── -->

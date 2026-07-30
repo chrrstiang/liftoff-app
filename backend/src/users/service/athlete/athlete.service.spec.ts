@@ -68,43 +68,43 @@ describe('AthleteService - retrieveProfileDetails', () => {
   });
   it('should successfully pass the correct query to select all (individual)', async () => {
     await service.retrieveProfileDetails('anyrandomuuid', [
-      'users.name',
+      'users.first_name',
       'users.username',
       'weight_classes.name',
     ]);
     expect(supabase.from).toHaveBeenCalledWith('athletes');
     expect(supabase.from('athletes').select).toHaveBeenCalledWith(
-      'users (name, username), weight_classes (name)',
+      'users (first_name, username), weight_classes (name)',
     );
     expect(
-      supabase.from('athletes').select('users (name, username), weight_classes (name)').eq,
+      supabase.from('athletes').select('users (first_name, username), weight_classes (name)').eq,
     ).toHaveBeenCalledWith('id', 'anyrandomuuid');
     expect(
       supabase
         .from('athletes')
-        .select('users (name, username), weight_classes (name)')
+        .select('users (first_name, username), weight_classes (name)')
         .eq('id', 'anyrandomuuid').single,
     ).toHaveBeenCalled();
   });
   it('should successfully get rid of duplicate queries', async () => {
     await service.retrieveProfileDetails('anyrandomuuid', [
-      'users.name',
-      'users.name',
+      'users.first_name',
+      'users.first_name',
       'weight_classes.name',
       'weight_classes.name',
     ]);
     expect(supabase.from('athletes').select).toHaveBeenCalledWith(
-      'users (name), weight_classes (name)',
+      'users (first_name), weight_classes (name)',
     );
   });
   it('should successfully get rid of nested field due to full table query', async () => {
     await service.retrieveProfileDetails('anyrandomuuid', [
-      'users.name',
+      'users.first_name',
       'users.username',
       'weight_classes',
     ]);
     expect(supabase.from('athletes').select).toHaveBeenCalledWith(
-      'users (name, username), weight_classes (*)',
+      'users (first_name, username), weight_classes (*)',
     );
   });
   it('should fail due to invalid direct column (name)', async () => {
@@ -117,7 +117,7 @@ describe('AthleteService - retrieveProfileDetails', () => {
   });
   it('should fail due to invalid nested column (federation.horse)', async () => {
     const call = service.retrieveProfileDetails('anyrandomuuid', [
-      'users.name',
+      'users.first_name',
       'users.username',
       'federation.horse',
     ]);

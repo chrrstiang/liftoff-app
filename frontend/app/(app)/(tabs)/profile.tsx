@@ -1,16 +1,12 @@
-import { Button, Screen, Section, SheetRow, Text } from "@/components/ui";
+import { Avatar, Button, Screen, Section, SheetRow, Text } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
 import { updateUserAvatar, uploadAvatar } from "@/lib/api/storage";
 import { useTheme } from "@/theme/useTheme";
-import { Image } from "expo-image";
 import { Camera } from "lucide-react-native";
-import { cssInterop } from "nativewind";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 
 const STORAGE_BASE_URL = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/avatars/`;
-
-cssInterop(Image, { className: "style" });
 
 /** Athlete / Coach / both, from the two booleans the profile actually carries. */
 function roleLabel(isAthlete?: boolean, isCoach?: boolean) {
@@ -55,16 +51,13 @@ export default function ProfilePage() {
     <Screen scroll>
       <View className="items-center px-6 pt-8">
         <View className="relative">
-          <Image
-            source={
+          <Avatar
+            uri={
               profile?.avatar_url
-                ? { uri: STORAGE_BASE_URL + profile.avatar_url }
-                : require("@/assets/images/avatar-default.png")
+                ? STORAGE_BASE_URL + profile.avatar_url
+                : null
             }
-            className="h-28 w-28 rounded-pill"
-            placeholder={require("@/assets/images/avatar-default.png")}
-            contentFit="cover"
-            key={profile?.avatar_url}
+            size={112}
           />
           <Pressable
             accessibilityRole="button"

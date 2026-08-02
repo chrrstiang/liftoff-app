@@ -6,6 +6,7 @@
  * from drifting apart the way they had (`bg-violet-500 dark:bg-red-700` on a
  * single button).
  */
+export { Avatar, type AvatarProps } from "./Avatar";
 export { Button, type ButtonProps, type ButtonVariant } from "./Button";
 export { Chip, type ChipProps } from "./Chip";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";

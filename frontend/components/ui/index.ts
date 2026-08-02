@@ -9,6 +9,12 @@
 export { Avatar, type AvatarProps } from "./Avatar";
 export { Button, type ButtonProps, type ButtonVariant } from "./Button";
 export { Chip, type ChipProps } from "./Chip";
+export {
+  DataTable,
+  type DataColumn,
+  type DataTableProps,
+  type DataTableRow,
+} from "./DataTable";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export { Field, type FieldProps } from "./Field";
 export { Input, type InputProps } from "./Input";

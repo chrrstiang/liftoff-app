@@ -1,99 +1,89 @@
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  Alert,
-  KeyboardAvoidingView,
-  Keyboard,
-  TouchableWithoutFeedback,
-} from "react-native";
+import { Button, Input, Screen, Text } from "@/components/ui";
+import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "expo-router";
 import { useState } from "react";
-import { useAuth } from "@/contexts/AuthContext";
+import { Alert, Pressable, View } from "react-native";
 
 export default function SignUp() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const { signup } = useAuth();
 
   async function handleSignUp() {
+    setSubmitting(true);
     try {
       await signup(email, password);
+      // No manual navigation: the auth gate in app/_layout.tsx routes to
+      // create-profile once the session lands.
     } catch (error) {
       console.error("Signup failed:", error);
       Alert.alert(
         "Signup Failed",
         "Please check your credentials and try again.",
-        [{ text: "OK", style: "cancel" }]
+        [{ text: "OK", style: "cancel" }],
       );
+    } finally {
+      setSubmitting(false);
     }
   }
 
   return (
-    <KeyboardAvoidingView className="flex-1" behavior="padding">
-      <TouchableWithoutFeedback className="p-4" onPress={Keyboard.dismiss}>
-        <View className="flex-1 items-center justify-center bg-background dark:bg-zinc-950">
-          <Text className="text-2xl font-bold text-foreground dark:text-white">
-            Create Account
-          </Text>
-          <View className="w-full max-w-sm mt-8">
-            <View className="bg-card p-6 rounded-lg shadow-md">
-              <View className="mt-4">
-                <Text className="text-sm text-muted-foreground dark:text-gray-300">
-                  Email
-                </Text>
-                <TextInput
-                  className="h-10 border border-gray-300 rounded-md px-3 py-2 mt-1 dark:bg-zinc-900 dark:border-zinc-800 dark:text-white"
-                  placeholder="Enter your email"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="email-address"
-                  textContentType="emailAddress"
-                  value={email}
-                  onChangeText={setEmail}
-                />
-              </View>
-              <View className="mt-4">
-                <Text className="text-sm text-muted-foreground dark:text-gray-300">
-                  Password
-                </Text>
-                <TextInput
-                  className="h-10 border border-gray-300 rounded-md px-3 py-2 mt-1 dark:bg-zinc-900 dark:border-zinc-800 dark:text-white"
-                  placeholder="Enter your password"
-                  secureTextEntry={true}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  textContentType="password"
-                  value={password}
-                  onChangeText={setPassword}
-                />
-              </View>
-              <View className="mt-6">
-                <TouchableOpacity
-                  className="bg-violet-500 px-4 py-2 rounded-md pressed:bg-violet-600 dark:bg-violet-900 dark:pressed:bg-violet-700"
-                  onPress={handleSignUp}
-                >
-                  <Text className="text-center font-medium text-white">
-                    Sign Up
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <View className="mt-4 text-center flex flex-row justify-center">
-                <Text className="text-md text-muted-foreground dark:text-gray-300">
-                  Already have an account?{" "}
-                  <Link
-                    href="/login"
-                    className="text-violet-500 dark:text-violet-500 underline"
-                  >
-                    Sign in here
-                  </Link>
-                </Text>
-              </View>
-            </View>
-          </View>
+    <Screen scroll centered dismissKeyboard>
+      <View className="w-full max-w-sm self-center px-6 py-10">
+        <Text variant="display" tone="ink">
+          Get started
+        </Text>
+        <Text variant="body" tone="muted" className="mt-2">
+          Set up your account, then tell us how you lift.
+        </Text>
+
+        <View className="mt-10 gap-5">
+          <Input
+            label="Email"
+            placeholder="you@example.com"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            textContentType="emailAddress"
+            value={email}
+            onChangeText={setEmail}
+          />
+
+          <Input
+            label="Password"
+            placeholder="At least 8 characters"
+            hint="Use 8 or more characters."
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="newPassword"
+            value={password}
+            onChangeText={setPassword}
+          />
         </View>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+
+        <Button
+          label="Create account"
+          block
+          loading={submitting}
+          onPress={handleSignUp}
+          className="mt-8"
+        />
+
+        <View className="mt-6 flex-row justify-center gap-1">
+          <Text variant="body" tone="muted">
+            Already have an account?
+          </Text>
+          <Link href="/login" asChild>
+            <Pressable accessibilityRole="link" hitSlop={8}>
+              <Text variant="bodyStrong" tone="primary">
+                Sign in
+              </Text>
+            </Pressable>
+          </Link>
+        </View>
+      </View>
+    </Screen>
   );
 }

@@ -83,11 +83,31 @@ jobs:
           cache: "npm"
           cache-dependency-path: backend/package-lock.json
 
+      # E2E hits a real Supabase project — there is no local database to stand up.
+      # Without credentials every spec fails identically at SupabaseService construction,
+      # which turns this job into permanent red noise rather than a signal. Skip loudly
+      # instead. The `secrets` context is not available in a job-level `if`, so the
+      # check has to happen in a step.
+      - name: Check for Supabase credentials
+        id: creds
+        env:
+          SUPABASE_PROJECT_URL: ${{ secrets.SUPABASE_PROJECT_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          if [ -n "$SUPABASE_PROJECT_URL" ] && [ -n "$SUPABASE_SECRET_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=E2E skipped::Set the SUPABASE_PROJECT_URL and SUPABASE_SECRET_KEY repository secrets to run the e2e suite."
+          fi
+
       - name: Install backend dependencies
+        if: steps.creds.outputs.configured == 'true'
         working-directory: ./backend
         run: npm ci
 
       - name: Run backend e2e tests
+        if: steps.creds.outputs.configured == 'true'
         working-directory: ./backend
         run: npm run test:e2e
         env:

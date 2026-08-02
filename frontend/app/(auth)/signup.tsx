@@ -8,20 +8,18 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
 } from "react-native";
-import { Link, useRouter } from "expo-router";
+import { Link } from "expo-router";
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function SignUp() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const router = useRouter();
   const { signup } = useAuth();
 
   async function handleSignUp() {
     try {
       await signup(email, password);
-      router.push("/(app)");
     } catch (error) {
       console.error("Signup failed:", error);
       Alert.alert(
@@ -40,9 +38,7 @@ export default function SignUp() {
             Create Account
           </Text>
           <View className="w-full max-w-sm mt-8">
-            {/* Login form would go here */}
             <View className="bg-card p-6 rounded-lg shadow-md">
-              {/* Form fields would go here */}
               <View className="mt-4">
                 <Text className="text-sm text-muted-foreground dark:text-gray-300">
                   Email

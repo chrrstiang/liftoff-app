@@ -87,7 +87,7 @@ export default function CreateProfile() {
   const [selectedFederation, setSelectedFederation] =
     useState<Federation | null>(null);
   const [selectedDivision, setSelectedDivision] = useState<Division | null>(
-    null
+    null,
   );
   const [selectedWeightClass, setSelectedWeightClass] =
     useState<WeightClass | null>(null);
@@ -101,7 +101,7 @@ export default function CreateProfile() {
 
   // states for authentication
   const colorScheme = useColorScheme();
-  const { session, checkProfileCompletion, logout } = useAuth();
+  const { session, checkProfileCompletion, fetchProfile } = useAuth();
   const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
   const ROLES = {
@@ -234,7 +234,7 @@ export default function CreateProfile() {
       console.log("Profile created successfully!");
 
       if (session?.user?.id) {
-        console.log("Checking profile completion...");
+        await fetchProfile(session?.user?.id);
         await checkProfileCompletion(session?.user?.id);
       }
       router.replace("/(app)/(tabs)/home");
@@ -248,7 +248,7 @@ export default function CreateProfile() {
 
   const toggleRole = (role: string) => {
     setSelectedRoles((prev) =>
-      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
+      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role],
     );
   };
 
@@ -637,18 +637,6 @@ export default function CreateProfile() {
                     {isLoading ? "Saving..." : "Continue"}
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  className="bg-violet-500 h-14 rounded-lg justify-center dark:bg-red-700"
-                  onPress={async () => {
-                    await logout();
-                    router.replace("/login");
-                  }}
-                  disabled={isLoading || selectedRoles.length === 0}
-                >
-                  <Text className="text-center text-white font-semibold text-base">
-                    {isLoading ? "Saving..." : "Logout"}
-                  </Text>
-                </TouchableOpacity>
               </View>
             </View>
           </ScrollView>
@@ -715,7 +703,7 @@ function SelectionModal<T>({
                     item,
                     selectedItem
                       ? keyExtractor(selectedItem) === keyExtractor(item)
-                      : false
+                      : false,
                   )}
                 </TouchableOpacity>
               ))}

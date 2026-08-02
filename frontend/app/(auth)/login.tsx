@@ -8,20 +8,18 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
 } from "react-native";
-import { Link, useRouter } from "expo-router";
+import { Link } from "expo-router";
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const router = useRouter();
   const { login } = useAuth();
 
   async function handleSignIn() {
     try {
       await login(email, password);
-      router.push("/(app)");
     } catch (error) {
       console.error("Login failed:", error);
       Alert.alert(

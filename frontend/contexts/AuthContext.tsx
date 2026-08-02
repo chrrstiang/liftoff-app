@@ -33,14 +33,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // listens for deep link navigations
   useEffect(() => {
     if (url) {
-      console.log("Link detected:", url);
       handleDeepLink(url);
     }
   }, [url]);
-
-  useEffect(() => {
-    console.log("🔥 isAuthenticated state changed to:", isAuthenticated);
-  }, [isAuthenticated]);
 
   useEffect(() => {
     if (session?.user) {
@@ -69,16 +64,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    */
   const handleDeepLink = async (url: string) => {
     if (url === lastProcessedUrl) {
-      console.log("🔄 Same URL as before, skipping...");
       return;
     }
 
     lastProcessedUrl = url;
 
-    console.log("🔥 DEEP LINK HANDLER TRIGGERED");
-
     const { params } = QueryParams.getQueryParams(url);
     const { access_token, refresh_token } = params;
+
+    // Not an auth deep link — on web this fires for ordinary page URLs too.
+    if (!access_token || !refresh_token) {
+      return;
+    }
 
     const { data, error } = await supabase.auth.setSession({
       access_token,
@@ -88,7 +85,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) {
       console.error("Error setting session:", error);
     } else {
-      console.log("Session set successfully");
       setIsAuthenticated(true);
       setSession(data.session);
     }
@@ -129,7 +125,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!isComplete) {
         throw new Error("Missing profile fields");
       }
-      console.log("Profile is now complete!");
       setIsProfileComplete(isComplete);
     } catch (error) {
       console.error("Error checking profile completion:", error);
@@ -182,7 +177,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // logs out
   const logout = async () => {
-    console.log("🔥 LOGOUT TRIGGERED");
     const { error } = await supabase.auth.signOut();
 
     if (error) {

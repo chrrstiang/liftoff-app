@@ -6,22 +6,27 @@
  *   - runtime TS          (import)           -> navigation theme,
  *                                              placeholderTextColor, icon colors
  *
- * Direction: Uber's structural discipline wearing Claude's warm surfaces.
- * Coral owns every primary action so "coral means the action" stays learnable.
- * Calibrated plate colors are reserved for weight data and nothing else.
+ * Direction: Uber's structural discipline wearing warm surfaces.
+ * Deep green owns every primary action so "green means the action" stays
+ * learnable. Calibrated plate colors are reserved for weight data.
+ *
+ * The accent is deliberately NOT a terracotta/coral. Warm cream plus coral is
+ * the single most common generated aesthetic right now, and the point of the
+ * green is that LiftOff doesn't read as someone else's app.
  *
  * Add a color here, never inline a hex in a component.
  */
 
 /**
- * Light theme. Surfaces and text follow Claude's published palette.
+ * Light theme. Surfaces and text follow a warm cream palette.
  *
- * Coral is deliberately NOT Claude's #CC785C for anything text-bearing:
- * white on #CC785C is only 3.30:1 and coral-on-canvas only 3.11:1, both of
- * which fail WCAG AA for normal text. #A9583E (Claude's own `primary-active`)
- * reaches 5.06:1 under white labels and 4.77:1 as link text on canvas.
- * #CC785C is kept as `primaryAccent` for uses that only need 3:1 — hairline
- * borders, focus rings, and large marks.
+ * #104547 is a deep petrol green and enormously legible on cream — 10.15:1 as
+ * link text and 10.69:1 under white labels, comfortably past AA and close to
+ * AAA. That headroom is why it can carry both fills and text without a
+ * separate text-safe variant, which the previous coral needed.
+ *
+ * `primaryAccent` is a lighter step for uses that only need 3:1 — hairline
+ * borders, focus rings, large marks.
  */
 const light = {
   canvas: "#FAF9F5",
@@ -31,9 +36,9 @@ const light = {
   ink: "#141413",
   bodyText: "#3D3D3A",
   muted: "#6C6A64",
-  primary: "#A9583E",
-  primaryPressed: "#8F4A34",
-  primaryAccent: "#CC785C",
+  primary: "#104547",
+  primaryPressed: "#0A3133",
+  primaryAccent: "#2C7276",
   primaryDisabled: "#E6DFD8",
   onPrimary: "#FFFFFF",
   onDisabled: "#8E8B82",
@@ -42,9 +47,11 @@ const light = {
 /**
  * Dark theme: warm, never blue-black.
  *
- * The coral inverts. Against #181715 the lighter #CC785C is the accessible
- * one (5.49:1), and a coral fill takes ink-colored labels rather than white —
- * white on #CC785C would still be 3.30:1.
+ * The green has to invert, and by more than the coral did. #104547 is only
+ * 1.68:1 against #181715 — a near-invisible button — because a colour that
+ * dark has nowhere to go on a dark canvas. #468E91 holds the same 182° hue at
+ * a higher lightness and reaches 4.72:1, and its fill takes ink-colored
+ * labels rather than white.
  */
 const dark = {
   canvas: "#181715",
@@ -57,9 +64,9 @@ const dark = {
   ink: "#FAF9F5",
   bodyText: "#D6D3CC",
   muted: "#A09D96",
-  primary: "#CC785C",
-  primaryPressed: "#A9583E",
-  primaryAccent: "#E09B80",
+  primary: "#468E91",
+  primaryPressed: "#37767A",
+  primaryAccent: "#6FB3B6",
   primaryDisabled: "#3A342F",
   onPrimary: "#181715",
   onDisabled: "#6C6A64",
@@ -70,10 +77,15 @@ const dark = {
  * already read at a glance to see what's loaded.
  *
  * RESERVED FOR WEIGHT DATA. Use as small marks only: a leading bar, a dot, a
- * badge. Never as a large fill and never as a button background — `plate25`
- * sits close to the coral primary in hue, and the two must not be confusable.
- * Most of these have nowhere to appear until workout logging ships; the only
- * current use is the weight-class row.
+ * badge. Never as a large fill and never as a button background.
+ *
+ * ⚠️ Since the primary went green, `plate10` (#2E8B57) is the one to watch —
+ * it is 1.12:1 against the dark-mode primary, i.e. effectively the same colour.
+ * A green plate mark beside a green action button would be unreadable as two
+ * different things. Keep plate marks small and never adjacent to a primary
+ * button. The unused `success` (#5DB872) has the same problem and should be
+ * re-picked before anything uses it — "green means action" and "green means
+ * success" cannot both be true.
  */
 const plate = {
   25: "#C0392B",

@@ -507,7 +507,7 @@ export default function WorkoutDetails() {
         )}
       </View>
 
-      {/* No shadow: the coral fill against canvas carries the elevation. */}
+      {/* No shadow: the green fill against canvas carries the elevation. */}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Add exercise"

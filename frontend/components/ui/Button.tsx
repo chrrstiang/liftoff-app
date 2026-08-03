@@ -48,7 +48,7 @@ export function Button({
 }: ButtonProps) {
   const { colors } = useTheme();
   // Both block input, but they look different: a loading button is doing the
-  // work you asked for and stays coral, while a disabled one is unavailable.
+  // work you asked for and stays green, while a disabled one is unavailable.
   const isInert = disabled || loading;
 
   // A disabled button has to LOOK disabled. Previously `disabled` was set on

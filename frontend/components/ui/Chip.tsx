@@ -6,10 +6,10 @@ import { Text } from "./Text";
  * Pill toggle. One component for what were two duplicated implementations at
  * two different heights (gender at h-12, role at h-14).
  *
- * Selection is monochrome high-contrast (an ink fill) rather than coral. Coral
- * is reserved for actions, so if a selected chip were also coral the screen
+ * Selection is monochrome high-contrast (an ink fill) rather than green. Green
+ * is reserved for actions, so if a selected chip were also green the screen
  * would offer two competing "this is the important thing" signals. Uber's
- * maximum-contrast selection and Claude's coral action stay legible as two
+ * maximum-contrast selection and the green action stay legible as two
  * separate languages.
  *
  * Pill radius here is deliberate — it keeps a chip from reading as an input,

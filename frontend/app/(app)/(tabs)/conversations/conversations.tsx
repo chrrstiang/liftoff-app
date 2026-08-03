@@ -79,7 +79,7 @@ export default function ConversationsScreen() {
       >
         <View className="relative">
           <Avatar uri={item.avatar_url} />
-          {/* Ink rather than coral: an unread count is a marker, not an action. */}
+          {/* Ink rather than green: an unread count is a marker, not an action. */}
           {unread ? (
             <View className="absolute -right-1 -top-1 h-5 min-w-5 items-center justify-center rounded-pill bg-ink px-1 dark:bg-ink-dark">
               <Text variant="overline" tone="onInk">

@@ -332,7 +332,7 @@ function WorkoutModal({
             </View>
 
             {/* Template list. Selection is a monochrome fill plus a check, so it
-                can't be mistaken for the coral primary action below. */}
+                can't be mistaken for the green primary action below. */}
             <ScrollView className="mt-4 flex-1 px-6">
               {templatesLoading ? (
                 <View className="items-center py-10">

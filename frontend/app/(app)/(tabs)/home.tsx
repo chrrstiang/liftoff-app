@@ -70,7 +70,7 @@ export default function HomePage() {
             color={showNotifications ? colors.primary : colors.muted}
           />
           {/* Ink fill with canvas text, so the count stays legible in both
-              themes. Coral is reserved for actions and a badge isn't one. */}
+              themes. Green is reserved for actions and a badge isn't one. */}
           {requests && requests.length > 0 ? (
             <View className="absolute -right-1 -top-1 h-4 min-w-4 items-center justify-center rounded-pill bg-ink px-1 dark:bg-ink-dark">
               <Text variant="overline" tone="onInk">

@@ -1,12 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from 'src/app.module';
 import { GlobalExceptionFilter } from 'src/common/filters/global-exception-filter';
 import { useContainer } from 'class-validator';
 import { SupabaseService } from 'src/supabase/supabase.service';
-import { SupabaseClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { PUBLIC_PROFILE_QUERY } from 'src/common/types/select.queries';
 
 /** GET /athlete/profile/:id
@@ -18,6 +19,15 @@ import { PUBLIC_PROFILE_QUERY } from 'src/common/types/select.queries';
  * afterAll. Reference data (federations / divisions / weight_classes) is looked up
  * rather than hardcoded, so the suite is portable across projects — but those tables
  * must contain at least one usable federation.
+ *
+ * ⚠️ **Two clients, deliberately.** `supabase` is the app's service-role client and
+ * must never be signed in: supabase-js resolves the PostgREST Authorization header
+ * as `session?.access_token ?? supabaseKey`, so the moment a session exists on a
+ * client every query it makes runs as that *user* rather than as service_role.
+ * An earlier version of this fixture called signUp() on the shared client and then
+ * inserted, which ran the insert as the brand-new user and failed with
+ * "new row violates row-level security policy for table athletes". Sign-in happens
+ * on `authClient`, a throwaway instance, purely to mint a token.
  */
 describe('Athlete profile (GET) (e2e)', () => {
   let app: INestApplication<App>;
@@ -25,6 +35,12 @@ describe('Athlete profile (GET) (e2e)', () => {
 
   let athleteId: string;
   let token: string;
+
+  /** Set the instant the auth user exists, before any step that can throw, so
+   * afterAll can still tear it down if the fixture fails halfway. The previous
+   * version only assigned athleteId on full success, so a fixture that failed
+   * after createUser left an orphaned auth user behind on every run. */
+  let createdUserId: string | null = null;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -48,18 +64,33 @@ describe('Athlete profile (GET) (e2e)', () => {
 
     supabase = moduleFixture.get(SupabaseService).getClient();
 
-    const fixture = await createAthleteFixture(supabase);
+    const config = moduleFixture.get(ConfigService);
+    const url = config.get<string>('SUPABASE_PROJECT_URL')!;
+    const key = config.get<string>('SUPABASE_SECRET_KEY')!;
+
+    // Separate instance, so signing in here cannot downgrade `supabase`.
+    const authClient = createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const fixture = await createAthleteFixture(supabase, authClient, (id) => {
+      createdUserId = id;
+    });
     athleteId = fixture.athleteId;
     token = fixture.token;
   });
 
   afterAll(async () => {
-    if (athleteId) {
-      await supabase.from('athletes').delete().eq('id', athleteId);
-      await supabase.from('users').delete().eq('id', athleteId);
-      await supabase.auth.admin.deleteUser(athleteId);
+    // Keyed off createdUserId, not athleteId, so a fixture that threw partway
+    // still cleans up. Rows may not exist; deleting a missing row is a no-op.
+    if (createdUserId) {
+      await supabase.from('athletes').delete().eq('id', createdUserId);
+      await supabase.from('users').delete().eq('id', createdUserId);
+      await supabase.auth.admin.deleteUser(createdUserId);
     }
-    await app.close();
+    if (app) {
+      await app.close();
+    }
   });
 
   const get = (query: string) =>
@@ -159,7 +190,11 @@ describe('Athlete profile (GET) (e2e)', () => {
 /** Creates a confirmed auth user with a complete users row and an athletes row,
  * wired to real reference data so relational selects return actual values.
  */
-async function createAthleteFixture(supabase: SupabaseClient) {
+async function createAthleteFixture(
+  supabase: SupabaseClient,
+  authClient: SupabaseClient,
+  onUserCreated: (id: string) => void,
+) {
   // Find a federation that has both a division and a weight class.
   const { data: division, error: divisionError } = await supabase
     .from('divisions')
@@ -187,16 +222,37 @@ async function createAthleteFixture(supabase: SupabaseClient) {
   }
 
   const email = `athlete-retrieve-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
-  const { data: auth, error: signUpError } = await supabase.auth.signUp({
+  const password = 'TestPassword123!';
+
+  // admin.createUser rather than signUp: it is an admin endpoint, so it leaves no
+  // session on the client, and email_confirm removes the dependency on the
+  // project having email confirmation switched off.
+  const { data: created, error: createError } = await supabase.auth.admin.createUser({
     email,
-    password: 'TestPassword123!',
+    password,
+    email_confirm: true,
   });
 
-  if (signUpError || !auth.user || !auth.session) {
-    throw new Error(`Failed to create test user: ${signUpError?.message ?? 'no session returned'}`);
+  if (createError || !created.user) {
+    throw new Error(`Failed to create test user: ${createError?.message ?? 'no user returned'}`);
   }
 
-  const athleteId = auth.user.id;
+  const athleteId = created.user.id;
+
+  // Register for teardown before anything else can throw.
+  onUserCreated(athleteId);
+
+  // Token comes from the throwaway client, so `supabase` stays service_role.
+  const { data: auth, error: signInError } = await authClient.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (signInError || !auth.session) {
+    throw new Error(
+      `Failed to sign in test user: ${signInError?.message ?? 'no session returned'}`,
+    );
+  }
 
   // Gender must match the weight class, or the app-level cross-validation would
   // reject this combination on the write path.

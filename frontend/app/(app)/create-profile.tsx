@@ -1,35 +1,20 @@
 import {
-  View,
+  Button,
+  Chip,
+  Screen,
+  Section,
+  SelectSheet,
+  Sheet,
+  SheetInput,
+  SheetRow,
   Text,
-  TextInput,
-  TouchableOpacity,
-  Alert,
-  KeyboardAvoidingView,
-  Keyboard,
-  TouchableWithoutFeedback,
-  Platform,
-  ScrollView,
-  Modal,
-  useColorScheme,
-  StyleSheet,
-} from "react-native";
-import { useEffect, useState } from "react";
+} from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
-import DateTimePicker from "@react-native-community/datetimepicker";
 import { supabase } from "@/lib/supabase";
-import { Check } from "lucide-react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { router } from "expo-router";
-
-interface SelectionModalProps<T> {
-  visible: boolean;
-  onClose: () => void;
-  title: string;
-  items: T[];
-  selectedItem: T | null;
-  onSelect: (item: T) => void;
-  renderItem: (item: T, isSelected: boolean) => React.ReactNode;
-  keyExtractor: (item: T) => string | number;
-}
+import { useEffect, useState } from "react";
+import { Alert, useColorScheme, View } from "react-native";
 
 interface Federation {
   id: number;
@@ -63,6 +48,13 @@ interface Profile {
   is_coach: boolean;
   biography?: string;
   years_of_experience?: number;
+}
+
+/** Ages copy for a division, which may be open-ended at either end. */
+function divisionAges(div: Division) {
+  if (!div.minimum_age) return `Ages ${div.maximum_age} and under`;
+  if (!div.maximum_age) return `Ages ${div.minimum_age} and over`;
+  return `Ages ${div.minimum_age} – ${div.maximum_age}`;
 }
 
 export default function CreateProfile() {
@@ -252,465 +244,223 @@ export default function CreateProfile() {
     );
   };
 
+  const isAthlete = selectedRoles.includes(ROLES.ATHLETE);
+  const isCoach = selectedRoles.includes(ROLES.COACH);
+
   return (
-    <KeyboardAvoidingView
-      className="flex-1"
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <TouchableWithoutFeedback
-        onPress={() => {
-          Keyboard.dismiss();
-        }}
-        accessible={false}
-      >
-        <View className="flex-1 bg-background dark:bg-zinc-950">
-          <ScrollView
-            contentContainerStyle={styles.container}
-            keyboardShouldPersistTaps="handled"
-          >
-            <View className="p-6 w-full max-w-md mx-auto">
-              <Text className="text-2xl font-bold text-center text-foreground dark:text-white mb-2">
-                Complete Your Profile
-              </Text>
-              <Text className="text-center text-muted-foreground dark:text-gray-300 mb-8">
-                Tell us a bit about yourself
-              </Text>
+    <Screen scroll centered dismissKeyboard>
+      <View className="w-full max-w-md self-center px-6 py-10">
+        <Text variant="title" tone="ink">
+          Complete your profile
+        </Text>
+        <Text variant="body" tone="muted" className="mt-2">
+          Tell us a bit about yourself.
+        </Text>
 
-              <View className="space-y-4 w-full">
-                {/* First Name */}
-                <View>
-                  <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-1">
-                    First Name
-                  </Text>
-                  <TextInput
-                    className="h-12 border border-gray-300 rounded-lg px-4 dark:bg-zinc-900 dark:border-zinc-800 dark:text-white"
-                    placeholder="John"
-                    value={firstName}
-                    onChangeText={setFirstName}
-                  />
-                </View>
+        <Section label="General" className="mt-8">
+          <SheetInput
+            label="First name"
+            placeholder="John"
+            value={firstName}
+            onChangeText={setFirstName}
+          />
+          <SheetInput
+            label="Last name"
+            placeholder="Doe"
+            value={lastName}
+            onChangeText={setLastName}
+          />
+          <SheetInput
+            label="Username"
+            placeholder="johndoe"
+            autoCapitalize="none"
+            value={username}
+            onChangeText={setUsername}
+          />
+          <SheetRow
+            label="Date of birth"
+            value={dateOfBirth.toLocaleDateString()}
+            numeric
+            chevron
+            onPress={() => {
+              setTempDate(dateOfBirth);
+              setShowDateModal(true);
+            }}
+          />
+        </Section>
 
-                {/* Last Name */}
-                <View>
-                  <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-1">
-                    Last Name
-                  </Text>
-                  <TextInput
-                    className="h-12 border border-gray-300 rounded-lg px-4 dark:bg-zinc-900 dark:border-zinc-800 dark:text-white"
-                    placeholder="Doe"
-                    value={lastName}
-                    onChangeText={setLastName}
-                  />
-                </View>
-
-                {/* Username */}
-                <View>
-                  <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-1">
-                    Username
-                  </Text>
-                  <TextInput
-                    className="h-12 border border-gray-300 rounded-lg px-4 dark:bg-zinc-900 dark:border-zinc-800 dark:text-white"
-                    placeholder="johndoe"
-                    autoCapitalize="none"
-                    value={username}
-                    onChangeText={setUsername}
-                  />
-                </View>
-
-                {/* Gender */}
-                <View>
-                  <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-1">
-                    Gender
-                  </Text>
-                  <View className="flex-row space-x-2">
-                    {["Male", "Female", "Other"].map((option) => (
-                      <TouchableOpacity
-                        key={option}
-                        className={`flex-1 h-12 items-center justify-center rounded-lg border ${
-                          gender === option
-                            ? "bg-violet-500 border-violet-500"
-                            : "border-gray-300 dark:border-zinc-700"
-                        }`}
-                        onPress={() => setGender(option)}
-                      >
-                        <Text
-                          className={`font-medium ${
-                            gender === option
-                              ? "text-white"
-                              : "text-foreground dark:text-gray-200"
-                          }`}
-                        >
-                          {option}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-
-                {/* Date of Birth */}
-                <View>
-                  <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-1">
-                    Date of Birth
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setTempDate(dateOfBirth);
-                      setShowDateModal(true);
-                    }}
-                    className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-800 dark:bg-zinc-900"
-                  >
-                    <Text className="dark:text-white">
-                      {dateOfBirth.toLocaleDateString()}
-                    </Text>
-                  </TouchableOpacity>
-                  <Modal
-                    visible={showDateModal}
-                    transparent={true}
-                    animationType="slide"
-                    onRequestClose={() => setShowDateModal(false)}
-                  >
-                    <View className="flex-1 justify-end bg-black/50">
-                      <View className="bg-white dark:bg-zinc-800 rounded-t-2xl p-6">
-                        <View className="flex-row justify-between items-center mb-4">
-                          <TouchableOpacity
-                            onPress={() => setShowDateModal(false)}
-                          >
-                            <Text className="text-blue-500 text-lg">
-                              Cancel
-                            </Text>
-                          </TouchableOpacity>
-                          <Text className="text-lg font-semibold dark:text-white">
-                            Select Date
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => {
-                              setDateOfBirth(tempDate);
-                              setShowDateModal(false);
-                            }}
-                          >
-                            <Text className="text-blue-500 text-lg font-semibold">
-                              Done
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                        <View className="w-full items-center">
-                          <DateTimePicker
-                            value={tempDate}
-                            mode="date"
-                            display="spinner"
-                            onChange={(_, selectedDate) => {
-                              if (selectedDate) {
-                                setTempDate(selectedDate);
-                              }
-                            }}
-                            maximumDate={new Date()}
-                            themeVariant={
-                              colorScheme === "dark" ? "dark" : "light"
-                            }
-                          />
-                        </View>
-                      </View>
-                    </View>
-                  </Modal>
-                </View>
-              </View>
-
-              <View className="space-y-8">
-                {/* Role Selection */}
-                <View>
-                  <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-3">
-                    I am a (select all that apply)
-                  </Text>
-                  <View className="flex-row space-x-3">
-                    {Object.values(ROLES).map((role) => (
-                      <TouchableOpacity
-                        key={role}
-                        onPress={() => toggleRole(role)}
-                        className={`flex-1 h-14 items-center justify-center rounded-lg border ${
-                          selectedRoles.includes(role)
-                            ? "bg-violet-500 border-violet-500"
-                            : "border-gray-300 dark:border-zinc-700"
-                        }`}
-                      >
-                        <Text
-                          className={`font-medium ${
-                            selectedRoles.includes(role)
-                              ? "text-white"
-                              : "text-foreground dark:text-gray-200"
-                          }`}
-                        >
-                          {role}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-                {/* Athlete Specific Fields */}
-                {selectedRoles.includes(ROLES.ATHLETE) && (
-                  <View className="my-2">
-                    <Text className="text-lg font-semibold dark:text-white">
-                      Athlete Details
-                    </Text>
-                    <View className="my-2">
-                      <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-1">
-                        Federation
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setSelectedFederation(selectedFederation);
-                          setShowFederationModal(true);
-                        }}
-                        className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-800 dark:bg-zinc-900"
-                      >
-                        <Text
-                          className={`dark:text-white ${selectedFederation ? "text-foreground dark:text-gray-200" : "text-muted-foreground dark:text-gray-300"}`}
-                        >
-                          {selectedFederation?.name || "Select Federation..."}
-                        </Text>
-                      </TouchableOpacity>
-                      <SelectionModal
-                        visible={showFederationModal}
-                        onClose={() => setShowFederationModal(false)}
-                        title="Select Federation"
-                        items={federations}
-                        selectedItem={selectedFederation}
-                        onSelect={(fed) => setSelectedFederation(fed)}
-                        keyExtractor={(fed) => fed.id}
-                        renderItem={(fed, isSelected) => (
-                          <>
-                            <View className="flex-row justify-between items-center">
-                              <Text
-                                className={`text-base ${
-                                  isSelected
-                                    ? "text-violet-600 dark:text-violet-400 font-medium"
-                                    : "text-gray-800 dark:text-gray-200"
-                                }`}
-                              >
-                                {fed.name}
-                              </Text>
-                              {isSelected && (
-                                <Check size={18} color="#9D79BC" />
-                              )}
-                            </View>
-                            <Text className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                              {fed.code}
-                            </Text>
-                          </>
-                        )}
-                      />
-                      <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-1">
-                        Division
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setSelectedDivision(selectedDivision);
-                          setShowDivisionModal(true);
-                        }}
-                        className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-800 dark:bg-zinc-900"
-                      >
-                        <Text
-                          className={`dark:text-white ${selectedDivision ? "text-foreground dark:text-gray-200" : "text-muted-foreground dark:text-gray-300"}`}
-                        >
-                          {selectedDivision?.name || "Select Division..."}
-                        </Text>
-                      </TouchableOpacity>
-                      <SelectionModal
-                        visible={showDivisionModal}
-                        onClose={() => setShowDivisionModal(false)}
-                        title="Select Division"
-                        items={divisions}
-                        selectedItem={selectedDivision}
-                        onSelect={(div) => setSelectedDivision(div)}
-                        keyExtractor={(div) => div.id}
-                        renderItem={(div, isSelected) => (
-                          <>
-                            <View className="flex-row justify-between items-center">
-                              <Text
-                                className={`text-base ${
-                                  isSelected
-                                    ? "text-violet-600 dark:text-violet-400 font-medium"
-                                    : "text-gray-800 dark:text-gray-200"
-                                }`}
-                              >
-                                {div.name}
-                              </Text>
-                              {isSelected && (
-                                <Check size={18} color="#9D79BC" />
-                              )}
-                            </View>
-                            <Text className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                              Ages{" "}
-                              {!div.minimum_age
-                                ? `${div.maximum_age} and under`
-                                : !div.maximum_age
-                                  ? `${div.minimum_age} and over`
-                                  : `${div.minimum_age} - ${div.maximum_age}`}
-                            </Text>
-                          </>
-                        )}
-                      />
-                      <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-1">
-                        Weight Class (kg)
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setSelectedWeightClass(selectedWeightClass);
-                          setShowWeightClassModal(true);
-                        }}
-                        className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-800 dark:bg-zinc-900"
-                      >
-                        <Text
-                          className={`dark:text-white ${selectedWeightClass ? "text-foreground dark:text-gray-200" : "text-muted-foreground dark:text-gray-300"}`}
-                        >
-                          {selectedWeightClass?.name ||
-                            "Select Weight Class..."}
-                        </Text>
-                      </TouchableOpacity>
-                      <SelectionModal
-                        visible={showWeightClassModal}
-                        onClose={() => setShowWeightClassModal(false)}
-                        title="Select Weight Class"
-                        items={weightClasses}
-                        selectedItem={selectedWeightClass}
-                        onSelect={(wc) => setSelectedWeightClass(wc)}
-                        keyExtractor={(wc) => wc.id}
-                        renderItem={(wc, isSelected) => (
-                          <View className="flex-row justify-between items-center">
-                            <Text
-                              className={`text-base ${
-                                isSelected
-                                  ? "text-violet-600 dark:text-violet-400 font-medium"
-                                  : "text-gray-800 dark:text-gray-200"
-                              }`}
-                            >
-                              {wc.name} kg
-                            </Text>
-                            {isSelected && <Check size={18} color="#9D79BC" />}
-                          </View>
-                        )}
-                      />
-                    </View>
-                  </View>
-                )}
-                {/* Coach Specific Fields */}
-                {selectedRoles.includes(ROLES.COACH) && (
-                  <View className="space-y-4">
-                    <Text className="text-lg font-semibold dark:text-white">
-                      Coach Details
-                    </Text>
-                    <View>
-                      <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-1">
-                        Biography (maximum 500 characters)
-                      </Text>
-                      <TextInput
-                        className="h-24 border border-gray-300 rounded-lg px-4 dark:bg-zinc-900 dark:border-zinc-800 dark:text-white"
-                        placeholder="Raw powerlifting coach in the MA area..."
-                        keyboardType="default"
-                        multiline={true}
-                        numberOfLines={4}
-                        maxLength={500}
-                        value={biography}
-                        onChangeText={setBiography}
-                      />
-                    </View>
-                    <View>
-                      <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-1">
-                        Years of Experience
-                      </Text>
-                      <TextInput
-                        className="h-12 border border-gray-300 rounded-lg px-4 dark:bg-zinc-900 dark:border-zinc-800 dark:text-white"
-                        placeholder="e.g., 5"
-                        keyboardType="numeric"
-                        value={yearsOfExperience}
-                        onChangeText={setYearsOfExperience}
-                      />
-                    </View>
-                  </View>
-                )}
-                {/* Save Button */}
-                <TouchableOpacity
-                  className="bg-violet-500 h-14 rounded-lg justify-center dark:bg-violet-700"
-                  onPress={handleSubmit}
-                  disabled={isLoading || selectedRoles.length === 0}
-                >
-                  <Text className="text-center text-white font-semibold text-base">
-                    {isLoading ? "Saving..." : "Continue"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </ScrollView>
-        </View>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    justifyContent: "center",
-  },
-});
-
-function SelectionModal<T>({
-  visible,
-  onClose,
-  title,
-  items,
-  selectedItem,
-  onSelect,
-  renderItem,
-  keyExtractor,
-}: SelectionModalProps<T>) {
-  return (
-    <Modal
-      visible={visible}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <View className="flex-1 justify-end bg-black/50">
-        <View className="bg-white dark:bg-zinc-800 rounded-t-2xl p-6">
-          <View className="flex-row justify-between items-center mb-4">
-            <TouchableOpacity onPress={onClose}>
-              <Text className="text-blue-500 text-lg">Cancel</Text>
-            </TouchableOpacity>
-            <Text className="text-lg font-semibold dark:text-white">
-              {title}
-            </Text>
-            <TouchableOpacity onPress={onClose}>
-              <Text className="text-blue-500 text-lg font-semibold">Done</Text>
-            </TouchableOpacity>
+        <Section label="Gender" className="mt-8">
+          <View className="flex-row gap-2 py-3">
+            {["Male", "Female", "Other"].map((option) => (
+              <Chip
+                key={option}
+                label={option}
+                selected={gender === option}
+                onPress={() => setGender(option)}
+                className="flex-1"
+              />
+            ))}
           </View>
-          <View className="w-full mt-2 border-t border-gray-200 dark:border-zinc-700">
-            <ScrollView
-              className="max-h-64"
-              showsVerticalScrollIndicator={true}
-            >
-              {items.map((item) => (
-                <TouchableOpacity
-                  key={keyExtractor(item)}
-                  className={`py-3 px-4 border-b border-gray-100 dark:border-zinc-700 ${
-                    selectedItem &&
-                    keyExtractor(selectedItem) === keyExtractor(item)
-                      ? "bg-blue-50 dark:bg-violet-900/20"
-                      : "bg-white dark:bg-zinc-800"
-                  }`}
-                  onPress={() => onSelect(item)}
-                >
-                  {renderItem(
-                    item,
-                    selectedItem
-                      ? keyExtractor(selectedItem) === keyExtractor(item)
-                      : false,
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+        </Section>
+
+        <Section label="I am a" className="mt-8">
+          <View className="flex-row gap-3 py-3">
+            {Object.values(ROLES).map((role) => (
+              <Chip
+                key={role}
+                label={role}
+                size="lg"
+                selected={selectedRoles.includes(role)}
+                onPress={() => toggleRole(role)}
+                className="flex-1"
+              />
+            ))}
           </View>
-        </View>
+        </Section>
+
+        {isAthlete ? (
+          <Section label="Competing" className="mt-8">
+            <SheetRow
+              label="Federation"
+              value={selectedFederation?.name}
+              placeholder="Select"
+              chevron
+              onPress={() => setShowFederationModal(true)}
+            />
+            <SheetRow
+              label="Division"
+              value={selectedDivision?.name}
+              placeholder={selectedFederation ? "Select" : "Pick a federation"}
+              chevron
+              disabled={!selectedFederation}
+              onPress={() => setShowDivisionModal(true)}
+            />
+            <SheetRow
+              label="Weight class"
+              value={
+                selectedWeightClass ? `${selectedWeightClass.name} kg` : null
+              }
+              placeholder={
+                !selectedFederation
+                  ? "Pick a federation"
+                  : !gender
+                    ? "Pick a gender"
+                    : "Select"
+              }
+              numeric
+              chevron
+              disabled={!selectedFederation || !gender}
+              onPress={() => setShowWeightClassModal(true)}
+            />
+          </Section>
+        ) : null}
+
+        {isCoach ? (
+          <Section label="Coaching" className="mt-8">
+            <SheetInput
+              label="Biography"
+              placeholder="Raw powerlifting coach in the MA area..."
+              multiline
+              numberOfLines={4}
+              maxLength={500}
+              value={biography}
+              onChangeText={setBiography}
+            />
+            <SheetInput
+              label="Years of experience"
+              placeholder="5"
+              keyboardType="numeric"
+              numeric
+              value={yearsOfExperience}
+              onChangeText={setYearsOfExperience}
+            />
+          </Section>
+        ) : null}
+
+        <Button
+          label="Continue"
+          block
+          loading={isLoading}
+          disabled={isLoading || selectedRoles.length === 0}
+          onPress={handleSubmit}
+          className="mt-10"
+        />
       </View>
-    </Modal>
+
+      {/* DateTimePicker is a native view and cannot take the palette; it is
+          wrapped in the themed sheet so at least its chrome matches. tempDate
+          keeps the staged-until-Done semantics the original already had here. */}
+      <Sheet
+        visible={showDateModal}
+        title="Date of birth"
+        onCancel={() => setShowDateModal(false)}
+        onDone={() => {
+          setDateOfBirth(tempDate);
+          setShowDateModal(false);
+        }}
+      >
+        <View className="w-full items-center">
+          <DateTimePicker
+            value={tempDate}
+            mode="date"
+            display="spinner"
+            onChange={(_, selectedDate) => {
+              if (selectedDate) {
+                setTempDate(selectedDate);
+              }
+            }}
+            maximumDate={new Date()}
+            themeVariant={colorScheme === "dark" ? "dark" : "light"}
+          />
+        </View>
+      </Sheet>
+
+      <SelectSheet
+        visible={showFederationModal}
+        title="Federation"
+        items={federations}
+        selected={selectedFederation}
+        keyExtractor={(fed) => String(fed.id)}
+        renderLabel={(fed) => ({ title: fed.name, subtitle: fed.code })}
+        onCommit={(fed) => {
+          setSelectedFederation(fed);
+          setShowFederationModal(false);
+        }}
+        onCancel={() => setShowFederationModal(false)}
+      />
+
+      <SelectSheet
+        visible={showDivisionModal}
+        title="Division"
+        items={divisions}
+        selected={selectedDivision}
+        keyExtractor={(div) => String(div.id)}
+        renderLabel={(div) => ({
+          title: div.name,
+          subtitle: divisionAges(div),
+        })}
+        onCommit={(div) => {
+          setSelectedDivision(div);
+          setShowDivisionModal(false);
+        }}
+        onCancel={() => setShowDivisionModal(false)}
+        emptyMessage="No divisions for this federation"
+      />
+
+      <SelectSheet
+        visible={showWeightClassModal}
+        title="Weight class"
+        items={weightClasses}
+        selected={selectedWeightClass}
+        keyExtractor={(wc) => String(wc.id)}
+        renderLabel={(wc) => ({ title: `${wc.name} kg` })}
+        onCommit={(wc) => {
+          setSelectedWeightClass(wc);
+          setShowWeightClassModal(false);
+        }}
+        onCancel={() => setShowWeightClassModal(false)}
+        emptyMessage="No weight classes for this federation and gender"
+      />
+    </Screen>
   );
 }

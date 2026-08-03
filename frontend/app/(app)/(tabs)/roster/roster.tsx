@@ -1,25 +1,32 @@
-import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
-  ActivityIndicator,
-  RefreshControl,
-  TextInput,
-  Alert,
-  StyleSheet,
-} from "react-native";
+import { Avatar, Button, EmptyState, Screen, Text } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { searchAthletes } from "@/lib/api/athlete";
 import { fetchRoster, sendInvite } from "@/lib/api/roster";
-import { Image as ExpoImage } from "expo-image";
-import { FontAwesome } from "@expo/vector-icons";
-import { router } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useState, useMemo, useEffect } from "react";
+import { useTheme } from "@/theme/useTheme";
 import { AthleteProfileView, UserProfileEnriched } from "@/types/types";
 import SegmentedControl from "@react-native-segmented-control/segmented-control";
-import { searchAthletes } from "@/lib/api/athlete";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { router } from "expo-router";
+import { ChevronRight, Search, Users, X } from "lucide-react-native";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  TextInput,
+  View,
+} from "react-native";
+
+/** SegmentedControl is a native view and FlatList's contentContainerStyle
+ * takes a style object — neither accepts a className. */
+const styles = StyleSheet.create({
+  grow: { flexGrow: 1 },
+  segmentLabel: { fontFamily: "Inter_500Medium" },
+  segmentLabelActive: { fontFamily: "Inter_600SemiBold" },
+});
 
 type AthleteCardProps = {
   athlete: AthleteProfileView | UserProfileEnriched;
@@ -28,6 +35,8 @@ type AthleteCardProps = {
   isInviting?: boolean;
 };
 
+/** One athlete as a ruled row rather than a floating card — the meet-sheet
+ * treatment, so a long roster reads as a list instead of a stack of tiles. */
 function AthleteCard({
   athlete,
   mode = "roster",
@@ -35,12 +44,13 @@ function AthleteCard({
   isInviting,
 }: AthleteCardProps) {
   const fullName = `${athlete.first_name} ${athlete.last_name}`;
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
 
   // prefetch athlete profile on press for instant loading
   const prefetchAthleteProfile = (
     athleteId: string,
-    athleteData: AthleteProfileView
+    athleteData: AthleteProfileView,
   ) => {
     queryClient.setQueryData(["athlete", athleteId], athleteData);
   };
@@ -52,90 +62,53 @@ function AthleteCard({
     }
   };
 
+  const meta = [
+    athlete.federation_code,
+    athlete.weight_class_name,
+    athlete.division_name,
+  ].filter(Boolean);
+
   return (
-    <TouchableOpacity
+    <Pressable
+      accessibilityRole="button"
       onPress={handlePress}
       disabled={mode === "invite"}
-      className="bg-white dark:bg-zinc-900 p-4 rounded-lg mb-3 mx-4 shadow-sm"
+      className="flex-row items-center gap-4 px-6 py-4 active:bg-surface dark:active:bg-surface-dark"
     >
-      <View className="flex-row items-center">
-        <View className="w-16 h-16 rounded-full overflow-hidden border-2 border-gray-100 dark:border-zinc-800">
-          <ExpoImage
-            source={
-              athlete.avatar_url
-                ? { uri: athlete.avatar_url }
-                : require("@/assets/images/avatar-default.png")
-            }
-            className="w-full h-full"
-            contentFit="cover"
-            transition={200}
-          />
-        </View>
+      <Avatar uri={athlete.avatar_url} />
 
-        <View className="ml-4 flex-1">
-          <View className="flex-row justify-between items-center">
-            <Text
-              className="text-lg font-semibold text-foreground dark:text-white"
-              numberOfLines={1}
-            >
-              {fullName}
-            </Text>
-
-            {mode === "roster" ? (
-              <FontAwesome name="chevron-right" size={14} color="#9ca3af" />
-            ) : (
-              <TouchableOpacity
-                onPress={(e) => {
-                  e.stopPropagation();
-                  onInvite?.(athlete.athlete_id);
-                }}
-                className={`bg-violet-600 px-4 py-2 rounded-lg ${isInviting ? "opacity-50" : ""}`}
-                disabled={isInviting}
-              >
-                <Text className="text-white font-semibold text-sm">
-                  {isInviting ? "Inviting..." : "Invite"}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <Text className="text-sm text-gray-500 dark:text-gray-400 mb-1">
-            @{athlete.username}
+      <View className="flex-1 gap-0.5">
+        <Text variant="bodyStrong" tone="ink" numberOfLines={1}>
+          {fullName}
+        </Text>
+        <Text variant="caption" tone="muted" numberOfLines={1}>
+          @{athlete.username}
+        </Text>
+        {meta.length > 0 ? (
+          <Text variant="caption" tone="muted" numberOfLines={1}>
+            {meta.join(" · ")}
           </Text>
-
-          <View className="flex-row flex-wrap mt-1">
-            {athlete.federation_code && (
-              <View className="bg-gray-100 dark:bg-zinc-800 px-2 py-1 rounded-md mr-2 mb-2">
-                <Text className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                  {athlete.federation_code}
-                </Text>
-              </View>
-            )}
-
-            {athlete.weight_class_name && (
-              <View className="bg-gray-100 dark:bg-zinc-800 px-2 py-1 rounded-md mr-2 mb-2">
-                <Text className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                  {athlete.weight_class_name}
-                </Text>
-              </View>
-            )}
-
-            {athlete.division_name && (
-              <View className="bg-gray-100 dark:bg-zinc-800 px-2 py-1 rounded-md mr-2 mb-2">
-                <Text className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                  {athlete.division_name}
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
+        ) : null}
       </View>
-    </TouchableOpacity>
+
+      {mode === "roster" ? (
+        <ChevronRight size={18} strokeWidth={2} color={colors.muted} />
+      ) : (
+        <Button
+          label={isInviting ? "Inviting" : "Invite"}
+          variant="secondary"
+          loading={isInviting}
+          disabled={isInviting}
+          onPress={() => onInvite?.(athlete.athlete_id)}
+        />
+      )}
+    </Pressable>
   );
 }
 
 export default function RosterPage() {
   const { user } = useAuth();
+  const { colors, scheme } = useTheme();
   const userId = user?.id;
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -181,7 +154,7 @@ export default function RosterPage() {
 
       queryClient.setQueryData<UserProfileEnriched[]>(
         ["userSearch", debouncedQuery, userId],
-        (old) => old?.filter((u) => u.athlete_id !== athleteId) || []
+        (old) => old?.filter((u) => u.athlete_id !== athleteId) || [],
       );
     },
     onSuccess: async () => {
@@ -205,7 +178,7 @@ export default function RosterPage() {
         (athlete) =>
           athlete.first_name.toLowerCase().includes(query) ||
           athlete.last_name.toLowerCase().includes(query) ||
-          athlete.username.toLowerCase().includes(query)
+          athlete.username.toLowerCase().includes(query),
       );
     } else {
       return searchQuery ? searchResults : [];
@@ -221,41 +194,55 @@ export default function RosterPage() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 justify-center items-center bg-background dark:bg-zinc-950">
-        <ActivityIndicator size="large" color="#7c3aed" />
-      </View>
+      <Screen>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      </Screen>
     );
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background dark:bg-zinc-950">
-      <View className="px-4 py-3 bg-background dark:bg-zinc-950">
+    <Screen edges={["top", "left", "right"]}>
+      <View className="gap-3 px-6 pb-3 pt-2">
+        {/* Native view, so it takes real colour values rather than classes. */}
         <SegmentedControl
           values={["My Athletes", "Invite Athletes"]}
           selectedIndex={selectedIndex}
           onChange={handleSegmentChange}
-          style={styles.segmentedControl}
+          appearance={scheme}
+          tintColor={colors.surfaceStrong}
+          backgroundColor={colors.surface}
+          fontStyle={{ ...styles.segmentLabel, color: colors.muted }}
+          activeFontStyle={{ ...styles.segmentLabelActive, color: colors.ink }}
         />
-        <View className="bg-white dark:bg-zinc-900 rounded-lg flex-row items-center px-3 py-2">
-          <FontAwesome name="search" size={16} color="#9ca3af" />
+
+        <View className="flex-row items-center gap-2 rounded-control bg-surface px-3 dark:bg-surface-dark">
+          <Search size={16} strokeWidth={2} color={colors.muted} />
           <TextInput
-            className="flex-1 ml-2 text-foreground dark:text-white"
+            className="h-11 flex-1 font-inter text-body text-ink dark:text-ink-dark"
             placeholder={
               selectedIndex === 0
                 ? "Search athletes..."
                 : "Search users to invite..."
             }
-            placeholderTextColor="#9ca3af"
+            placeholderTextColor={colors.muted}
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery("")}>
-              <FontAwesome name="times-circle" size={16} color="#9ca3af" />
-            </TouchableOpacity>
-          )}
+          {searchQuery.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+              hitSlop={8}
+              onPress={() => setSearchQuery("")}
+            >
+              <X size={16} strokeWidth={2} color={colors.muted} />
+            </Pressable>
+          ) : null}
         </View>
       </View>
+
       <FlatList
         data={filteredData}
         keyExtractor={(item) =>
@@ -271,37 +258,48 @@ export default function RosterPage() {
             isInviting={invitingUserId === item.athlete_id}
           />
         )}
-        className="py-4"
+        ItemSeparatorComponent={() => (
+          <View className="ml-24 h-px bg-hairline dark:bg-hairline-dark" />
+        )}
+        contentContainerStyle={
+          filteredData.length === 0 ? styles.grow : undefined
+        }
         refreshControl={
           selectedIndex === 0 ? (
             <RefreshControl
               refreshing={isRefetching}
               onRefresh={refetch}
-              colors={["#7c3aed"]}
-              tintColor="#7c3aed"
+              colors={[colors.primary]}
+              tintColor={colors.primary}
             />
           ) : undefined
         }
         ListEmptyComponent={
-          <View className="flex-1 justify-center items-center p-8">
-            <Text className="text-gray-500 dark:text-gray-400 text-center">
-              {selectedIndex === 0
-                ? "No athletes found in your roster"
-                : searchQuery
-                  ? isSearching
-                    ? "Searching..."
-                    : "No users found"
-                  : "Start typing to search users"}
-            </Text>
+          <View className="flex-1 py-16">
+            <EmptyState
+              icon={Users}
+              title={
+                selectedIndex === 0
+                  ? "No athletes yet"
+                  : searchQuery
+                    ? isSearching
+                      ? "Searching"
+                      : "No one found"
+                    : "Find an athlete"
+              }
+              body={
+                selectedIndex === 0
+                  ? "Invite an athlete from the Invite tab and they'll appear here once they accept."
+                  : searchQuery
+                    ? isSearching
+                      ? "Looking for matching athletes."
+                      : "No athlete matches that search. Try a different name or username."
+                    : "Type at least three characters to search by name or username."
+              }
+            />
           </View>
         }
       />
-    </SafeAreaView>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  segmentedControl: {
-    marginBottom: 10,
-  },
-});

@@ -119,6 +119,8 @@ Anything off-allowlist throws `BadRequestException`. `PUBLIC_PROFILE_QUERY` is t
 
 ⚠️ **E2E is not hermetic. It mutates a shared live project.** Both suites create real auth users via `supabase.auth.signUp()` and clean up afterward; a mid-test failure leaks orphaned records. Treat a local e2e run as a write to production data, and prefer letting CI run it.
 
+⚠️ **A green `backend-e2e` job does not mean e2e passed.** The job checks for the `SUPABASE_PROJECT_URL` / `SUPABASE_SECRET_KEY` repository secrets first and skips its remaining steps if either is absent, emitting a workflow warning. Without that gate every spec fails identically at `SupabaseService` construction and the job is permanently red, which is worse than no signal. Open the run and look for the "E2E skipped" warning before trusting the check mark.
+
 Two things to follow when adding a spec:
 
 - **Look reference data up at runtime.** `athlete-retrieve.e2e-spec.ts` queries for a division and a matching weight class in `beforeAll`, so it's portable across Supabase projects. `users.e2e-spec.ts` still hardcodes remote UUIDs — the older, more brittle pattern.

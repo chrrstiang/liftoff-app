@@ -1,33 +1,41 @@
+import ExerciseSelector from "@/components/ExerciseSelector";
 import {
-  View,
+  Button,
+  EmptyState,
+  Input,
+  Screen,
+  Section,
+  Sheet,
+  SheetRow,
   Text,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-  TextInput,
-  useColorScheme,
-  Modal,
-  FlatList,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { router, useLocalSearchParams } from "expo-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+} from "@/components/ui";
+import { useAuth } from "@/contexts/AuthContext";
+import { fetchAthleteProfile } from "@/lib/api/athlete";
 import {
   createWorkout,
   fetchAthleteWorkouts,
   fetchTemplateWorkouts,
 } from "@/lib/api/workouts";
-import { fetchAthleteProfile } from "@/lib/api/athlete";
-import { useAuth } from "@/contexts/AuthContext";
-import { useState } from "react";
-import DateTimePicker from "@react-native-community/datetimepicker";
-import ExerciseSelector from "@/components/ExerciseSelector";
+import { useTheme } from "@/theme/useTheme";
 import {
-  WorkoutTemplate,
-  ExerciseTemplate,
   ExerciseFormSet,
+  ExerciseTemplate,
   SetTemplate,
+  WorkoutTemplate,
 } from "@/types/types";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { router, useLocalSearchParams } from "expo-router";
+import { CalendarDays, Check } from "lucide-react-native";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  useColorScheme,
+  View,
+} from "react-native";
 
 type SelectedExercise = {
   exercise: ExerciseTemplate;
@@ -35,6 +43,7 @@ type SelectedExercise = {
 };
 
 const WeeklyWorkoutCard = ({ athleteId }: { athleteId: string }) => {
+  const { colors } = useTheme();
   const { data: workoutData, isLoading } = useQuery({
     queryKey: ["workouts", athleteId],
     queryFn: async () => fetchAthleteWorkouts(athleteId),
@@ -49,66 +58,65 @@ const WeeklyWorkoutCard = ({ athleteId }: { athleteId: string }) => {
 
   if (isLoading || !workoutData) {
     return (
-      <SafeAreaView className="flex-1 items-center justify-center bg-background dark:bg-zinc-950">
-        <ActivityIndicator size="large" />
-      </SafeAreaView>
+      <View className="items-center py-16">
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (workoutData.length === 0) {
+    return (
+      <View className="py-16">
+        <EmptyState
+          icon={CalendarDays}
+          title="No workouts yet"
+          body="Sessions added to this program will appear here."
+        />
+      </View>
     );
   }
 
   return (
-    <View className="w-full p-4 bg-background dark:bg-zinc-950">
-      <View className="bg-background dark:bg-zinc-900 rounded-xl shadow-md p-6 mb-4">
-        <Text className="text-2xl dark:text-white font-bold text-center mb-4">
-          Week 1
-        </Text>
-        <View className="space-y-3">
-          {workoutData.length === 0 ? (
-            <View className="flex-1 items-center justify-center">
-              <Text className="text-center text-gray-500 dark:text-gray-400">
-                No workouts found
-              </Text>
-            </View>
-          ) : (
-            workoutData?.map(
-              (
-                { id, name, date }: { id: string; name: string; date: string },
-                index: number,
-              ) => (
-                <TouchableOpacity
-                  key={id}
-                  onPress={() => {
-                    console.log("Directing to workout", id);
-                    router.push(`/workout/${id}`);
-                  }}
-                >
-                  <View
-                    className={`flex-row justify-between items-center p-4 rounded-lg ${
-                      index % 2 === 0
-                        ? "bg-gray-50 dark:bg-zinc-700"
-                        : "bg-background dark:bg-zinc-800"
-                    }`}
-                  >
-                    <Text className="text-lg font-medium flex-1 dark:text-white">
-                      {name}
+    <Section label="Week 1" className="mt-6 px-6">
+      {workoutData.map(
+        (
+          { id, name, date }: { id: string; name: string; date: string },
+          index: number,
+        ) => {
+          const isToday =
+            getCurrentDayName() ===
+            new Date(date).toLocaleDateString("en-US", { weekday: "long" });
+
+          return (
+            <View key={id}>
+              {index > 0 ? (
+                <View className="h-px bg-hairline dark:bg-hairline-dark" />
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  console.log("Directing to workout", id);
+                  router.push(`/workout/${id}`);
+                }}
+                className="flex-row items-center justify-between py-4 active:bg-surface dark:active:bg-surface-dark"
+              >
+                <Text variant="bodyStrong" tone="ink" className="flex-1 pr-3">
+                  {name}
+                </Text>
+                {/* Monochrome so it reads as a marker, not an action. */}
+                {isToday ? (
+                  <View className="rounded-pill bg-ink px-2 py-0.5 dark:bg-ink-dark">
+                    <Text variant="overline" tone="onInk">
+                      Today
                     </Text>
-                    {getCurrentDayName() ===
-                      new Date(date).toLocaleDateString("en-US", {
-                        weekday: "long",
-                      }) && (
-                      <View className="bg-green-100 px-2 py-1 rounded-full ml-2">
-                        <Text className="text-green-800 text-xs font-medium">
-                          TODAY
-                        </Text>
-                      </View>
-                    )}
                   </View>
-                </TouchableOpacity>
-              ),
-            )
-          )}
-        </View>
-      </View>
-    </View>
+                ) : null}
+              </Pressable>
+            </View>
+          );
+        },
+      )}
+    </Section>
   );
 };
 
@@ -146,6 +154,7 @@ function WorkoutModal({
   const [selectedTemplate, setSelectedTemplate] =
     useState<WorkoutTemplate | null>(null);
   const colorScheme = useColorScheme();
+  const { colors } = useTheme();
   const { user } = useAuth();
 
   const { data: templateWorkouts = [], isLoading: templatesLoading } = useQuery(
@@ -275,43 +284,6 @@ function WorkoutModal({
     );
   };
 
-  const renderTemplateItem = ({ item }: { item: WorkoutTemplate }) => {
-    const isSelected = selectedTemplate?.id === item.id;
-    return (
-      <TouchableOpacity
-        onPress={() => handleSelectTemplate(item)}
-        className={`bg-white dark:bg-zinc-800 rounded-lg p-4 mb-3 border ${
-          isSelected
-            ? "border-green-500 dark:border-green-700 bg-green-50 dark:bg-green-900/20"
-            : "border-gray-200 dark:border-zinc-700"
-        }`}
-      >
-        <View className="flex-row justify-between items-start">
-          <View className="flex-1">
-            <Text className="text-lg font-semibold dark:text-white mb-1">
-              {item.name}
-            </Text>
-            {item.notes && (
-              <Text className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                {item.notes}
-              </Text>
-            )}
-            <View className="bg-blue-100 dark:bg-blue-900 px-2 py-1 rounded-full self-start">
-              <Text className="text-blue-800 dark:text-blue-200 text-xs font-medium">
-                Template
-              </Text>
-            </View>
-          </View>
-          {isSelected && (
-            <View className="bg-green-500 dark:bg-green-700 rounded-full p-1">
-              <Text className="text-white text-xs font-bold">✓</Text>
-            </View>
-          )}
-        </View>
-      </TouchableOpacity>
-    );
-  };
-
   return (
     <Modal
       visible={visible}
@@ -319,217 +291,192 @@ function WorkoutModal({
       presentationStyle="pageSheet"
       onRequestClose={handleCancel}
     >
-      <SafeAreaView className="flex-1 bg-background dark:bg-zinc-950">
-        <View className="flex-row justify-between items-center px-6 py-4 border-b border-gray-200 dark:border-zinc-800">
-          <TouchableOpacity onPress={handleCancel}>
-            <Text className="text-blue-500 text-lg font-medium">Cancel</Text>
-          </TouchableOpacity>
-          <Text className="text-lg font-semibold dark:text-white">
-            {showWorkoutForm ? "New Workout" : "Choose Workout Template"}
+      <Screen edges={["top", "left", "right"]}>
+        <View className="flex-row items-center justify-between border-b border-hairline px-6 py-4 dark:border-hairline-dark">
+          <Pressable accessibilityRole="button" onPress={handleCancel}>
+            <Text variant="label" tone="primary">
+              Cancel
+            </Text>
+          </Pressable>
+          <Text variant="label" tone="ink">
+            {showWorkoutForm ? "New workout" : "Choose a template"}
           </Text>
-          <View className="w-16" />
+          <View className="w-14" />
         </View>
 
         {!showWorkoutForm ? (
           <>
-            <View className="px-6 pt-6">
-              <Text className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3">
-                Workout Details
-              </Text>
-
-              <View className="mb-4">
-                <Text className="text-sm text-gray-600 dark:text-gray-300 mb-1">
-                  Workout Name
-                </Text>
-                <TextInput
-                  value={workoutName}
-                  onChangeText={setWorkoutName}
-                  placeholder="Enter workout name"
-                  className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-3 text-foreground dark:text-white"
-                  placeholderTextColor="#9ca3af"
-                />
-              </View>
-
-              <View className="mb-4">
-                <Text className="text-sm text-gray-600 dark:text-gray-300 mb-1">
-                  Date
-                </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    setTempDate(workoutDate);
-                    setShowDateModal(true);
-                  }}
-                  className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-800 dark:bg-zinc-900"
-                >
-                  <Text className="dark:text-white">
-                    {workoutDate.toLocaleDateString()}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3">
-                Choose Template
-              </Text>
-
-              <View className="mb-4">
-                <TextInput
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  placeholder="Search templates..."
-                  className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-3 text-foreground dark:text-white"
-                  placeholderTextColor="#9ca3af"
-                />
-              </View>
+            <View className="gap-5 px-6 pt-6">
+              <Input
+                label="Workout name"
+                value={workoutName}
+                onChangeText={setWorkoutName}
+                placeholder="Squat day"
+              />
+              <SheetRow
+                label="Date"
+                value={workoutDate.toLocaleDateString()}
+                numeric
+                chevron
+                onPress={() => {
+                  setTempDate(workoutDate);
+                  setShowDateModal(true);
+                }}
+              />
+              <Input
+                label="Search templates"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Filter by name or note"
+              />
             </View>
 
-            {/* Template Workouts */}
-            <ScrollView className="flex-1 px-6">
+            {/* Template list. Selection is a monochrome fill plus a check, so it
+                can't be mistaken for the green primary action below. */}
+            <ScrollView className="mt-4 flex-1 px-6">
               {templatesLoading ? (
-                <View className="flex-1 items-center justify-center py-8">
-                  <Text className="text-gray-500 dark:text-gray-400">
-                    Loading templates...
+                <View className="items-center py-10">
+                  <ActivityIndicator color={colors.primary} />
+                </View>
+              ) : filteredTemplates.length === 0 ? (
+                <View className="py-10">
+                  <Text variant="body" tone="muted" className="text-center">
+                    {searchQuery
+                      ? "No template matches that search."
+                      : "No templates saved yet."}
                   </Text>
                 </View>
               ) : (
-                <FlatList
-                  data={filteredTemplates}
-                  renderItem={renderTemplateItem}
-                  keyExtractor={(item) => item.id}
-                  scrollEnabled={false}
-                  ListEmptyComponent={
-                    <View className="flex-1 items-center justify-center py-8">
-                      <Text className="text-gray-500 dark:text-gray-400">
-                        No templates found
-                      </Text>
+                filteredTemplates.map((item: WorkoutTemplate, i: number) => {
+                  const isSelected = selectedTemplate?.id === item.id;
+                  return (
+                    <View key={item.id}>
+                      {i > 0 ? (
+                        <View className="h-px bg-hairline dark:bg-hairline-dark" />
+                      ) : null}
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isSelected }}
+                        onPress={() => handleSelectTemplate(item)}
+                        className={`flex-row items-center justify-between py-4 ${
+                          isSelected
+                            ? "bg-surface-strong dark:bg-surface-strong-dark"
+                            : "active:bg-surface dark:active:bg-surface-dark"
+                        }`}
+                      >
+                        <View className="flex-1 gap-0.5 pr-3">
+                          <Text variant="bodyStrong" tone="ink">
+                            {item.name}
+                          </Text>
+                          {item.notes ? (
+                            <Text variant="caption" tone="muted">
+                              {item.notes}
+                            </Text>
+                          ) : null}
+                        </View>
+                        {isSelected ? (
+                          <Check
+                            size={18}
+                            strokeWidth={2.5}
+                            color={colors.ink}
+                          />
+                        ) : null}
+                      </Pressable>
                     </View>
-                  }
-                />
+                  );
+                })
               )}
             </ScrollView>
 
-            <View className="p-6">
+            <View className="px-6 pb-6 pt-4">
               {selectedTemplate ? (
-                <TouchableOpacity
-                  onPress={handleAddWorkoutFromTemplate}
-                  className="bg-green-500 dark:bg-green-700 rounded-lg p-4 items-center"
+                <Button
+                  label="Add workout"
+                  block
+                  loading={isCreating}
                   disabled={isCreating}
-                >
-                  <Text className="text-white font-medium text-lg">
-                    Add Workout
-                  </Text>
-                </TouchableOpacity>
+                  onPress={handleAddWorkoutFromTemplate}
+                />
               ) : (
-                <TouchableOpacity
+                <Button
+                  label="Create new workout"
+                  variant="secondary"
+                  block
                   onPress={() => {
                     setSelectedTemplate(null);
                     setShowWorkoutForm(true);
                     setWorkoutName("");
                   }}
-                  className="border-2 border-green-500 dark:border-green-700 rounded-lg p-4 items-center bg-transparent"
-                >
-                  <Text className="text-green-500 dark:text-green-700 font-medium text-lg">
-                    Create New Workout
-                  </Text>
-                </TouchableOpacity>
+                />
               )}
             </View>
           </>
         ) : (
-          <View className="flex-1 px-6 pt-6">
-            <View className="mb-4">
-              <Text className="text-sm text-gray-600 dark:text-gray-300 mb-1">
-                Workout Name
-              </Text>
-              <TextInput
+          <ScrollView className="flex-1 px-6 pt-6">
+            <View className="gap-5">
+              <Input
+                label="Workout name"
                 value={workoutName}
                 onChangeText={setWorkoutName}
-                placeholder="Enter workout name"
-                className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-3 text-foreground dark:text-white"
-                placeholderTextColor="#9ca3af"
+                placeholder="Squat day"
               />
-            </View>
-
-            <View>
-              <Text className="text-sm text-muted-foreground dark:text-gray-300 mb-1">
-                Date
-              </Text>
-              <TouchableOpacity
+              <SheetRow
+                label="Date"
+                value={workoutDate.toLocaleDateString()}
+                numeric
+                chevron
                 onPress={() => {
                   setTempDate(workoutDate);
                   setShowDateModal(true);
                 }}
-                className="h-12 border border-gray-300 rounded-lg px-4 justify-center dark:border-zinc-800 dark:bg-zinc-900"
-              >
-                <Text className="dark:text-white">
-                  {workoutDate.toLocaleDateString()}
-                </Text>
-              </TouchableOpacity>
+              />
             </View>
+
             {/* Exercise Selector */}
             <ExerciseSelector
               selectedExercises={selectedExercises}
               onExerciseSelect={handleExerciseSelect}
               onExerciseRemove={handleExerciseRemove}
             />
-            <View className="p-2 py-6">
-              <TouchableOpacity
-                onPress={handleCreateWorkout}
-                className="border-2 border-green-500 dark:border-green-700 rounded-lg p-4 items-center bg-green-50 dark:bg-green-700"
+
+            <View className="py-6">
+              <Button
+                label="Create new workout"
+                block
+                loading={isCreating}
                 disabled={isCreating}
-              >
-                <Text className="text-white font-medium text-lg">
-                  Create New Workout
-                </Text>
-              </TouchableOpacity>
+                onPress={handleCreateWorkout}
+              />
             </View>
-          </View>
+          </ScrollView>
         )}
 
         {/* Date Picker Modal - Available for both template and custom workout views */}
-        <Modal
+        <Sheet
           visible={showDateModal}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => setShowDateModal(false)}
+          title="Date"
+          onCancel={() => setShowDateModal(false)}
+          onDone={() => {
+            setWorkoutDate(tempDate);
+            setShowDateModal(false);
+          }}
         >
-          <View className="flex-1 justify-end bg-black/50">
-            <View className="bg-white dark:bg-zinc-800 rounded-t-2xl p-6">
-              <View className="flex-row justify-between items-center mb-4">
-                <TouchableOpacity onPress={() => setShowDateModal(false)}>
-                  <Text className="text-blue-500 text-lg">Cancel</Text>
-                </TouchableOpacity>
-                <Text className="text-lg font-semibold dark:text-white">
-                  Select Date
-                </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    setWorkoutDate(tempDate);
-                    setShowDateModal(false);
-                  }}
-                >
-                  <Text className="text-blue-500 text-lg font-semibold">
-                    Done
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <View className="w-full items-center">
-                <DateTimePicker
-                  value={tempDate}
-                  mode="date"
-                  display="spinner"
-                  onChange={(_, selectedDate) => {
-                    if (selectedDate) {
-                      setTempDate(selectedDate);
-                    }
-                  }}
-                  minimumDate={new Date()}
-                  themeVariant={colorScheme === "dark" ? "dark" : "light"}
-                />
-              </View>
-            </View>
+          <View className="w-full items-center">
+            <DateTimePicker
+              value={tempDate}
+              mode="date"
+              display="spinner"
+              onChange={(_, selectedDate) => {
+                if (selectedDate) {
+                  setTempDate(selectedDate);
+                }
+              }}
+              minimumDate={new Date()}
+              themeVariant={colorScheme === "dark" ? "dark" : "light"}
+            />
           </View>
-        </Modal>
-      </SafeAreaView>
+        </Sheet>
+      </Screen>
     </Modal>
   );
 }
@@ -617,33 +564,41 @@ export default function ProgramPage() {
     setShowWorkoutModal(false);
   };
 
-  return (
-    <SafeAreaView className="flex-1 bg-background dark:bg-zinc-950">
-      <ScrollView className="flex-1">
-        <Text className="text-3xl dark:text-white font-bold px-6 pt-6 pb-2">
-          {user?.id === athleteId
-            ? "Your Program"
-            : `${athlete?.first_name} ${athlete?.last_name}'s program`}
-        </Text>
-        <WeeklyWorkoutCard athleteId={athleteId} />
-        {user?.id !== athleteId && (
-          <View className="px-6 mt-4 mb-8">
-            <TouchableOpacity
-              onPress={() => setShowWorkoutModal(true)}
-              className="bg-green-500 dark:bg-green-700 rounded-xl p-4 items-center"
-            >
-              <Text className="text-white font-medium">Add New Workout</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+  const isOwnProgram = user?.id === athleteId;
 
-        <WorkoutModal
-          visible={showWorkoutModal}
-          onClose={handleModalClose}
-          onCreateWorkout={handleCreateWorkout}
-          isCreating={createWorkoutMutation.isPending}
-        />
-      </ScrollView>
-    </SafeAreaView>
+  return (
+    <Screen scroll>
+      <View className="px-6 pt-4">
+        <Text variant="title" tone="ink">
+          {isOwnProgram
+            ? "Your program"
+            : `${athlete?.first_name} ${athlete?.last_name}`}
+        </Text>
+        {!isOwnProgram ? (
+          <Text variant="body" tone="muted" className="mt-1">
+            Programming
+          </Text>
+        ) : null}
+      </View>
+
+      <WeeklyWorkoutCard athleteId={athleteId} />
+
+      {!isOwnProgram ? (
+        <View className="px-6 pb-10 pt-8">
+          <Button
+            label="Add new workout"
+            block
+            onPress={() => setShowWorkoutModal(true)}
+          />
+        </View>
+      ) : null}
+
+      <WorkoutModal
+        visible={showWorkoutModal}
+        onClose={handleModalClose}
+        onCreateWorkout={handleCreateWorkout}
+        isCreating={createWorkoutMutation.isPending}
+      />
+    </Screen>
   );
 }

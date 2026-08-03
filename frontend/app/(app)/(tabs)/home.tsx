@@ -1,19 +1,21 @@
-import { SafeAreaView } from "react-native-safe-area-context";
-import { Text, TouchableOpacity, View } from "react-native";
+import { NotificationModal } from "@/components/NotificationModal";
+import { Button, EmptyState, Screen, Section, Text } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
-import { useQuery } from "@tanstack/react-query";
+import { fetchAthleteRequests } from "@/lib/api/notifications";
 import { fetchAthleteWorkouts } from "@/lib/api/workouts";
+import { useTheme } from "@/theme/useTheme";
+import { CoachRequest } from "@/types/types";
+import { useQuery } from "@tanstack/react-query";
 import { format, isToday, isTomorrow, parseISO, startOfToday } from "date-fns";
 import { router } from "expo-router";
-import { fetchAthleteRequests } from "@/lib/api/notifications";
-import { Bell } from "lucide-react-native";
-import { NotificationModal } from "@/components/NotificationModal";
+import { Bell, CalendarDays } from "lucide-react-native";
 import { useState } from "react";
-import { CoachRequest } from "@/types/types";
+import { Pressable, View } from "react-native";
 
 /* Home page tab */
 export default function HomePage() {
-  const { profile, user, logout } = useAuth();
+  const { profile, user } = useAuth();
+  const { colors } = useTheme();
 
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -45,65 +47,77 @@ export default function HomePage() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-background dark:bg-zinc-950 p-4">
-      <View className="flex-row justify-between items-center mb-6">
-        <TouchableOpacity
-          onPress={async () => {
-            await logout();
-          }}
-        >
-          <Text className="text-3xl font-bold text-foreground dark:text-white">
-            Welcome back, {profile?.first_name || "Athlete"}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
+    <Screen scroll>
+      <View className="flex-row items-start justify-between px-6 pt-4">
+        <Text variant="title" tone="ink" className="flex-1 pr-4">
+          Welcome back, {profile?.first_name || "Athlete"}
+        </Text>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            requests && requests.length > 0
+              ? `Notifications, ${requests.length} pending`
+              : "Notifications"
+          }
+          hitSlop={8}
           onPress={() => setShowNotifications(true)}
-          className="relative"
+          className="relative mt-1"
         >
-          <Bell size={24} color={showNotifications ? "#8b5cf6" : "#6b7280"} />
-          {requests && requests.length > 0 && (
-            <View className="absolute -top-1 -right-1 bg-red-500 rounded-full w-4 h-4 items-center justify-center">
-              <Text className="text-white text-xs">{requests.length}</Text>
+          <Bell
+            size={24}
+            strokeWidth={2}
+            color={showNotifications ? colors.primary : colors.muted}
+          />
+          {/* Ink fill with canvas text, so the count stays legible in both
+              themes. Green is reserved for actions and a badge isn't one. */}
+          {requests && requests.length > 0 ? (
+            <View className="absolute -right-1 -top-1 h-4 min-w-4 items-center justify-center rounded-pill bg-ink px-1 dark:bg-ink-dark">
+              <Text variant="overline" tone="onInk">
+                {requests.length}
+              </Text>
             </View>
-          )}
-        </TouchableOpacity>
+          ) : null}
+        </Pressable>
       </View>
 
       {nextWorkout ? (
-        <View className="bg-white dark:bg-zinc-800 rounded-xl p-6 shadow-sm">
-          <Text className="text-lg font-semibold text-foreground dark:text-white mb-1">
-            {getWorkoutDateText(nextWorkout.date)}
-          </Text>
-          <Text className="text-muted-foreground dark:text-gray-300 text-sm mb-4">
-            {format(parseISO(nextWorkout.date), "MMMM d, yyyy")}
-          </Text>
-          <Text className="text-2xl font-bold text-foreground dark:text-white mb-6">
-            {nextWorkout.name}
-          </Text>
-          <TouchableOpacity
+        <Section label="Up next" className="mt-8 px-6">
+          <View className="gap-1 py-4">
+            <Text variant="overline" tone="muted">
+              {getWorkoutDateText(nextWorkout.date)}
+            </Text>
+            <Text variant="title" tone="ink">
+              {nextWorkout.name}
+            </Text>
+            <Text variant="caption" tone="muted">
+              {format(parseISO(nextWorkout.date), "MMMM d, yyyy")}
+            </Text>
+          </View>
+
+          <Button
+            label="Log workout"
+            block
             onPress={() => router.push(`/workout/${nextWorkout.id}`)}
-            className="bg-violet-500 dark:bg-violet-700 py-3 rounded-lg items-center"
-          >
-            <Text className="text-white font-medium">Log Workout</Text>
-          </TouchableOpacity>
-        </View>
+            className="mb-2 mt-2"
+          />
+        </Section>
       ) : (
-        <View className="bg-white dark:bg-zinc-800 rounded-xl p-6 items-center">
-          <Text className="text-foreground dark:text-white text-lg mb-2">
-            No upcoming workouts
-          </Text>
-          <Text className="text-muted-foreground dark:text-gray-400 text-center mb-4">
-            You do not have any scheduled workouts. Check back later or contact
-            your coach.
-          </Text>
+        <View className="min-h-72 flex-1 py-16">
+          <EmptyState
+            icon={CalendarDays}
+            title="Nothing scheduled"
+            body="When your coach assigns a workout, it shows up here."
+          />
         </View>
       )}
+
       <NotificationModal
         visible={showNotifications}
         onClose={() => setShowNotifications(false)}
         requests={requests || []}
         userId={user!.id}
       />
-    </SafeAreaView>
+    </Screen>
   );
 }

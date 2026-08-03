@@ -1,24 +1,24 @@
-import { uploadAvatar, updateUserAvatar } from "@/lib/api/storage";
-import { Image } from "expo-image";
+import { Avatar, Button, Screen, Section, SheetRow, Text } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ActivityIndicator,
-  StatusBar,
-} from "react-native";
+import { updateUserAvatar, uploadAvatar } from "@/lib/api/storage";
+import { useTheme } from "@/theme/useTheme";
+import { Camera } from "lucide-react-native";
 import { useState } from "react";
-import { FontAwesome } from "@expo/vector-icons";
-import { cssInterop } from "nativewind";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ActivityIndicator, Pressable, View } from "react-native";
 
 const STORAGE_BASE_URL = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/avatars/`;
 
-cssInterop(Image, { className: "style" });
+/** Athlete / Coach / both, from the two booleans the profile actually carries. */
+function roleLabel(isAthlete?: boolean, isCoach?: boolean) {
+  if (isAthlete && isCoach) return "Athlete & Coach";
+  if (isCoach) return "Coach";
+  if (isAthlete) return "Athlete";
+  return "—";
+}
 
 export default function ProfilePage() {
-  const { user, profile, setProfile } = useAuth();
+  const { user, profile, setProfile, logout } = useAuth();
+  const { colors } = useTheme();
   const [isUploading, setIsUploading] = useState(false);
 
   const handleUploadAvatar = async () => {
@@ -48,61 +48,63 @@ export default function ProfilePage() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-background dark:bg-zinc-950 p-6">
-      <StatusBar barStyle="default" backgroundColor="transparent" />
-      <View className="items-center mt-8 mb-6">
+    <Screen scroll>
+      <View className="items-center px-6 pt-8">
         <View className="relative">
-          <Image
-            source={
+          <Avatar
+            uri={
               profile?.avatar_url
-                ? { uri: STORAGE_BASE_URL + profile.avatar_url }
-                : require("@/assets/images/avatar-default.png")
+                ? STORAGE_BASE_URL + profile.avatar_url
+                : null
             }
-            className="w-32 h-32 rounded-full border-4 border-white dark:border-zinc-800"
-            placeholder={require("@/assets/images/avatar-default.png")}
-            contentFit="cover"
-            key={profile?.avatar_url}
+            size={112}
           />
-          <TouchableOpacity
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Change profile photo"
             onPress={handleUploadAvatar}
             disabled={isUploading}
-            className="absolute -bottom-2 -right-2 bg-violet-500 dark:bg-violet-700 p-3 rounded-full"
+            className="absolute -bottom-1 -right-1 h-10 w-10 items-center justify-center rounded-pill bg-primary active:bg-primary-pressed dark:bg-primary-dark"
           >
             {isUploading ? (
-              <ActivityIndicator color="white" />
+              <ActivityIndicator color={colors.onPrimary} />
             ) : (
-              <FontAwesome name="camera" size={20} color="white" />
+              <Camera size={18} strokeWidth={2} color={colors.onPrimary} />
             )}
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
-        <Text className="text-2xl font-bold mt-4 text-foreground dark:text-white">
+        <Text variant="title" tone="ink" className="mt-5 text-center">
           {profile?.first_name} {profile?.last_name}
         </Text>
-        <Text className="text-gray-500 dark:text-gray-400">
-          {profile?.email || user?.email}
-        </Text>
+        {profile?.username ? (
+          <Text variant="body" tone="muted" className="mt-1">
+            @{profile.username}
+          </Text>
+        ) : null}
       </View>
 
-      <View className="mt-8">
-        <Text className="text-lg font-semibold mb-2 text-foreground dark:text-white">
-          Account Information
-        </Text>
-        <View className="bg-white dark:bg-zinc-900 p-4 rounded-lg shadow-sm">
-          <View className="flex-row justify-between py-3 border-b border-gray-100 dark:border-zinc-800">
-            <Text className="text-gray-600 dark:text-gray-300">Email</Text>
-            <Text className="font-medium text-foreground dark:text-white">
-              {profile?.email || user?.email}
-            </Text>
-          </View>
-          <View className="flex-row justify-between py-3">
-            <Text className="text-gray-600 dark:text-gray-300">Role</Text>
-            <Text className="text-violet-500 dark:text-violet-400 font-medium capitalize">
-              user
-            </Text>
-          </View>
-        </View>
+      <Section label="Account" className="mt-10 px-6">
+        <SheetRow label="Email" value={profile?.email || user?.email} />
+        <SheetRow
+          label="Role"
+          value={roleLabel(profile?.is_athlete, profile?.is_coach)}
+        />
+        {profile?.gender ? (
+          <SheetRow label="Gender" value={profile.gender} />
+        ) : null}
+      </Section>
+
+      <View className="px-6 pb-10 pt-10">
+        <Button
+          label="Sign out"
+          variant="secondary"
+          block
+          onPress={async () => {
+            await logout();
+          }}
+        />
       </View>
-    </SafeAreaView>
+    </Screen>
   );
 }

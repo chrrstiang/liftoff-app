@@ -1,21 +1,25 @@
 import {
-  View,
+  Avatar,
+  Button,
+  EmptyState,
+  Screen,
+  Section,
+  SheetRow,
   Text,
-  TouchableOpacity,
-  ActivityIndicator,
-  ScrollView,
-} from "react-native";
-import { Image } from "expo-image";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useQuery } from "@tanstack/react-query";
+} from "@/components/ui";
 import { fetchAthleteProfile } from "@/lib/api/athlete";
+import { useTheme } from "@/theme/useTheme";
 import { AthleteProfileView } from "@/types/types";
+import { useQuery } from "@tanstack/react-query";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { UserX } from "lucide-react-native";
+import { ActivityIndicator, View } from "react-native";
 
 /* Display of athlete profile from roster tab*/
 export default function AthleteDetails() {
   const { athleteId } = useLocalSearchParams<{ athleteId: string }>();
   const router = useRouter();
+  const { colors } = useTheme();
 
   // fetching athlete profile
   const {
@@ -31,92 +35,74 @@ export default function AthleteDetails() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 justify-center items-center bg-background dark:bg-zinc-950">
-        <ActivityIndicator size="large" color="#7c3aed" />
-      </View>
+      <Screen>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      </Screen>
     );
   }
 
   if (error) {
     return (
-      <View className="flex-1 justify-center items-center bg-background dark:bg-zinc-950 p-4">
-        <Text className="text-foreground dark:text-white text-lg mb-4">
-          Athlete not found
-        </Text>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="bg-violet-500 dark:bg-violet-700 px-6 py-3 rounded-lg"
-        >
-          <Text className="text-white font-medium">Go Back</Text>
-        </TouchableOpacity>
-      </View>
+      <Screen>
+        <View className="flex-1 py-16">
+          <EmptyState
+            icon={UserX}
+            title="Athlete not found"
+            body="This profile could not be loaded. It may have been removed from your roster."
+            actionLabel="Go back"
+            onAction={() => router.back()}
+          />
+        </View>
+      </Screen>
     );
   }
 
   const fullName = `${athleteData?.first_name} ${athleteData?.last_name}`;
 
   return (
-    <SafeAreaView className="flex-1 bg-background dark:bg-zinc-950">
-      <ScrollView className="flex-1">
-        <View className="items-center mt-8 mb-6 px-6">
-          <View className="relative">
-            <Image
-              source={
-                athleteData?.avatar_url
-                  ? { uri: athleteData.avatar_url }
-                  : require("@/assets/images/avatar-default.png")
-              }
-              className="w-32 h-32 rounded-full border-4 border-white dark:border-zinc-800"
-              placeholder={require("@/assets/images/avatar-default.png")}
-              contentFit="cover"
+    <Screen scroll>
+      <View className="items-center px-6 pt-8">
+        <Avatar uri={athleteData?.avatar_url} size={112} />
+
+        <Text variant="title" tone="ink" className="mt-5 text-center">
+          {fullName}
+        </Text>
+        <Text variant="body" tone="muted" className="mt-1">
+          @{athleteData?.username}
+        </Text>
+      </View>
+
+      {/* Competing details as ruled rows rather than a row of grey pills —
+          they are facts with labels, not tags. */}
+      {athleteData?.federation_code ||
+      athleteData?.division_name ||
+      athleteData?.weight_class_name ? (
+        <Section label="Competing" className="mt-10 px-6">
+          {athleteData?.federation_code ? (
+            <SheetRow label="Federation" value={athleteData.federation_code} />
+          ) : null}
+          {athleteData?.division_name ? (
+            <SheetRow label="Division" value={athleteData.division_name} />
+          ) : null}
+          {athleteData?.weight_class_name ? (
+            <SheetRow
+              label="Weight class"
+              value={athleteData.weight_class_name}
+              numeric
             />
-          </View>
+          ) : null}
+        </Section>
+      ) : null}
 
-          <Text className="text-2xl font-bold mt-4 text-foreground dark:text-white text-center">
-            {fullName}
-          </Text>
-          <Text className="text-gray-500 dark:text-gray-400">
-            @{athleteData?.username}
-          </Text>
-
-          {(athleteData?.federation_code ||
-            athleteData?.division_name ||
-            athleteData?.weight_class_name) && (
-            <View className="flex-row flex-wrap justify-center mt-4 gap-2">
-              {athleteData?.federation_code && (
-                <View className="bg-gray-100 dark:bg-zinc-800 px-3 py-1.5 rounded-full">
-                  <Text className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {athleteData?.federation_code}
-                  </Text>
-                </View>
-              )}
-              {athleteData?.division_name && (
-                <View className="bg-gray-100 dark:bg-zinc-800 px-3 py-1.5 rounded-full">
-                  <Text className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {athleteData?.division_name}
-                  </Text>
-                </View>
-              )}
-              {athleteData?.weight_class_name && (
-                <View className="bg-gray-100 dark:bg-zinc-800 px-3 py-1.5 rounded-full">
-                  <Text className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {athleteData?.weight_class_name}
-                  </Text>
-                </View>
-              )}
-            </View>
-          )}
-        </View>
-
-        <View className="px-6">
-          <TouchableOpacity
-            onPress={() => router.push(`/program/${athleteData?.athlete_id}`)}
-            className="bg-violet-500 dark:bg-violet-700 rounded-xl p-4 items-center"
-          >
-            <Text className="text-white font-medium">Manage Program</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+      <View className="px-6 pb-10 pt-10">
+        <Button
+          label="Manage program"
+          block
+          onPress={() => router.push(`/program/${athleteData?.athlete_id}`)}
+        />
+      </View>
+    </Screen>
   );
 }

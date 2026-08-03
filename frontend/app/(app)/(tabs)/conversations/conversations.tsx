@@ -1,27 +1,32 @@
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  FlatList,
-  StyleSheet,
-  ActivityIndicator,
-} from "react-native";
-import { UserConversation } from "@/types/types";
-import { Image } from "expo-image";
-import { FontAwesome } from "@expo/vector-icons";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { fetchConversations } from "@/lib/api/conversations";
+import { Avatar, EmptyState, Screen, Text } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
-import { useRouter } from "expo-router";
+import { fetchConversations } from "@/lib/api/conversations";
 import { supabase } from "@/lib/supabase";
-import { useEffect, useRef } from "react";
+import { useTheme } from "@/theme/useTheme";
+import { UserConversation } from "@/types/types";
 import { RealtimeChannel } from "@supabase/supabase-js";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
+import { ChevronRight, MessageCircle } from "lucide-react-native";
+import { useEffect, useRef } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
+
+/** contentContainerStyle takes a style object, not a className. */
+const styles = StyleSheet.create({
+  grow: { flexGrow: 1 },
+});
 
 export default function ConversationsScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { colors } = useTheme();
   const channelRef = useRef<RealtimeChannel | null>(null);
 
   const { data: conversations, isLoading } = useQuery({
@@ -47,7 +52,7 @@ export default function ConversationsScreen() {
           queryClient.invalidateQueries({
             queryKey: ["conversations", user?.id],
           });
-        }
+        },
       )
       .subscribe();
 
@@ -60,85 +65,74 @@ export default function ConversationsScreen() {
     };
   }, [user?.id, queryClient]);
 
-  const renderConversation = ({ item }: { item: UserConversation }) => (
-    <TouchableOpacity
-      onPress={() => {
-        console.log(`Conversation: ${item.name}`);
-        router.push(`/conversations/${item.conversation_id}`);
-      }}
-      className="bg-white dark:bg-zinc-900 p-4 mx-4 my-1 rounded-lg flex-row items-center"
-      activeOpacity={0.8}
-    >
-      <View className="relative">
-        <Image
-          source={
-            item.avatar_url
-              ? {
-                  uri: item.avatar_url,
-                }
-              : require("@/assets/images/avatar-default.png")
-          }
-          className="w-14 h-14 rounded-full"
-          contentFit="cover"
-          placeholder={require("@/assets/images/avatar-default.png")}
-          key={item.avatar_url}
-        />
-        {item.unread_count > 0 && (
-          <View className="absolute -top-1 -right-1 bg-violet-500 rounded-full w-5 h-5 items-center justify-center">
-            <Text className="text-white text-xs font-bold">
-              {item.unread_count}
-            </Text>
-          </View>
-        )}
-      </View>
+  const renderConversation = ({ item }: { item: UserConversation }) => {
+    const unread = item.unread_count > 0;
 
-      <View className="ml-4 flex-1">
-        <View className="flex-row justify-between items-center">
-          <Text className="text-base font-semibold text-foreground dark:text-white">
-            {item.name ? item.name : item.other_user_name}
-          </Text>
-          <Text className="text-xs text-gray-500 dark:text-gray-400">
-            {new Date(item.last_message_sent_at || "").toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </Text>
+    return (
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => {
+          console.log(`Conversation: ${item.name}`);
+          router.push(`/conversations/${item.conversation_id}`);
+        }}
+        className="flex-row items-center gap-4 px-6 py-4 active:bg-surface dark:active:bg-surface-dark"
+      >
+        <View className="relative">
+          <Avatar uri={item.avatar_url} />
+          {/* Ink rather than coral: an unread count is a marker, not an action. */}
+          {unread ? (
+            <View className="absolute -right-1 -top-1 h-5 min-w-5 items-center justify-center rounded-pill bg-ink px-1 dark:bg-ink-dark">
+              <Text variant="overline" tone="onInk">
+                {item.unread_count}
+              </Text>
+            </View>
+          ) : null}
         </View>
 
-        <View className="flex-row items-center mt-1">
+        <View className="flex-1 gap-0.5">
+          <View className="flex-row items-center justify-between">
+            <Text variant="bodyStrong" tone="ink" numberOfLines={1}>
+              {item.name ? item.name : item.other_user_name}
+            </Text>
+            <Text variant="caption" tone="muted">
+              {new Date(item.last_message_sent_at || "").toLocaleTimeString(
+                [],
+                {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                },
+              )}
+            </Text>
+          </View>
+
           <Text
-            className={`text-sm flex-1 ${item.unread_count > 0 ? "font-semibold text-foreground dark:text-white" : "text-gray-500 dark:text-gray-400"}`}
+            variant={unread ? "bodyStrong" : "body"}
+            tone={unread ? "ink" : "muted"}
             numberOfLines={1}
           >
             {item.last_message_content || "No messages yet"}
           </Text>
-          {item.unread_count > 0 && (
-            <View className="w-2 h-2 rounded-full bg-violet-500 ml-2" />
-          )}
         </View>
-      </View>
 
-      <FontAwesome
-        name="chevron-right"
-        size={14}
-        color="#9ca3af"
-        style={styles.icon}
-      />
-    </TouchableOpacity>
-  );
+        <ChevronRight size={18} strokeWidth={2} color={colors.muted} />
+      </Pressable>
+    );
+  };
 
   if (isLoading) {
     return (
-      <View className="flex-1 justify-center items-center bg-background dark:bg-zinc-950">
-        <ActivityIndicator size="large" color="#7c3aed" />
-      </View>
+      <Screen>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      </Screen>
     );
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background dark:bg-zinc-950">
-      <View className="py-4 px-6">
-        <Text className="text-3xl font-bold text-foreground dark:text-white">
+    <Screen edges={["top", "left", "right"]}>
+      <View className="px-6 pb-2 pt-4">
+        <Text variant="title" tone="ink">
           Messages
         </Text>
       </View>
@@ -147,24 +141,22 @@ export default function ConversationsScreen() {
         data={conversations}
         keyExtractor={(item) => item.conversation_id}
         renderItem={renderConversation}
-        contentContainerStyle={styles.list}
+        ItemSeparatorComponent={() => (
+          <View className="ml-24 h-px bg-hairline dark:bg-hairline-dark" />
+        )}
+        contentContainerStyle={
+          conversations?.length ? undefined : styles.grow
+        }
         ListEmptyComponent={
-          <View className="flex-1 items-center justify-center p-8">
-            <Text className="text-gray-500 dark:text-gray-400 text-center">
-              No conversations yet
-            </Text>
+          <View className="flex-1 py-16">
+            <EmptyState
+              icon={MessageCircle}
+              title="No conversations yet"
+              body="Messages with your coach or athletes will show up here."
+            />
           </View>
         }
       />
-    </SafeAreaView>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  list: {
-    paddingVertical: 8,
-  },
-  icon: {
-    marginLeft: 8,
-  },
-});

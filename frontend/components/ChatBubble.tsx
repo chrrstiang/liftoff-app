@@ -1,11 +1,17 @@
-import { View, Text, ActivityIndicator } from "react-native";
-import { Image } from "expo-image";
+import { Avatar, Text } from "@/components/ui";
+import { supabase } from "@/lib/supabase";
 import { Message } from "@/types/types";
 import { format } from "date-fns";
-import { supabase } from "@/lib/supabase";
+import { Image } from "expo-image";
 import { useMemo } from "react";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 
 const AVATAR_BASE_URL = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/avatars/`;
+
+/** expo-image takes a style object, not a className. */
+const styles = StyleSheet.create({
+  media: { width: 192, height: 192, borderRadius: 12 },
+});
 
 export function MessageBubble({
   message,
@@ -38,49 +44,49 @@ export function MessageBubble({
   const isOptimistic = message.id.length < 30;
 
   return (
-    <View className={`mb-2 ${isMe ? "items-end" : "items-start"}`}>
+    <View className={`mb-3 ${isMe ? "items-end" : "items-start"}`}>
       <View
-        className={`flex-row ${isMe ? "justify-end" : "justify-start"} max-w-[85%]`}
+        className={`max-w-[85%] flex-row ${isMe ? "justify-end" : "justify-start"}`}
       >
-        {!isMe && (
-          <Image
-            source={
-              message.sender_avatar_url
-                ? { uri: AVATAR_BASE_URL + message.sender_avatar_url }
-                : require("@/assets/images/avatar-default.png")
-            }
-            className="w-8 h-8 rounded-full mr-2 self-end"
-          />
-        )}
+        {!isMe ? (
+          <View className="mr-2 self-end">
+            <Avatar
+              uri={
+                message.sender_avatar_url
+                  ? AVATAR_BASE_URL + message.sender_avatar_url
+                  : null
+              }
+              size={32}
+            />
+          </View>
+        ) : null}
 
         <View
-          className={`rounded-2xl ${
+          className={`rounded-card ${
             isMe
-              ? "bg-violet-600 rounded-br-sm"
-              : "bg-zinc-200 dark:bg-zinc-800 rounded-bl-sm"
-          } ${message.message_type === "image" && "p-1"}`}
+              ? "rounded-br-none bg-primary dark:bg-primary-dark"
+              : "rounded-bl-none bg-surface dark:bg-surface-dark"
+          }`}
         >
           {message.message_type === "image" ? (
             <View className="p-1">
               <Image
                 key={message.id}
                 source={imageSource}
-                className="w-48 h-48 rounded-xl"
+                style={styles.media}
                 contentFit="cover"
                 transition={200}
                 priority={isOptimistic ? "high" : "normal"}
               />
-              {isOptimistic && (
-                <View className="absolute inset-0 bg-black/20 rounded-xl items-center justify-center">
+              {isOptimistic ? (
+                <View className="absolute inset-0 items-center justify-center rounded-card bg-ink/20">
                   <ActivityIndicator color="white" size="small" />
                 </View>
-              )}
+              ) : null}
             </View>
           ) : (
-            <View className="px-4 py-2">
-              <Text
-                className={`text-base ${isMe ? "text-white" : "text-foreground dark:text-white"}`}
-              >
+            <View className="px-4 py-2.5">
+              <Text variant="body" tone={isMe ? "onPrimary" : "ink"}>
                 {message.content}
               </Text>
             </View>
@@ -88,15 +94,16 @@ export function MessageBubble({
         </View>
       </View>
 
-      <View className="mt-1">
-        <Text
-          className={`text-[10px] ${
-            isMe ? "text-violet-200" : "text-gray-500 pl-10"
-          }`}
-        >
-          {format(new Date(message.sent_at), "h:mm a")}
-        </Text>
-      </View>
+      {/* The timestamp sits on the canvas, outside the bubble, so it always
+          takes the muted tone. It used to be text-violet-200 for own messages,
+          which was near-invisible against the page rather than the bubble. */}
+      <Text
+        variant="caption"
+        tone="muted"
+        className={`mt-1 ${isMe ? "" : "pl-10"}`}
+      >
+        {format(new Date(message.sent_at), "h:mm a")}
+      </Text>
     </View>
   );
 }

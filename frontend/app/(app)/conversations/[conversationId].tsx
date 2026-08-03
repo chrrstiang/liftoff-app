@@ -2,16 +2,17 @@ import {
   ActivityIndicator,
   FlatList,
   View,
-  Text,
-  TouchableOpacity,
+  Pressable,
   Image as RNImage,
   Alert,
   TextInput,
   Platform,
+  StyleSheet,
 } from "react-native";
 import { useAuth } from "@/contexts/AuthContext";
 import { MessageBubble } from "@/components/ChatBubble";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Avatar, EmptyState, Screen, Text } from "@/components/ui";
+import { useTheme } from "@/theme/useTheme";
 import { useLocalSearchParams, router } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Message } from "@/types/types";
@@ -22,19 +23,30 @@ import {
   markAsRead,
   sendMessage,
 } from "@/lib/api/conversations";
-import { FontAwesome } from "@expo/vector-icons";
+import {
+  ChevronLeft,
+  ImagePlus,
+  MessageCircle,
+  SendHorizontal,
+  X,
+} from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { uploadImageMessage } from "@/lib/api/storage";
-import { Image } from "expo-image";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { supabase } from "@/lib/supabase";
 import { RealtimeChannel } from "@supabase/supabase-js";
+
+/** RNImage takes a style object, not a className. */
+const styles = StyleSheet.create({
+  attachmentPreview: { width: 128, height: 128, borderRadius: 12 },
+});
 
 export default function Conversation() {
   const [message, setMessage] = useState("");
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const { user, profile } = useAuth();
+  const { colors } = useTheme();
   const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
 
   const queryClient = useQueryClient();
@@ -243,54 +255,61 @@ export default function Conversation() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 justify-center items-center bg-background dark:bg-zinc-950">
-        <ActivityIndicator size="large" color="#7c3aed" />
-      </View>
+      <Screen>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      </Screen>
     );
   }
 
-  if (!messages) {
+  // currentConversation comes from a .find() and can miss — for example when a
+  // thread is opened by id before the conversations list has resolved. The
+  // header dereferences it, so guard here rather than crash.
+  if (!messages || !currentConversation) {
     return (
-      <View className="flex-1 justify-center items-center bg-background dark:bg-zinc-950">
-        <Text className="text-gray-500 dark:text-gray-400">
-          No messages found
-        </Text>
-      </View>
+      <Screen>
+        <View className="flex-1 py-16">
+          <EmptyState
+            icon={MessageCircle}
+            title="Conversation unavailable"
+            body="This thread could not be loaded. Go back and open it again."
+            actionLabel="Go back"
+            onAction={() => router.back()}
+          />
+        </View>
+      </Screen>
     );
   }
+
+  const canSend = Boolean(message.trim() || mediaUrl);
 
   return (
-    <SafeAreaView className="flex-1 bg-background dark:bg-zinc-950">
+    <Screen edges={["top", "left", "right"]}>
       {/* Header */}
-      <View className="flex-row items-center p-4 border-b border-gray-200 dark:border-zinc-800">
-        <TouchableOpacity
+      <View className="flex-row items-center gap-3 border-b border-hairline px-4 py-3 dark:border-hairline-dark">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={8}
           onPress={() => router.back()}
-          className="mr-4 p-2 -ml-2"
         >
-          <FontAwesome name="chevron-left" size={20} color="#6b7280" />
-        </TouchableOpacity>
-        <Image
-          source={
-            currentConversation.avatar_url
-              ? {
-                  uri: currentConversation.avatar_url,
-                }
-              : require("@/assets/images/avatar-default.png")
-          }
-          className="w-10 h-10 rounded-full mr-3"
-          contentFit="cover"
-        />
+          <ChevronLeft size={24} strokeWidth={2} color={colors.ink} />
+        </Pressable>
+
+        <Avatar uri={currentConversation.avatar_url} size={40} />
 
         <View className="flex-1">
-          <Text className="text-lg font-semibold text-foreground dark:text-white">
+          <Text variant="heading" tone="ink" numberOfLines={1}>
             {currentConversation.name
               ? currentConversation.name
               : currentConversation.other_user_name}
           </Text>
         </View>
       </View>
+
       <KeyboardAvoidingView
-        className="flex-1 pt-10"
+        className="flex-1"
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={0}
       >
@@ -308,32 +327,42 @@ export default function Conversation() {
         />
 
         {/* Message Input */}
-        <View className="bg-background dark:bg-zinc-950 px-3 pb-2">
-          {mediaUrl && (
-            <View className="relative mb-2 mx-2">
+        <View className="border-t border-hairline bg-canvas px-3 pb-2 pt-2 dark:border-hairline-dark dark:bg-canvas-dark">
+          {mediaUrl ? (
+            <View className="relative mx-2 mb-2 self-start">
               <RNImage
                 source={{ uri: mediaUrl }}
-                className="w-32 h-32 rounded-lg"
+                style={styles.attachmentPreview}
                 resizeMode="cover"
               />
-              <TouchableOpacity
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Remove attachment"
                 onPress={() => {
                   setMediaUrl(null);
                 }}
-                className="absolute -top-2 -right-2 bg-red-500 rounded-full w-6 h-6 items-center justify-center"
+                className="absolute -right-2 -top-2 h-6 w-6 items-center justify-center rounded-pill bg-ink dark:bg-ink-dark"
               >
-                <FontAwesome name="times" size={14} color="white" />
-              </TouchableOpacity>
+                <X size={14} strokeWidth={2.5} color={colors.canvas} />
+              </Pressable>
             </View>
-          )}
-          <View className="flex-row items-center bg-gray-100 dark:bg-zinc-800 rounded-full px-4 py-2">
-            <TouchableOpacity onPress={pickImage} className="p-2 mr-2">
-              <FontAwesome name="image" size={24} color="#7c3aed" />
-            </TouchableOpacity>
+          ) : null}
+
+          <View className="flex-row items-center gap-2 rounded-pill bg-surface px-3 py-1.5 dark:bg-surface-dark">
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Attach an image"
+              hitSlop={6}
+              onPress={pickImage}
+              className="p-1"
+            >
+              <ImagePlus size={22} strokeWidth={2} color={colors.muted} />
+            </Pressable>
+
             <TextInput
-              className="flex-1 text-foreground dark:text-white text-base py-2 px-2"
+              className="max-h-24 flex-1 px-1 py-2 font-inter text-body text-ink dark:text-ink-dark"
               placeholder="Type a message..."
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor={colors.muted}
               value={message}
               onChangeText={setMessage}
               onSubmitEditing={handleSend}
@@ -342,16 +371,29 @@ export default function Conversation() {
               multiline
               editable
             />
-            <TouchableOpacity
+
+            {/* Disabled state was previously invisible — the button looked
+                identical whether or not there was anything to send. */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Send message"
               onPress={handleSend}
-              className="ml-2 p-2 bg-primary rounded-full"
-              disabled={!message.trim() && !mediaUrl}
+              disabled={!canSend}
+              className={`h-9 w-9 items-center justify-center rounded-pill ${
+                canSend
+                  ? "bg-primary active:bg-primary-pressed dark:bg-primary-dark"
+                  : "bg-primary-disabled dark:bg-primary-disabled-dark"
+              }`}
             >
-              <FontAwesome name="send" size={20} color="white" />
-            </TouchableOpacity>
+              <SendHorizontal
+                size={18}
+                strokeWidth={2}
+                color={canSend ? colors.onPrimary : colors.muted}
+              />
+            </Pressable>
           </View>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Screen>
   );
 }

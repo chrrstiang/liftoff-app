@@ -1,8 +1,9 @@
 // components/NotificationModal.tsx
-import { View, Text, TouchableOpacity, Modal, Image } from "react-native";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CoachRequest } from "@/types/types";
+import { Avatar, Button, Sheet, Text } from "@/components/ui";
 import { respondToRequest } from "@/lib/api/notifications";
+import { CoachRequest } from "@/types/types";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { View } from "react-native";
 
 export function NotificationModal({
   visible,
@@ -37,8 +38,8 @@ export function NotificationModal({
         queryClient.setQueryData(
           ["requests", userId],
           prevRequests.filter(
-            (request: CoachRequest) => request.id !== variables.requestId
-          )
+            (request: CoachRequest) => request.id !== variables.requestId,
+          ),
         );
       }
 
@@ -63,80 +64,69 @@ export function NotificationModal({
   if (!visible) return null;
 
   return (
-    <Modal transparent animationType="slide" onRequestClose={onClose}>
-      <View className="flex-1 bg-black/50 justify-end">
-        <View className="bg-white dark:bg-zinc-800 rounded-t-3xl p-6 max-h-3/4">
-          <View className="flex-row justify-between items-center mb-4">
-            <Text className="text-xl font-bold text-foreground dark:text-white">
-              Notifications
-            </Text>
-            <TouchableOpacity onPress={onClose}>
-              <Text className="text-blue-500 text-lg">Close</Text>
-            </TouchableOpacity>
-          </View>
+    // Both Cancel and Done just dismiss: responding to a request is committed
+    // immediately by its own button, so there is nothing staged to confirm.
+    <Sheet
+      visible={visible}
+      title="Notifications"
+      onCancel={onClose}
+      onDone={onClose}
+      doneLabel="Done"
+    >
+      <View className="px-4 py-2">
+        {requests?.length > 0 ? (
+          requests.map((request, i) => (
+            <View
+              key={request.id}
+              className={`gap-3 py-4 ${
+                i > 0
+                  ? "border-t border-hairline dark:border-hairline-dark"
+                  : ""
+              }`}
+            >
+              <View className="flex-row items-center gap-3">
+                <Avatar uri={request.coach_avatar_url} size={40} />
+                <Text variant="body" tone="ink" className="flex-1">
+                  <Text variant="bodyStrong" tone="ink">
+                    @{request.coach_username}
+                  </Text>{" "}
+                  wants to coach you
+                </Text>
+              </View>
 
-          <View className="space-y-4">
-            {requests?.length > 0 ? (
-              requests.map((request) => (
-                <View
-                  key={request.id}
-                  className="bg-gray-100 dark:bg-zinc-700 p-4 rounded-lg"
-                >
-                  <View className="flex-row items-center space-x-3">
-                    {request.coach_avatar_url ? (
-                      <Image
-                        source={{ uri: request.coach_avatar_url }}
-                        className="w-10 h-10 rounded-full"
-                      />
-                    ) : (
-                      <Image
-                        source={require("@/assets/images/avatar-default.png")}
-                        className="w-10 h-10 rounded-full"
-                      />
-                    )}
-                    <Text className="flex-1 text-foreground dark:text-white">
-                      <Text className="font-semibold">
-                        @{request.coach_username}
-                      </Text>{" "}
-                      wants to coach you
-                    </Text>
-                  </View>
-                  <View className="flex-row justify-end space-x-2 mt-3">
-                    <TouchableOpacity
-                      onPress={() =>
-                        requestMutation.mutate({
-                          requestId: request.id,
-                          status: "rejected",
-                        })
-                      }
-                      disabled={requestMutation.isPending}
-                      className="px-4 py-2 border border-red-500 rounded-lg"
-                    >
-                      <Text className="text-red-500">Decline</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() =>
-                        requestMutation.mutate({
-                          requestId: request.id,
-                          status: "accepted",
-                        })
-                      }
-                      disabled={requestMutation.isPending}
-                      className="px-4 py-2 bg-green-600 dark:bg-green-800 rounded-lg"
-                    >
-                      <Text className="text-white">Accept</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))
-            ) : (
-              <Text className="text-center text-foreground/50 dark:text-gray-400 py-4">
-                No pending requests
-              </Text>
-            )}
+              <View className="flex-row justify-end gap-2">
+                <Button
+                  label="Decline"
+                  variant="danger"
+                  disabled={requestMutation.isPending}
+                  onPress={() =>
+                    requestMutation.mutate({
+                      requestId: request.id,
+                      status: "rejected",
+                    })
+                  }
+                />
+                <Button
+                  label="Accept"
+                  disabled={requestMutation.isPending}
+                  onPress={() =>
+                    requestMutation.mutate({
+                      requestId: request.id,
+                      status: "accepted",
+                    })
+                  }
+                />
+              </View>
+            </View>
+          ))
+        ) : (
+          <View className="py-10">
+            <Text variant="body" tone="muted" className="text-center">
+              No pending requests
+            </Text>
           </View>
-        </View>
+        )}
       </View>
-    </Modal>
+    </Sheet>
   );
 }

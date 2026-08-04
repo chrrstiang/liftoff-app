@@ -16,7 +16,9 @@ npm run build                              # → dist/
 npm test                                   # unit tests
 npm test -- -t "test name"                 # single test
 npx jest src/users/service/users.service.spec.ts
-npm run test:e2e                           # ⚠️ hits real remote Supabase
+E2E_ALLOW_LIVE=1 npm run test:e2e          # ⚠️ hits real remote Supabase
+E2E_ALLOW_LIVE=1 npm run e2e:sweep         # remove leaked e2e artifacts
+E2E_ALLOW_LIVE=1 npm run e2e:sweep -- --all  # ignore the 30-min age guard
 npx eslint "{src,apps,libs,test}/**/*.ts"  # read-only lint
 npm run lint                               # ⚠️ eslint --fix, MUTATES FILES
 npm run format                             # prettier --write
@@ -117,13 +119,22 @@ Anything off-allowlist throws `BadRequestException`. `PUBLIC_PROFILE_QUERY` is t
 
 **E2E** — `npm run test:e2e`, config `test/jest-e2e.json`. Uses supertest against an in-process app (`app.getHttpServer()`), so no separate server process — **but it requires real Supabase credentials**, because `SupabaseService` throws at construction when env is missing.
 
-⚠️ **E2E is not hermetic. It mutates a shared live project.** Both suites create real auth users via `supabase.auth.signUp()` and clean up afterward; a mid-test failure leaks orphaned records. Treat a local e2e run as a write to production data, and prefer letting CI run it.
+⚠️ **E2E is not hermetic. It mutates the live project real users are in.** There is no staging project and no local database — that is a recorded tradeoff, not an oversight. `test/helpers/fixtures.ts` is what makes it survivable, and **all fixture work must go through it**:
+
+- **`requireLiveOptIn()`** — the suite refuses to run without `E2E_ALLOW_LIVE=1`. CI sets it; locally you type it. That is the point.
+- **Never call `signUp`/`signInWithPassword` on `SupabaseService.getClient()`.** supabase-js resolves the PostgREST header as `session?.access_token ?? supabaseKey`, so a session on that client silently downgrades every subsequent query from `service_role` to that user. `users.e2e-spec.ts` did this: four of its tests were asserting `authenticated` behaviour while claiming to test the service-role path, and its cleanup DELETEs hit RLS and affected zero rows — which returns **no error**, so the `try/catch` never fired and rows leaked every run. Use `createTestUser`, which creates via `auth.admin.createUser` and mints tokens on a throwaway client.
+- **Everything is prefixed** — `e2e-<runId>-<n>@example.com` and `e2e_<runId>_<n>`, plus `first_name: 'E2E'` / `last_name: <runId>`. The run id is short base36 because `CreateUserDto` caps username at 30 chars and only allows `[a-z0-9._]`. Never use a deliverable email domain; the old fixture minted `@gmail.com`, which would bounce against the project's SMTP reputation once email confirmation is on.
+- **`globalTeardown` sweeps by prefix**, because `afterEach` structurally cannot clean up a run that crashed or was killed. CI also runs the sweeper with `if: always()`.
+- **`maxWorkers: 1`** in `test/jest-e2e.json`. Spec files used to run in parallel processes mutating live data; at ~20 specs that also trips Supabase's auth signup rate limit, which presents as flaky red CI that looks like a code bug.
+- **Look reference data up at runtime** via `findReferenceData`. `users.e2e-spec.ts` hardcoded federation/division/weight-class UUIDs, which pinned CI to specific production rows — reference data could never be reseeded, and CI could never be fixed by deleting rows real users point at.
+
+Adding a table to a spec means adding it to `DIRECT_USER_REFERENCES` in `fixtures.ts`, or its rows leak.
 
 ⚠️ **A green `backend-e2e` job does not mean e2e passed.** The job checks for the `SUPABASE_PROJECT_URL` / `SUPABASE_SECRET_KEY` repository secrets first and skips its remaining steps if either is absent, emitting a workflow warning. Without that gate every spec fails identically at `SupabaseService` construction and the job is permanently red, which is worse than no signal. Open the run and look for the "E2E skipped" warning before trusting the check mark.
 
 Two things to follow when adding a spec:
 
-- **Look reference data up at runtime.** `athlete-retrieve.e2e-spec.ts` queries for a division and a matching weight class in `beforeAll`, so it's portable across Supabase projects. `users.e2e-spec.ts` still hardcodes remote UUIDs — the older, more brittle pattern.
+- **Use `test/helpers/fixtures.ts`** for user creation, token minting, reference lookup, and teardown. Both specs now do; don't hand-roll a fixture.
 - **Mirror `main.ts` exactly** — the same `ValidationPipe` options *and* `app.useGlobalFilters(new GlobalExceptionFilter())`. Both existing specs do. Drift here means asserting against an error shape production doesn't return.
 
 ## Conventions
@@ -137,11 +148,12 @@ Two things to follow when adding a spec:
 
 ## Environment
 
-`backend/.env` (gitignored, no template committed):
+`backend/.env` (gitignored; copy `backend/.env.example`):
 
 - `SUPABASE_PROJECT_URL`
 - `SUPABASE_SECRET_KEY` — the **service-role** key. Bypasses RLS. Never log it, never move it into anything `EXPO_PUBLIC_*`.
 - `PORT` (default 8000), `HOST` (default `0.0.0.0`), `NODE_ENV`
+- `E2E_ALLOW_LIVE` — **not** read by the app. Only `test/helpers/fixtures.ts` checks it, and only to refuse running the e2e suite against the live project unless it is exactly `1`. Deliberately not in `.env`: it should be typed per-invocation, not made ambient.
 
 Loaded via `ConfigModule.forRoot({ isGlobal: true })`. `SupabaseService` throws `NotFoundException` at construction if either Supabase var is absent, so **the app won't boot without them** — a fast, obvious failure, unlike the frontend.
 

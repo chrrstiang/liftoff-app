@@ -18,7 +18,12 @@ export class AthleteExistsGuard implements CanActivate {
   constructor(private supabaseService: SupabaseService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request: Request = context.switchToHttp().getRequest();
+    // Typed params rather than an `as string` on the read: Express types
+    // `params.id` as `string | string[]`, and the assertion form tripped
+    // no-unnecessary-type-assertion under one @types/express resolution while
+    // removing it tripped restrict-template-expressions at the throw below.
+    // Declaring the shape satisfies both.
+    const request = context.switchToHttp().getRequest<Request<{ id: string }>>();
     const athleteId = request.params.id;
 
     if (!athleteId) {

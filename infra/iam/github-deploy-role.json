@@ -1,0 +1,71 @@
+{
+  "_comment": [
+    "Permissions policy for liftoff-github-deploy.",
+    "",
+    "Scoped to what a deploy actually does: push an image, register a new task",
+    "definition revision, and tell the service to roll to it. Notably it CANNOT",
+    "create or delete clusters, services, or load balancers -- CI has no business",
+    "doing that, and a compromised workflow should not be able to tear down or",
+    "re-point your infrastructure.",
+    "",
+    "The iam:PassRole statement is the one people either forget (deploys fail with",
+    "AccessDenied on RegisterTaskDefinition) or make far too broad. Registering a",
+    "task definition means handing ECS two roles, so the deployer needs PassRole for",
+    "exactly those two ARNs -- and the ViaService condition means it can only pass",
+    "them to ECS, not to some other service.",
+    "",
+    "ecr:GetAuthorizationToken has to be Resource: * -- it is an account-level",
+    "action with no resource to scope to. Every other ECR action is pinned to the",
+    "single repository."
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EcrLogin",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcrPushToLiftoffRepoOnly",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:CompleteLayerUpload",
+        "ecr:InitiateLayerUpload",
+        "ecr:PutImage",
+        "ecr:UploadLayerPart",
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:DescribeImages"
+      ],
+      "Resource": "arn:aws:ecr:us-east-2:582908772109:repository/liftoff-api"
+    },
+    {
+      "Sid": "RegisterNewTaskDefinitionRevisions",
+      "Effect": "Allow",
+      "Action": ["ecs:RegisterTaskDefinition", "ecs:DescribeTaskDefinition"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RollTheServiceToTheNewRevision",
+      "Effect": "Allow",
+      "Action": ["ecs:UpdateService", "ecs:DescribeServices"],
+      "Resource": "arn:aws:ecs:us-east-2:582908772109:service/liftoff-cluster/liftoff-api"
+    },
+    {
+      "Sid": "PassOnlyTheTwoTaskRolesAndOnlyToEcs",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::582908772109:role/liftoff-api-task",
+        "arn:aws:iam::582908772109:role/liftoff-api-task-execution"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "ecs-tasks.amazonaws.com"
+        }
+      }
+    }
+  ]
+}

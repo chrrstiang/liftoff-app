@@ -1,0 +1,28 @@
+{
+  "_comment": [
+    "Trust policy for BOTH liftoff-api-task and liftoff-api-task-execution.",
+    "",
+    "The two source conditions are not decoration. Without them, any ECS task in",
+    "any AWS account could in principle be used to assume this role -- the",
+    "'confused deputy' problem. SourceAccount and SourceArn pin it to task",
+    "definitions in this account."
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "aws:SourceAccount": "582908772109"
+        },
+        "ArnLike": {
+          "aws:SourceArn": "arn:aws:ecs:us-east-2:582908772109:*"
+        }
+      }
+    }
+  ]
+}

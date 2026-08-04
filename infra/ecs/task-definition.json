@@ -1,0 +1,54 @@
+{
+  "family": "liftoff-api",
+  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "awsvpc",
+  "cpu": "256",
+  "memory": "512",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "executionRoleArn": "arn:aws:iam::582908772109:role/liftoff-api-task-execution",
+  "taskRoleArn": "arn:aws:iam::582908772109:role/liftoff-api-task",
+  "containerDefinitions": [
+    {
+      "name": "liftoff-api",
+      "image": "582908772109.dkr.ecr.us-east-2.amazonaws.com/liftoff-api:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "name": "http",
+          "containerPort": 8000,
+          "protocol": "tcp",
+          "appProtocol": "http"
+        }
+      ],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "PORT", "value": "8000" },
+        { "name": "HOST", "value": "0.0.0.0" }
+      ],
+      "secrets": [
+        {
+          "name": "SUPABASE_PROJECT_URL",
+          "valueFrom": "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_PROJECT_URL"
+        },
+        {
+          "name": "SUPABASE_SECRET_KEY",
+          "valueFrom": "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_SECRET_KEY"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/liftoff-api",
+          "awslogs-region": "us-east-2",
+          "awslogs-stream-prefix": "ecs",
+          "mode": "non-blocking",
+          "max-buffer-size": "4m"
+        }
+      },
+      "stopTimeout": 30
+    }
+  ]
+}

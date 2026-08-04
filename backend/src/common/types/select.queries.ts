@@ -7,7 +7,12 @@ export const VALID_TABLE_FIELDS = {
   // Only these user fields are allowed. Keep this list minimal — it is the only
   // thing constraining what this endpoint exposes, since the backend's
   // service-role key bypasses RLS.
-  users: ['first_name', 'last_name', 'username', 'email', 'role', 'gender'],
+  //
+  // `role` was allowlisted but the column does not exist, so ?data=users.role was
+  // a guaranteed 500. `email` does exist (NOT NULL) but is another user's PII on
+  // what is otherwise a public profile endpoint, and nothing requests it. Both
+  // removed; see docs/DB-SCHEMA.md.
+  users: ['first_name', 'last_name', 'username', 'gender'],
   federations: ['id', 'name', 'code'],
   divisions: ['id', 'federation_id', 'name', 'minimum_age', 'maximum_age'],
   weight_classes: [
@@ -32,6 +37,10 @@ export const VALID_FULL_TABLE_QUERIES = new Set(['federations', 'divisions', 'we
 /** This set contains the accessible fields of the 'athletes' record that is being queried.
  * Includes all columns besides 'user_id', as this can be used to access the auth.uid() of a user.
  *
+ * Verified against the live schema: athletes is exactly
+ * (id, federation_id, division_id, weight_class_id, team_id). There is no
+ * `coach_id` column — it was allowlisted here, so ?data=coach_id was a
+ * guaranteed 500. Coach linkage lives in coach_athlete_relationships.
  */
 export const VALID_ATHLETES_COLUMNS_QUERIES = new Set([
   'id',
@@ -39,13 +48,12 @@ export const VALID_ATHLETES_COLUMNS_QUERIES = new Set([
   'division_id',
   'weight_class_id',
   'team_id',
-  'coach_id',
 ]);
 
 /** The default select used when GET /athlete/profile/:id is called with no `data` param.
  *
  * Only reference columns that are definitely populated — this query must not fail.
- * `role` and `email` are intentionally absent: nothing in the app writes `role`, so it
- * stays opt-in via ?data= rather than breaking the default response.
+ * `email` is intentionally absent (another user's PII), and `role` was never a real
+ * column at all. Neither is reachable via ?data= any more either.
  */
 export const PUBLIC_PROFILE_QUERY = `id, users (first_name, last_name, username, gender), federations (*), divisions (*), weight_classes (*)`;

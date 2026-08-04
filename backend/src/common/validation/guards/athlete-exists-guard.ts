@@ -19,7 +19,7 @@ export class AthleteExistsGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request: Request = context.switchToHttp().getRequest();
-    const athleteId = request.params.id as string;
+    const athleteId = request.params.id;
 
     if (!athleteId) {
       throw new BadRequestException(`Must include ID of athlete requested.`);

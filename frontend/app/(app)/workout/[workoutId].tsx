@@ -19,7 +19,7 @@ import {
   Set,
   Workout,
   WorkoutExercise,
-} from "@/types/types";
+} from "@/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
 import { Dumbbell, Plus } from "lucide-react-native";

@@ -22,7 +22,7 @@ import {
   ExerciseTemplate,
   SetTemplate,
   WorkoutTemplate,
-} from "@/types/types";
+} from "@/types";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";

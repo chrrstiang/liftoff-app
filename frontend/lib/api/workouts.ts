@@ -4,7 +4,7 @@ import {
   Set,
   WorkoutExercise,
   WorkoutTemplate,
-} from "@/types/types";
+} from "@/types";
 
 export async function fetchWorkoutById(workoutId: string) {
   const { data, error } = await supabase

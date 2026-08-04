@@ -1,4 +1,4 @@
-import { ExerciseFormData, ExerciseTemplate } from "@/types/types";
+import { ExerciseFormData, ExerciseTemplate } from "@/types";
 import { supabase } from "../supabase";
 
 export async function createExercise(exerciseData: ExerciseFormData) {

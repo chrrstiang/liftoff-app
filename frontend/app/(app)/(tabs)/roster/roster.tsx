@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { searchAthletes } from "@/lib/api/athlete";
 import { fetchRoster, sendInvite } from "@/lib/api/roster";
 import { useTheme } from "@/theme/useTheme";
-import { AthleteProfileView, UserProfileEnriched } from "@/types/types";
+import { AthleteProfileView, UserProfileEnriched } from "@/types";
 import SegmentedControl from "@react-native-segmented-control/segmented-control";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";

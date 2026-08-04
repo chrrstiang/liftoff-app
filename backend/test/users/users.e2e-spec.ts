@@ -1,5 +1,5 @@
 /**
- * Create user profile E2E tests
+ * POST /users/profile E2E tests
  * - Successfully create only a user profile
  * - Successfully create profile with all fields (athlete)
  * - Successfully create profile with all fields (coach)
@@ -9,32 +9,60 @@
  * - Fail due to long biography
  * - Fail due to invalid date format
  * - Fail due to invalid gender
- * - Fail due to duplicate username
- * - Fail due to invalid federation_id
- * - Fail due to invalid division_id
- * - Fail due to invalid weight_class_id
+ * - Fail due to invalid federation_id / division_id / weight_class_id
+ * - Fail when a dependent id is given without a federation
+ *
+ * ⚠️ Hits the real Supabase project named by SUPABASE_PROJECT_URL /
+ * SUPABASE_SECRET_KEY. Requires E2E_ALLOW_LIVE=1; see test/helpers/fixtures.ts.
+ *
+ * Two things this spec used to get wrong, both fixed by the shared fixtures:
+ *
+ * 1. It called `supabase.auth.signUp()` on the SupabaseService singleton. Because
+ *    supabase-js resolves the PostgREST header as
+ *    `session?.access_token ?? supabaseKey`, that downgraded the shared client from
+ *    service_role to the new user — so the app under test ran as `authenticated`,
+ *    and the cleanup DELETEs silently affected zero rows (an RLS-blocked DELETE
+ *    returns no error), leaking rows on every run.
+ * 2. It hardcoded federation/division/weight-class UUIDs, pinning CI to specific
+ *    production rows. Reference data is now looked up at runtime.
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import request from 'supertest';
-import { AppModule } from '../../src/app.module';
-import { Gender } from '../../src/users/dto/create-user.dto';
-import { SupabaseService } from '../../src/supabase/supabase.service';
+import { AppModule } from 'src/app.module';
+import { Gender } from 'src/users/dto/create-user.dto';
+import { SupabaseService } from 'src/supabase/supabase.service';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { Server } from 'http';
 import { useContainer } from 'class-validator';
-import { GlobalExceptionFilter } from '../../src/common/filters/global-exception-filter';
+import { GlobalExceptionFilter } from 'src/common/filters/global-exception-filter';
+import {
+  cleanupUsers,
+  createAuthClient,
+  createTestUser,
+  e2eProfileMarkers,
+  findReferenceData,
+  requireLiveOptIn,
+  type ReferenceData,
+  type TestUser,
+} from '../helpers/fixtures';
 
 describe('UsersController (e2e)', () => {
   let app: INestApplication;
-  let supabaseService: SupabaseService;
   let supabase: SupabaseClient;
-  let validToken: string;
-  let testUserId: string;
+  let authClient: SupabaseClient;
+  let reference: ReferenceData;
+
+  let testUser: TestUser;
+  /** Recorded the instant the auth user exists, so a fixture that throws partway
+   * can still be torn down. */
+  const createdUserIds: string[] = [];
 
   beforeAll(async () => {
-    // Setup app ONCE
+    requireLiveOptIn();
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -42,6 +70,8 @@ describe('UsersController (e2e)', () => {
     app = moduleFixture.createNestApplication();
 
     // Mirror src/main.ts exactly, so these assertions describe production behavior.
+    // useContainer is what makes the DB-backed async validators resolve their
+    // dependencies; without it @IsUnique and @ValueExists silently pass.
     useContainer(app.select(AppModule), { fallbackOnErrors: true });
     app.useGlobalPipes(
       new ValidationPipe({
@@ -54,65 +84,55 @@ describe('UsersController (e2e)', () => {
 
     await app.init();
 
-    supabaseService = moduleFixture.get<SupabaseService>(SupabaseService);
-    supabase = supabaseService.getClient();
+    supabase = moduleFixture.get(SupabaseService).getClient();
+
+    const config = moduleFixture.get(ConfigService);
+    authClient = createAuthClient(
+      config.get<string>('SUPABASE_PROJECT_URL')!,
+      config.get<string>('SUPABASE_SECRET_KEY')!,
+    );
+
+    reference = await findReferenceData(supabase);
   });
 
   beforeEach(async () => {
-    // new user per test
-    const uniqueEmail = `test-${Date.now()}-${Math.random()}@gmail.com`;
-
-    const { data: authData, error } = await supabase.auth.signUp({
-      email: uniqueEmail,
-      password: 'TestPassword123!',
-    });
-
-    if (error || !authData.user || !authData.session) {
-      throw new Error(`Failed to create test user: ${error?.message}`);
-    }
-
-    testUserId = authData.user.id;
-    validToken = authData.session.access_token;
-  });
-
-  afterEach(async () => {
-    // clean up records and user from recent test
-    if (!testUserId) return;
-
-    try {
-      await supabase.from('athletes').delete().eq('id', testUserId);
-      await supabase.from('coaches').delete().eq('id', testUserId);
-      await supabase.from('users').delete().eq('id', testUserId);
-      await supabase.auth.admin.deleteUser(testUserId);
-    } catch (error) {
-      console.error(`Cleanup failed for user ${testUserId}:`, error);
-    }
+    // A fresh user per test: POST /users/profile is once-per-user, so tests would
+    // collide on a shared one.
+    testUser = await createTestUser(supabase, authClient, (id) => createdUserIds.push(id));
   });
 
   afterAll(async () => {
+    await cleanupUsers(supabase, createdUserIds);
     await app.close();
   });
 
   describe('POST /users/profile', () => {
-    const getBaseUserData = () => ({
-      first_name: 'Test',
-      last_name: 'User',
-      username: `test_${Date.now().toString().slice(-8)}`,
-      gender: Gender.MALE,
+    /** Gender comes from the looked-up weight class, not a fixed value: the service
+     * cross-validates weight_class against federation AND gender, so a hardcoded
+     * gender would fail against whatever reference row this project happens to
+     * have. */
+    const baseUserData = () => ({
+      ...e2eProfileMarkers(),
+      username: testUser.username,
+      gender: reference.gender as Gender,
       date_of_birth: '1990-01-01',
       is_athlete: false,
       is_coach: false,
     });
 
-    it('should successfully create only a user profile', async () => {
-      const response = await request(app.getHttpServer() as Server)
+    const athleteIds = () => ({
+      federation_id: reference.federationId,
+      division_id: reference.divisionId,
+      weight_class_id: reference.weightClassId,
+    });
+
+    const post = () =>
+      request(app.getHttpServer() as Server)
         .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
-        .send({
-          ...getBaseUserData(),
-          username: `useronly_${Date.now()}`,
-        })
-        .expect(201);
+        .set('Authorization', `Bearer ${testUser.token}`);
+
+    it('should successfully create only a user profile', async () => {
+      const response = await post().send(baseUserData()).expect(201);
 
       expect(response.body).toEqual({
         message: 'User profile created successfully!',
@@ -120,17 +140,8 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should successfully create profile with all fields (athlete)', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
-        .send({
-          ...getBaseUserData(),
-          username: `athlete_${Date.now()}`,
-          is_athlete: true,
-          federation_id: '2339e288-bd79-4d91-b357-e5f5969a5223',
-          division_id: '26dcbca5-07aa-48e5-b944-32f28036fa65',
-          weight_class_id: '1fcc786f-9588-4d18-8bf0-a5564157c9b0',
-        })
+      const response = await post()
+        .send({ ...baseUserData(), is_athlete: true, ...athleteIds() })
         .expect(201);
 
       expect(response.body).toEqual({
@@ -139,12 +150,9 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should successfully create profile with all fields (coach)', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
+      const response = await post()
         .send({
-          ...getBaseUserData(),
-          username: `coach_${Date.now()}`,
+          ...baseUserData(),
           is_coach: true,
           biography: 'Experienced coach',
           years_of_experience: 5,
@@ -157,17 +165,12 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should successfully create profile with all fields (both)', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
+      const response = await post()
         .send({
-          ...getBaseUserData(),
-          username: `both_${Date.now()}`,
+          ...baseUserData(),
           is_athlete: true,
           is_coach: true,
-          federation_id: '2339e288-bd79-4d91-b357-e5f5969a5223',
-          division_id: '26dcbca5-07aa-48e5-b944-32f28036fa65',
-          weight_class_id: '1fcc786f-9588-4d18-8bf0-a5564157c9b0',
+          ...athleteIds(),
           biography: 'Experienced coach and athlete',
           years_of_experience: 5,
         })
@@ -179,11 +182,7 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should fail due to missing required fields', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
-        .send({}) // Missing all required fields
-        .expect(400);
+      const response = await post().send({}).expect(400);
 
       expect(response.body.message).toContain('first_name should not be empty');
       expect(response.body.message).toContain('last_name should not be empty');
@@ -197,13 +196,8 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should fail due to long username', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
-        .send({
-          ...getBaseUserData(),
-          username: 'a'.repeat(31), // 31 characters (max is 30)
-        })
+      const response = await post()
+        .send({ ...baseUserData(), username: 'a'.repeat(31) })
         .expect(400);
 
       expect(response.body.message).toContain(
@@ -212,14 +206,8 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should fail due to long biography', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
-        .send({
-          ...getBaseUserData(),
-          is_coach: true,
-          biography: 'a'.repeat(501), // 501 characters (max is 500)
-        })
+      const response = await post()
+        .send({ ...baseUserData(), is_coach: true, biography: 'a'.repeat(501) })
         .expect(400);
 
       expect(response.body.message).toContain(
@@ -228,26 +216,16 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should fail due to invalid date format', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
-        .send({
-          ...getBaseUserData(),
-          date_of_birth: 'not-a-date',
-        })
+      const response = await post()
+        .send({ ...baseUserData(), date_of_birth: 'not-a-date' })
         .expect(400);
 
       expect(response.body.message).toContain('date_of_birth must be a valid ISO 8601 date string');
     });
 
     it('should fail due to invalid gender', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
-        .send({
-          ...getBaseUserData(),
-          gender: 'INVALID_GENDER',
-        })
+      const response = await post()
+        .send({ ...baseUserData(), gender: 'INVALID_GENDER' })
         .expect(400);
 
       expect(response.body.message).toContain(
@@ -255,43 +233,13 @@ describe('UsersController (e2e)', () => {
       );
     });
 
-    /*
-    it('should fail due to duplicate username', async () => {
-      const duplicateUsername = `duplicate_${Date.now()}`;
-
-      // First request should succeed
-      await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
-        .send({
-          ...getBaseUserData(),
-          username: duplicateUsername,
-        })
-        .expect(201);
-
-      // Second request with same username should fail
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
-        .send({
-          ...getBaseUserData(),
-          username: duplicateUsername,
-        })
-        .expect(400);
-
-      expect(response.body.message).toContain('Username already exists');
-    });
-    */
     it('should fail due to invalid federation_id when is_athlete is true', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
+      const response = await post()
         .send({
-          ...getBaseUserData(),
+          ...baseUserData(),
           is_athlete: true,
+          ...athleteIds(),
           federation_id: 'im fake',
-          division_id: '26dcbca5-07aa-48e5-b944-32f28036fa65',
-          weight_class_id: '1fcc786f-9588-4d18-8bf0-a5564157c9b0',
         })
         .expect(400);
 
@@ -299,15 +247,12 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should fail due to invalid division_id when is_athlete is true', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
+      const response = await post()
         .send({
-          ...getBaseUserData(),
+          ...baseUserData(),
           is_athlete: true,
-          federation_id: '2339e288-bd79-4d91-b357-e5f5969a5223',
+          ...athleteIds(),
           division_id: 'im fake',
-          weight_class_id: '1fcc786f-9588-4d18-8bf0-a5564157c9b0',
         })
         .expect(400);
 
@@ -315,14 +260,11 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should fail due to invalid weight_class_id when is_athlete is true', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
+      const response = await post()
         .send({
-          ...getBaseUserData(),
+          ...baseUserData(),
           is_athlete: true,
-          federation_id: '2339e288-bd79-4d91-b357-e5f5969a5223',
-          division_id: '26dcbca5-07aa-48e5-b944-32f28036fa65',
+          ...athleteIds(),
           weight_class_id: 'im fake',
         })
         .expect(400);
@@ -330,15 +272,13 @@ describe('UsersController (e2e)', () => {
       expect(response.body.message).toContain('im fake');
     });
 
-    it('should fail due to invalid federation_id when there is no federation id', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
+    it('should fail due to a division_id with no federation id', async () => {
+      const response = await post()
         .send({
-          ...getBaseUserData(),
+          ...baseUserData(),
           is_athlete: true,
           federation_id: null,
-          division_id: '26dcbca5-07aa-48e5-b944-32f28036fa65',
+          division_id: reference.divisionId,
           weight_class_id: null,
         })
         .expect(400);
@@ -346,32 +286,14 @@ describe('UsersController (e2e)', () => {
       expect(response.body.message).toContain('Federation is required to validate division');
     });
 
-    it('should fail due to invalid division_id when there is no federation id', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
+    it('should fail due to a weight_class_id with no federation id', async () => {
+      const response = await post()
         .send({
-          ...getBaseUserData(),
-          is_athlete: true,
-          federation_id: null,
-          division_id: '26dcbca5-07aa-48e5-b944-32f28036fa65',
-          weight_class_id: null,
-        })
-        .expect(400);
-
-      expect(response.body.message).toContain('Federation is required to validate division');
-    });
-
-    it('should fail due to invalid weight_class_id when there is no federation id', async () => {
-      const response = await request(app.getHttpServer() as Server)
-        .post('/users/profile')
-        .set('Authorization', `Bearer ${validToken}`)
-        .send({
-          ...getBaseUserData(),
+          ...baseUserData(),
           is_athlete: true,
           federation_id: null,
           division_id: null,
-          weight_class_id: '1fcc786f-9588-4d18-8bf0-a5564157c9b0',
+          weight_class_id: reference.weightClassId,
         })
         .expect(400);
 

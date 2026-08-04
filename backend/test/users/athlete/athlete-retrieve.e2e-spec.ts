@@ -7,27 +7,34 @@ import { AppModule } from 'src/app.module';
 import { GlobalExceptionFilter } from 'src/common/filters/global-exception-filter';
 import { useContainer } from 'class-validator';
 import { SupabaseService } from 'src/supabase/supabase.service';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { PUBLIC_PROFILE_QUERY } from 'src/common/types/select.queries';
+import {
+  cleanupUsers,
+  createAuthClient,
+  createTestUser,
+  e2eProfileMarkers,
+  findReferenceData,
+  requireLiveOptIn,
+} from '../../helpers/fixtures';
 
 /** GET /athlete/profile/:id
  *
  * Run with: npm run test:e2e -- athlete-retrieve
  *
  * ⚠️ Hits the real Supabase project named by SUPABASE_PROJECT_URL / SUPABASE_SECRET_KEY.
- * Creates one auth user plus a users/athletes row in beforeAll and removes them in
- * afterAll. Reference data (federations / divisions / weight_classes) is looked up
- * rather than hardcoded, so the suite is portable across projects — but those tables
- * must contain at least one usable federation.
+ * Requires E2E_ALLOW_LIVE=1. Creates one auth user plus a users/athletes row in
+ * beforeAll and removes them in afterAll; the globalTeardown sweeper is the backstop
+ * if this run dies before that. Reference data is looked up rather than hardcoded, so
+ * the suite is portable across projects — but those tables must contain at least one
+ * usable federation.
  *
  * ⚠️ **Two clients, deliberately.** `supabase` is the app's service-role client and
  * must never be signed in: supabase-js resolves the PostgREST Authorization header
  * as `session?.access_token ?? supabaseKey`, so the moment a session exists on a
  * client every query it makes runs as that *user* rather than as service_role.
- * An earlier version of this fixture called signUp() on the shared client and then
- * inserted, which ran the insert as the brand-new user and failed with
- * "new row violates row-level security policy for table athletes". Sign-in happens
- * on `authClient`, a throwaway instance, purely to mint a token.
+ * Token minting happens on a throwaway client. That rule is now enforced centrally
+ * by test/helpers/fixtures.ts — see the note there.
  */
 describe('Athlete profile (GET) (e2e)', () => {
   let app: INestApplication<App>;
@@ -43,6 +50,8 @@ describe('Athlete profile (GET) (e2e)', () => {
   let createdUserId: string | null = null;
 
   beforeAll(async () => {
+    requireLiveOptIn();
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -69,9 +78,7 @@ describe('Athlete profile (GET) (e2e)', () => {
     const key = config.get<string>('SUPABASE_SECRET_KEY')!;
 
     // Separate instance, so signing in here cannot downgrade `supabase`.
-    const authClient = createClient(url, key, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const authClient = createAuthClient(url, key);
 
     const fixture = await createAthleteFixture(supabase, authClient, (id) => {
       createdUserId = id;
@@ -81,12 +88,11 @@ describe('Athlete profile (GET) (e2e)', () => {
   });
 
   afterAll(async () => {
-    // Keyed off createdUserId, not athleteId, so a fixture that threw partway
-    // still cleans up. Rows may not exist; deleting a missing row is a no-op.
+    // Keyed off createdUserId, not athleteId, so a fixture that threw partway still
+    // cleans up. cleanupUsers walks the FK graph, so it stays correct as this spec
+    // grows to touch more tables.
     if (createdUserId) {
-      await supabase.from('athletes').delete().eq('id', createdUserId);
-      await supabase.from('users').delete().eq('id', createdUserId);
-      await supabase.auth.admin.deleteUser(createdUserId);
+      await cleanupUsers(supabase, [createdUserId]);
     }
     if (app) {
       await app.close();
@@ -195,94 +201,43 @@ async function createAthleteFixture(
   authClient: SupabaseClient,
   onUserCreated: (id: string) => void,
 ) {
-  // Find a federation that has both a division and a weight class.
-  const { data: division, error: divisionError } = await supabase
-    .from('divisions')
-    .select('id, federation_id')
-    .limit(1)
-    .single();
+  // Reference data is looked up, not hardcoded, so this is portable across projects.
+  const reference = await findReferenceData(supabase);
 
-  if (divisionError || !division) {
-    throw new Error(
-      `No divisions found in the target Supabase project — seed reference data before running e2e: ${divisionError?.message ?? 'no rows'}`,
-    );
-  }
-
-  const { data: weightClass, error: weightClassError } = await supabase
-    .from('weight_classes')
-    .select('id, gender')
-    .eq('federation_id', division.federation_id)
-    .limit(1)
-    .single();
-
-  if (weightClassError || !weightClass) {
-    throw new Error(
-      `No weight_classes found for federation ${division.federation_id} — seed reference data before running e2e: ${weightClassError?.message ?? 'no rows'}`,
-    );
-  }
-
-  const email = `athlete-retrieve-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
-  const password = 'TestPassword123!';
-
-  // admin.createUser rather than signUp: it is an admin endpoint, so it leaves no
-  // session on the client, and email_confirm removes the dependency on the
-  // project having email confirmation switched off.
-  const { data: created, error: createError } = await supabase.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-  });
-
-  if (createError || !created.user) {
-    throw new Error(`Failed to create test user: ${createError?.message ?? 'no user returned'}`);
-  }
-
-  const athleteId = created.user.id;
-
-  // Register for teardown before anything else can throw.
-  onUserCreated(athleteId);
-
-  // Token comes from the throwaway client, so `supabase` stays service_role.
-  const { data: auth, error: signInError } = await authClient.auth.signInWithPassword({
-    email,
-    password,
-  });
-
-  if (signInError || !auth.session) {
-    throw new Error(
-      `Failed to sign in test user: ${signInError?.message ?? 'no session returned'}`,
-    );
-  }
+  // createTestUser registers the id via onUserCreated the instant the auth user
+  // exists — before anything that can throw — so a half-built fixture still tears
+  // down. It also mints the token on the throwaway client, keeping `supabase` at
+  // service_role.
+  const { userId, username, token } = await createTestUser(supabase, authClient, onUserCreated);
 
   // Gender must match the weight class, or the app-level cross-validation would
   // reject this combination on the write path.
   const { error: userError } = await supabase
     .from('users')
     .update({
-      first_name: 'Retrieve',
-      last_name: 'Fixture',
-      username: `retrieve_${Date.now().toString().slice(-9)}`,
-      gender: weightClass.gender,
+      ...e2eProfileMarkers(),
+      username,
+      gender: reference.gender,
       date_of_birth: '1995-06-15',
       is_athlete: true,
       is_coach: false,
     })
-    .eq('id', athleteId);
+    .eq('id', userId);
 
   if (userError) {
     throw new Error(`Failed to populate users row: ${userError.message}`);
   }
 
   const { error: athleteError } = await supabase.from('athletes').insert({
-    id: athleteId,
-    federation_id: division.federation_id,
-    division_id: division.id,
-    weight_class_id: weightClass.id,
+    id: userId,
+    federation_id: reference.federationId,
+    division_id: reference.divisionId,
+    weight_class_id: reference.weightClassId,
   });
 
   if (athleteError) {
     throw new Error(`Failed to create athletes row: ${athleteError.message}`);
   }
 
-  return { athleteId, token: auth.session.access_token };
+  return { athleteId: userId, token };
 }

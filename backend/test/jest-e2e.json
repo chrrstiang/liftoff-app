@@ -8,5 +8,9 @@
   },
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/../src/$1"
-  }
+  },
+  "globalSetup": "<rootDir>/helpers/global-setup.ts",
+  "globalTeardown": "<rootDir>/helpers/global-teardown.ts",
+  "maxWorkers": 1,
+  "testPathIgnorePatterns": ["<rootDir>/helpers/"]
 }

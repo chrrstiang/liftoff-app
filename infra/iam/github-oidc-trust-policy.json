@@ -1,0 +1,43 @@
+{
+  "_comment": [
+    "Trust policy for liftoff-github-deploy -- the role GitHub Actions assumes.",
+    "",
+    "OIDC rather than stored access keys: GitHub presents a short-lived signed token,",
+    "AWS verifies it, and no long-lived credential ever exists in a repo secret. A",
+    "leaked secret is then not a standing compromise.",
+    "",
+    "Requires a one-time IAM OIDC identity provider for",
+    "token.actions.githubusercontent.com with audience sts.amazonaws.com. See",
+    "infra/README.md.",
+    "",
+    "⚠️ The `sub` condition is the security boundary, and getting it wrong is the",
+    "classic mistake. Written as below it permits ONLY workflows running on the main",
+    "branch of this one repo. If it were `repo:chrrstiang/liftoff-app:*`, then any",
+    "pull request -- including one opened from a fork -- could assume this role and",
+    "push images to your ECR. Do not loosen it to a bare wildcard.",
+    "",
+    "To also allow tag-triggered deploys, add",
+    "  repo:chrrstiang/liftoff-app:ref:refs/tags/*",
+    "as an additional entry rather than widening the existing one."
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::582908772109:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": [
+            "repo:chrrstiang/liftoff-app:ref:refs/heads/main"
+          ]
+        }
+      }
+    }
+  ]
+}

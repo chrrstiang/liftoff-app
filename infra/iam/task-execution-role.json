@@ -1,0 +1,46 @@
+{
+  "_comment": [
+    "Inline policy for the ECS TASK EXECUTION role (liftoff-api-task-execution).",
+    "",
+    "This role belongs to the ECS agent, not to your application code. It is what",
+    "pulls the image, resolves the SSM secrets, and writes logs -- all BEFORE the",
+    "container starts. Keep it distinct from the task role: conflating the two is",
+    "the most common ECS IAM mistake, and it hands your application permission to",
+    "read every secret the agent can reach.",
+    "",
+    "Attach the AWS managed policy AmazonECSTaskExecutionRolePolicy as well; it",
+    "covers ECR pull and CloudWatch Logs. This inline policy adds only the secret",
+    "reads, scoped to the two parameters this service actually needs.",
+    "",
+    "The kms:Decrypt statement is required because the parameters are SecureString.",
+    "Even with the default aws/ssm key, the caller needs Decrypt -- omitting it is",
+    "why 'ResourceInitializationError: unable to pull secrets' is such a common",
+    "first-deploy failure. The ViaService condition means this grant only works",
+    "through SSM, not for arbitrary decryption.",
+    "",
+    "Trust policy is in task-role-trust-policy.json (shared with the task role)."
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadSupabaseSecrets",
+      "Effect": "Allow",
+      "Action": ["ssm:GetParameters"],
+      "Resource": [
+        "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_PROJECT_URL",
+        "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_SECRET_KEY"
+      ]
+    },
+    {
+      "Sid": "DecryptSecureStringParameters",
+      "Effect": "Allow",
+      "Action": ["kms:Decrypt"],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "ssm.us-east-2.amazonaws.com"
+        }
+      }
+    }
+  ]
+}

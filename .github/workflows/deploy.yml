@@ -1,0 +1,138 @@
+name: Deploy API
+
+# Deploys backend/ to ECS Fargate.
+#
+# ⚠️ NOT ACTIVE until the AWS resources exist and AWS_DEPLOY_ROLE_ARN is set as a
+# repository variable. Until then every step is skipped with a loud warning rather
+# than failing — the same pattern the e2e job uses for missing Supabase secrets,
+# because a permanently red required check is worse than no signal at all.
+#
+# Setup runbook: infra/README.md
+
+on:
+  push:
+    branches: [main]
+    # Only redeploy when something that ends up in the image changed. A docs-only
+    # commit rolling the service is pointless churn and burns deploy minutes.
+    paths:
+      - "backend/**"
+      - "infra/ecs/task-definition.json"
+      - ".github/workflows/deploy.yml"
+  # Manual trigger, for rolling back to a previous image tag.
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (defaults to this commit's SHA)"
+        required: false
+        type: string
+
+# One deploy at a time. Two concurrent runs would race to register task definition
+# revisions and the service could settle on the older image.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-2
+  ECR_REPOSITORY: liftoff-api
+  ECS_CLUSTER: liftoff-cluster
+  ECS_SERVICE: liftoff-api
+  ECS_TASK_DEFINITION: infra/ecs/task-definition.json
+  CONTAINER_NAME: liftoff-api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    # Required for OIDC. `id-token: write` is what lets the runner request a signed
+    # token to exchange for AWS credentials; without it the assume-role step fails
+    # with a confusing "Credentials could not be loaded".
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # `vars` is not available in a job-level `if`, so gate in a step.
+      - name: Check for deploy role
+        id: config
+        env:
+          DEPLOY_ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          if [ -n "$DEPLOY_ROLE" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Deploy skipped::Set the AWS_DEPLOY_ROLE_ARN repository variable to enable deploys. See infra/README.md."
+          fi
+
+      - name: Configure AWS credentials
+        if: steps.config.outputs.configured == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        if: steps.config.outputs.configured == 'true'
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Tagged with the commit SHA, not just `latest`. An immutable tag per commit is
+      # what makes rollback possible: `latest` tells you nothing about what is
+      # actually running, and re-pushing it gives you no way back.
+      - name: Build and push image
+        if: steps.config.outputs.configured == 'true'
+        id: image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ inputs.image_tag || github.sha }}
+        run: |
+          IMAGE="$REGISTRY/$ECR_REPOSITORY:$TAG"
+          docker build -t "$IMAGE" ./backend
+          docker push "$IMAGE"
+          echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Render task definition
+        if: steps.config.outputs.configured == 'true'
+        id: taskdef
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION }}
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.image.outputs.uri }}
+
+      # wait-for-service-stability is the point of this step. Without it the job goes
+      # green as soon as the API call returns, which means a container that
+      # crash-loops on startup still reports a successful deploy.
+      - name: Deploy to ECS
+        if: steps.config.outputs.configured == 'true'
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.taskdef.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      # Independent confirmation that the thing users hit actually works. A stable
+      # service means the tasks are running and passing the target group check; this
+      # proves the request path through DNS and the ALB does too.
+      - name: Smoke test /health
+        if: steps.config.outputs.configured == 'true' && vars.API_BASE_URL != ''
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+        run: |
+          echo "GET $API_BASE_URL/health"
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS --max-time 10 "$API_BASE_URL/health"; then
+              echo ""
+              echo "healthy"
+              exit 0
+            fi
+            echo "attempt $attempt failed, retrying in 10s"
+            sleep 10
+          done
+          echo "::error title=Smoke test failed::$API_BASE_URL/health did not return 200 after 5 attempts."
+          exit 1

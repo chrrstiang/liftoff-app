@@ -109,28 +109,29 @@ No Redux, Zustand or Jotai. Screen state is plain `useState`.
 
 **Almost nothing goes through the API.** Reads *and* writes go straight to Supabase via `lib/api/*` (`athlete`, `conversations`, `exercises`, `notifications`, `roster`, `storage`, `workouts`) — including 13 direct `insert`/`update` calls.
 
-The **only** backend call in the entire frontend is an inline `fetch` in `app/(app)/create-profile.tsx`:
+The **only** backend call in the entire frontend is `POST /users/profile` from `app/(app)/create-profile.tsx`. So profile creation is the one flow that needs the API running; everything else works with the backend stopped.
+
+⚠️ **Those direct writes run with the anon key, so RLS is the only thing authorising them.** Nothing client-side stops a user inserting a `coach_athlete` row for someone else's athlete or updating another user's set.
+
+**All backend calls go through `lib/api/client.ts`.** Do not hand-roll a `fetch`:
 
 ```ts
-await fetch(`${API_URL}/users/profile`, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${session?.access_token}`,
-  },
-  body: JSON.stringify(payload),
-});
+import { api, describeApiError } from "@/lib/api/client";
+
+await api.post("/users/profile", payload);
 ```
 
-So profile creation is the one flow that needs the API running. Everything else works with the backend stopped.
+It owns three things that were each a bug waiting to happen:
 
-⚠️ **Those direct writes run with the anon key, so RLS is the only thing authorising them.** Nothing client-side stops a user inserting a `coach_athlete` row for someone else's athlete or updating another user's set. Verify policies in the Supabase dashboard before trusting any of it.
-
-When you add the *second* backend call, extract a small client (base URL + auth header + error shape) rather than copying that block.
+- **Base URL, with a named failure.** A missing `EXPO_PUBLIC_API_URL` used to become the literal string `"undefined"` in the URL, which React Native reports as `Network request failed` — indistinguishable from a real connectivity problem. It now throws `ApiConfigError` naming the variable.
+- **The auth header**, read from the live Supabase session (`getSession()`), so a caller cannot send a stale token. Pass `accessToken` to override.
+- **The error envelope.** `ApiError.messages` is always an array, whether the server sent a string (thrown exception) or an array (`ValidationPipe`). The old inline fetch read `errorData.error` — a field the API has never sent — so every validation failure showed a generic fallback and discarded the per-field messages. `describeApiError(error, fallback)` gives you one string for an `Alert`, and handles non-JSON 502s, which matters once this sits behind an ALB.
 
 ## Conventions
 
 - **Imports use the `@/*` alias** from `app/`, `components/` and `contexts/` — `@/*` maps to `./*` (project root, so `@/lib/...`). Siblings inside `components/ui` import each other relatively, so the barrel can't cycle through itself.
+- **Types live in `types/`, split per resource** (`coach`, `conversation`, `reference`, `user`, `workout`) behind a barrel — import from `@/types`, never a specific file. They were one `types/types.ts`, which every migration slice would have had to edit, making a merge conflict guaranteed on each. `Profile` / `Federation` / `Division` / `WeightClass` moved here out of `create-profile.tsx`.
+  - Watch nullability: reference-data `name` columns are nullable, and `id` columns are **uuid strings**, not numbers. The old local interfaces declared `Federation.id: number` and `WeightClass.sort_order: boolean`; both were wrong and typechecked only because Supabase's `data` is untyped.
 - Double quotes. TS is `strict`, so no implicit `any`.
 - Icons: `lucide-react-native` throughout. `@expo/vector-icons` is installed but no longer used in app code — don't reintroduce it.
 - Fonts load in `app/_layout.tsx` via `useFonts` behind `SplashScreen.preventAutoHideAsync()`. **A new weight must be added both to that `useFonts` call and to `fontFamily` in `theme/tokens.js`** — a family name with no loaded face falls back to system silently.
@@ -148,7 +149,7 @@ Three traps:
 
 1. `EXPO_PUBLIC_*` values are **inlined at bundle time**. Never put a secret behind that prefix, and restart Metro with `--clear` after editing — a running server won't pick up changes.
 2. **`localhost` will not resolve from a physical device.** Use the machine's LAN IP. This is the most common cause of "Network request failed" on create-profile.
-3. `lib/supabase.ts` throws a named error when its vars are missing. **`create-profile.tsx` does not** — a missing `EXPO_PUBLIC_API_URL` becomes the literal string `"undefined"` in the URL, and React Native reports that as `Network request failed`, which looks like a connectivity problem rather than a config one.
+3. `lib/supabase.ts` throws a named error when its vars are missing, and `lib/api/client.ts` now does the same for `EXPO_PUBLIC_API_URL` (`ApiConfigError`). Before that, a missing value became the literal string `"undefined"` in the URL and surfaced as `Network request failed` — which reads as a connectivity problem rather than a config one.
 
 ## Gotchas
 

@@ -10,45 +10,13 @@ import {
   Text,
 } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
+import { api, describeApiError } from "@/lib/api/client";
 import { supabase } from "@/lib/supabase";
+import type { Division, Federation, Profile, WeightClass } from "@/types";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Alert, useColorScheme, View } from "react-native";
-
-interface Federation {
-  id: number;
-  name: string;
-  code: string;
-}
-
-interface Division {
-  id: number;
-  name: string;
-  minimum_age: number;
-  maximum_age: number;
-}
-
-interface WeightClass {
-  id: number;
-  name: string;
-  sort_order: boolean;
-}
-
-interface Profile {
-  first_name: string;
-  last_name: string;
-  username: string;
-  gender: string;
-  date_of_birth: Date;
-  federation_id?: number;
-  division_id?: number;
-  weight_class_id?: number;
-  is_athlete: boolean;
-  is_coach: boolean;
-  biography?: string;
-  years_of_experience?: number;
-}
 
 /** Ages copy for a division, which may be open-ended at either end. */
 function divisionAges(div: Division) {
@@ -94,7 +62,6 @@ export default function CreateProfile() {
   // states for authentication
   const colorScheme = useColorScheme();
   const { session, checkProfileCompletion, fetchProfile } = useAuth();
-  const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
   const ROLES = {
     ATHLETE: "Athlete",
@@ -208,22 +175,9 @@ export default function CreateProfile() {
         years_of_experience: parseInt(yearsOfExperience),
       };
 
-      const response = await fetch(`${API_URL}/users/profile`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.access_token}`,
-        },
-        body: JSON.stringify(payload),
+      await api.post("/users/profile", payload, {
+        accessToken: session?.access_token,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        Alert.alert("Error", errorData.error || "Failed to create profile");
-        throw new Error(errorData.error);
-      }
-
-      console.log("Profile created successfully!");
 
       if (session?.user?.id) {
         await fetchProfile(session?.user?.id);
@@ -232,7 +186,11 @@ export default function CreateProfile() {
       router.replace("/(app)/(tabs)/home");
     } catch (error) {
       console.error("Error creating profile:", error);
-      Alert.alert("Error", "Failed to create profile");
+      // The previous version read `errorData.error`, a field the API never sends —
+      // its envelope is { statusCode, message, ... }. So every validation failure
+      // showed the generic fallback and threw away the per-field messages telling
+      // the user exactly what was wrong.
+      Alert.alert("Error", describeApiError(error, "Failed to create profile"));
     } finally {
       setIsLoading(false);
     }
@@ -421,7 +379,12 @@ export default function CreateProfile() {
         items={federations}
         selected={selectedFederation}
         keyExtractor={(fed) => String(fed.id)}
-        renderLabel={(fed) => ({ title: fed.name, subtitle: fed.code })}
+        renderLabel={(fed) => ({
+          // federations.name is nullable in the schema; code is NOT NULL, so it is
+          // the natural fallback.
+          title: fed.name ?? fed.code,
+          subtitle: fed.code,
+        })}
         onCommit={(fed) => {
           setSelectedFederation(fed);
           setShowFederationModal(false);
@@ -436,7 +399,8 @@ export default function CreateProfile() {
         selected={selectedDivision}
         keyExtractor={(div) => String(div.id)}
         renderLabel={(div) => ({
-          title: div.name,
+          // divisions.name is nullable in the schema.
+          title: div.name ?? "Unnamed division",
           subtitle: divisionAges(div),
         })}
         onCommit={(div) => {

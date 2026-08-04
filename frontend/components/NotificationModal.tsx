@@ -1,7 +1,7 @@
 // components/NotificationModal.tsx
 import { Avatar, Button, Sheet, Text } from "@/components/ui";
 import { respondToRequest } from "@/lib/api/notifications";
-import { CoachRequest } from "@/types/types";
+import { CoachRequest } from "@/types";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { View } from "react-native";
 

@@ -15,7 +15,7 @@ import { Avatar, EmptyState, Screen, Text } from "@/components/ui";
 import { useTheme } from "@/theme/useTheme";
 import { useLocalSearchParams, router } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Message } from "@/types/types";
+import { Message } from "@/types";
 import {
   fetchConversations,
   fetchMessageById,

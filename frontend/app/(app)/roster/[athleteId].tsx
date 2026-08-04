@@ -9,7 +9,7 @@ import {
 } from "@/components/ui";
 import { fetchAthleteProfile } from "@/lib/api/athlete";
 import { useTheme } from "@/theme/useTheme";
-import { AthleteProfileView } from "@/types/types";
+import { AthleteProfileView } from "@/types";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { UserX } from "lucide-react-native";

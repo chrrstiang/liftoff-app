@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { fetchConversations } from "@/lib/api/conversations";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/theme/useTheme";
-import { UserConversation } from "@/types/types";
+import { UserConversation } from "@/types";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";

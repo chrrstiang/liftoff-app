@@ -2,7 +2,7 @@ import { Input, Text } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchExerciseTemplates } from "@/lib/api/exercises";
 import { useTheme } from "@/theme/useTheme";
-import { ExerciseTemplate, SetTemplate } from "@/types/types";
+import { ExerciseTemplate, SetTemplate } from "@/types";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronRight, X } from "lucide-react-native";
 import { useState } from "react";

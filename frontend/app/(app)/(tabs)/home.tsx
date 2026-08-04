@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { fetchAthleteRequests } from "@/lib/api/notifications";
 import { fetchAthleteWorkouts } from "@/lib/api/workouts";
 import { useTheme } from "@/theme/useTheme";
-import { CoachRequest } from "@/types/types";
+import { CoachRequest } from "@/types";
 import { useQuery } from "@tanstack/react-query";
 import { format, isToday, isTomorrow, parseISO, startOfToday } from "date-fns";
 import { router } from "expo-router";

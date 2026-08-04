@@ -1,6 +1,6 @@
 import { Avatar, Text } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
-import { Message } from "@/types/types";
+import { Message } from "@/types";
 import { format } from "date-fns";
 import { Image } from "expo-image";
 import { useMemo } from "react";

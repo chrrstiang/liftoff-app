@@ -56,7 +56,12 @@ export function NotificationModal({
       queryClient.invalidateQueries({ queryKey: ["requests", userId] });
 
       if (variables.status === "accepted") {
-        queryClient.invalidateQueries({ queryKey: ["athletes", userId] });
+        // Was ["athletes", userId] — plural, and queried by nothing, so accepting a
+        // request refreshed nothing. ["athlete", userId] is the real key: this modal
+        // runs on the *athlete's* device, and the Program tab reads
+        // ["athlete", <own id>] from coach_athletes_view, which gains a row the
+        // moment the relationship is created.
+        queryClient.invalidateQueries({ queryKey: ["athlete", userId] });
       }
     },
   });

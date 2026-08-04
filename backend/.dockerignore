@@ -1,0 +1,34 @@
+# Keeps the build context small and, more importantly, keeps secrets and host
+# artifacts out of the image.
+
+# ⚠️ Never let .env into an image. SUPABASE_SECRET_KEY is the service-role key --
+# it bypasses RLS entirely. In ECS it arrives via the task definition's `secrets`
+# block from SSM Parameter Store, never baked into a layer.
+.env
+.env.*
+!.env.example
+
+# Reinstalled in the image; a host node_modules may hold the wrong platform's
+# binaries.
+node_modules
+dist
+
+# Tests and their fixtures do not belong in a runtime image. test/helpers/ can
+# delete live database rows.
+test
+**/*.spec.ts
+**/*.e2e-spec.ts
+coverage
+
+.git
+.gitignore
+Dockerfile
+.dockerignore
+*.md
+.eslintrc*
+eslint.config.*
+.prettierrc*
+.vscode
+.idea
+.DS_Store
+npm-debug.log*

@@ -136,7 +136,10 @@ export default function RosterPage() {
     enabled: !!userId,
   });
 
-  // TODO: Add query for searching all users when in invite mode
+  // Invite-mode user search. The old TODO here asked for this query, which now
+  // exists; what is still narrow is the search itself — it needs 3+ characters,
+  // returns at most 20, and excludes anyone already active or pending on this
+  // coach's roster.
   const { data: searchResults = [], isLoading: isSearching } = useQuery({
     queryKey: ["userSearch", debouncedQuery],
     queryFn: () => searchAthletes(debouncedQuery, userId!),
@@ -150,26 +153,53 @@ export default function RosterPage() {
     mutationFn: (athleteId: string) => sendInvite(athleteId, userId!),
     onMutate: async (athleteId: string) => {
       setInvitingUserId(athleteId);
-      await queryClient.cancelQueries({ queryKey: ["roster", userId] });
+
+      // Three bugs lived here. The key written below was
+      // ["userSearch", debouncedQuery, userId] — three elements — while the query
+      // is registered as ["userSearch", debouncedQuery]. It never matched, so the
+      // invited athlete was never removed from the list. Meanwhile cancelQueries
+      // targeted ["roster", userId], an unrelated query, leaving the one actually
+      // being mutated free to resolve over the optimistic write. And onError had no
+      // rollback at all, so once the key was fixed a failure would have stranded
+      // the optimistic removal.
+      const searchKey = ["userSearch", debouncedQuery];
+
+      await queryClient.cancelQueries({ queryKey: searchKey });
+
+      const previousResults =
+        queryClient.getQueryData<UserProfileEnriched[]>(searchKey);
 
       queryClient.setQueryData<UserProfileEnriched[]>(
-        ["userSearch", debouncedQuery, userId],
+        searchKey,
         (old) => old?.filter((u) => u.athlete_id !== athleteId) || [],
       );
+
+      return { searchKey, previousResults };
     },
     onSuccess: async () => {
       setInvitingUserId(null);
       await queryClient.invalidateQueries({ queryKey: ["roster", userId] });
       Alert.alert("Success", "Invitation sent!");
     },
-    onError: () => {
+    onError: (_error, _athleteId, context) => {
       setInvitingUserId(null);
+
+      if (context?.previousResults) {
+        queryClient.setQueryData(context.searchKey, context.previousResults);
+      }
+
       Alert.alert("Error", "Failed to send invitation. Please try again.");
     },
   });
 
-  // filtering athletes based on search query and mode
-  const filteredData = useMemo(() => {
+  // Filtering athletes based on search query and mode.
+  //
+  // Explicitly the union: the roster tab yields coach_athletes_view rows and the
+  // invite tab yields user_profiles_enriched_view rows, and FlatList needs one
+  // element type. This only typechecked implicitly before because searchAthletes
+  // returned an untyped array, which unified with anything. AthleteCard already
+  // accepts both shapes.
+  const filteredData = useMemo<(AthleteProfileView | UserProfileEnriched)[]>(() => {
     if (selectedIndex === 0) {
       if (!searchQuery) return athletes;
 

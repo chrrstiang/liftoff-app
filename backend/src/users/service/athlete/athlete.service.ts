@@ -7,7 +7,6 @@ import {
   VALID_FULL_TABLE_QUERIES,
   VALID_TABLE_FIELDS,
 } from 'src/common/types/select.queries';
-import { UsersService } from '../users.service';
 
 /** The AthleteService class contains business logic for the API endpoints of the AthleteController.
  *  This contains operations such as inserting/updating athlete profiles to Supabase and
@@ -41,7 +40,13 @@ export class AthleteService {
     const select = await this.supabase.from('athletes').select(query).eq('id', athleteId).single();
 
     if (select.error) {
-      UsersService.handleSupabaseError(select.error, 'Failed to retrieve profile details');
+      // Local rather than borrowed from UsersService: that service is on Drizzle
+      // now, and this one is still the last Supabase reader in the codebase.
+      // It goes away when the ?data= compiler is ported.
+      console.error(select.error);
+      throw new BadRequestException(
+        `Failed to retrieve profile details: ${select.error.code} - ${select.error.message}`,
+      );
     }
 
     return select.data;

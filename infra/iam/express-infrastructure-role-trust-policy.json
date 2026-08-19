@@ -1,0 +1,29 @@
+{
+  "_comment": [
+    "Trust policy for ecsInfrastructureRoleForExpressServices.",
+    "",
+    "This is the role ECS Express Mode assumes to provision and manage the things it",
+    "creates for you: the Application Load Balancer, target groups, security groups,",
+    "the ACM certificate, and the auto-scaling policies.",
+    "",
+    "Note the principal is ecs.amazonaws.com, NOT ecs-tasks.amazonaws.com. The task",
+    "and execution roles are assumed by the task agent; this one is assumed by the",
+    "ECS service itself. Using the wrong principal is a silent failure -- the role",
+    "exists, the service creation just cannot assume it.",
+    "",
+    "Attach the AWS managed policy:",
+    "  arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRoleforExpressGatewayServices",
+    "",
+    "It is only used during Express service create, update, and delete -- not at",
+    "runtime."
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowAccessInfrastructureForECSExpressServices",
+      "Effect": "Allow",
+      "Principal": { "Service": "ecs.amazonaws.com" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}

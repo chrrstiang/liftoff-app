@@ -1,6 +1,8 @@
 {
   "family": "liftoff-api",
-  "requiresCompatibilities": ["FARGATE"],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
   "networkMode": "awsvpc",
   "cpu": "256",
   "memory": "512",
@@ -24,11 +26,24 @@
         }
       ],
       "environment": [
-        { "name": "NODE_ENV", "value": "production" },
-        { "name": "PORT", "value": "8000" },
-        { "name": "HOST", "value": "0.0.0.0" }
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "PORT",
+          "value": "8000"
+        },
+        {
+          "name": "HOST",
+          "value": "0.0.0.0"
+        }
       ],
       "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/DATABASE_URL"
+        },
         {
           "name": "SUPABASE_PROJECT_URL",
           "valueFrom": "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_PROJECT_URL"

@@ -23,10 +23,13 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "ReadSupabaseSecrets",
+      "Sid": "ReadRuntimeSecrets",
       "Effect": "Allow",
-      "Action": ["ssm:GetParameters"],
+      "Action": [
+        "ssm:GetParameters"
+      ],
       "Resource": [
+        "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/DATABASE_URL",
         "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_PROJECT_URL",
         "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_SECRET_KEY"
       ]
@@ -34,7 +37,9 @@
     {
       "Sid": "DecryptSecureStringParameters",
       "Effect": "Allow",
-      "Action": ["kms:Decrypt"],
+      "Action": [
+        "kms:Decrypt"
+      ],
       "Resource": "*",
       "Condition": {
         "StringEquals": {

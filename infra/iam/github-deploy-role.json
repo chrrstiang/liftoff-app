@@ -2,21 +2,23 @@
   "_comment": [
     "Permissions policy for liftoff-github-deploy.",
     "",
-    "Scoped to what a deploy actually does: push an image, register a new task",
-    "definition revision, and tell the service to roll to it. Notably it CANNOT",
-    "create or delete clusters, services, or load balancers -- CI has no business",
-    "doing that, and a compromised workflow should not be able to tear down or",
-    "re-point your infrastructure.",
+    "Scoped to what a deploy actually does under ECS Express Mode: push an image,",
+    "register a new task definition revision, and point the Express service at it.",
+    "It CANNOT create or delete services, clusters, or load balancers -- CI has no",
+    "business doing that, and a compromised workflow should not be able to tear down",
+    "or re-point your infrastructure.",
     "",
-    "The iam:PassRole statement is the one people either forget (deploys fail with",
-    "AccessDenied on RegisterTaskDefinition) or make far too broad. Registering a",
-    "task definition means handing ECS two roles, so the deployer needs PassRole for",
-    "exactly those two ARNs -- and the ViaService condition means it can only pass",
-    "them to ECS, not to some other service.",
+    "UpdateExpressGatewayService is Resource:* because Express service ARNs are",
+    "generated at creation time and are not known when this policy is written. Tighten",
+    "it to the real ARN once the service exists -- see infra/README.md.",
     "",
-    "ecr:GetAuthorizationToken has to be Resource: * -- it is an account-level",
-    "action with no resource to scope to. Every other ECR action is pinned to the",
-    "single repository."
+    "iam:PassRole now covers three roles, not two: Express Mode also needs the",
+    "infrastructure role passed, and to ecs.amazonaws.com rather than",
+    "ecs-tasks.amazonaws.com. Forgetting that is an AccessDenied on update with a",
+    "message that does not name the missing role.",
+    "",
+    "ecr:GetAuthorizationToken must be Resource:* -- it is account-level with no",
+    "resource to scope to. Every other ECR action is pinned to the one repository."
   ],
   "Version": "2012-10-17",
   "Statement": [
@@ -44,26 +46,37 @@
     {
       "Sid": "RegisterNewTaskDefinitionRevisions",
       "Effect": "Allow",
-      "Action": ["ecs:RegisterTaskDefinition", "ecs:DescribeTaskDefinition"],
+      "Action": [
+        "ecs:RegisterTaskDefinition",
+        "ecs:DescribeTaskDefinition"
+      ],
       "Resource": "*"
     },
     {
-      "Sid": "RollTheServiceToTheNewRevision",
+      "Sid": "RollTheExpressServiceToTheNewImage",
       "Effect": "Allow",
-      "Action": ["ecs:UpdateService", "ecs:DescribeServices"],
-      "Resource": "arn:aws:ecs:us-east-2:582908772109:service/liftoff-cluster/liftoff-api"
+      "Action": [
+        "ecs:UpdateExpressGatewayService",
+        "ecs:DescribeExpressGatewayService",
+        "ecs:DescribeServices"
+      ],
+      "Resource": "*"
     },
     {
-      "Sid": "PassOnlyTheTwoTaskRolesAndOnlyToEcs",
+      "Sid": "PassOnlyOurOwnRolesAndOnlyToEcs",
       "Effect": "Allow",
       "Action": "iam:PassRole",
       "Resource": [
         "arn:aws:iam::582908772109:role/liftoff-api-task",
-        "arn:aws:iam::582908772109:role/liftoff-api-task-execution"
+        "arn:aws:iam::582908772109:role/liftoff-api-task-execution",
+        "arn:aws:iam::582908772109:role/ecsInfrastructureRoleForExpressServices"
       ],
       "Condition": {
         "StringEquals": {
-          "iam:PassedToService": "ecs-tasks.amazonaws.com"
+          "iam:PassedToService": [
+            "ecs-tasks.amazonaws.com",
+            "ecs.amazonaws.com"
+          ]
         }
       }
     }

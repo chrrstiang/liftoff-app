@@ -105,9 +105,29 @@ Set retention — the default is "never expire", which bills quietly forever. Th
 
 ### 4. RDS
 
-`db.t4g.micro`, private, no public access, in the same VPC Express Mode will use (the default VPC unless you tell it otherwise).
+```bash
+aws rds create-db-instance --profile liftoff --region us-east-2 \
+  --db-instance-identifier liftoff-db --db-instance-class db.t4g.micro \
+  --engine postgres --engine-version 15 --allocated-storage 20 --storage-type gp3 \
+  --db-name liftoff --master-username liftoff_admin --manage-master-user-password \
+  --db-subnet-group-name liftoff-db-subnets --vpc-security-group-ids <rds-sg> \
+  --no-publicly-accessible --storage-encrypted --backup-retention-period 7 --no-multi-az
+```
 
-The one thing to get right: **the RDS security group must allow 5432 from the task security group** — as a security-group reference, not a CIDR. Express Mode creates that task security group, so this is a step you do *after* the service exists, using the group id from step 6.
+**`--manage-master-user-password` is the important flag.** RDS generates and rotates the password itself and keeps it in Secrets Manager, so it is never typed, never stored in SSM, and never interpolated into a connection string. The task definition pulls it with `valueFrom: <secret-arn>:password::` and the app reads it as `PGPASSWORD` — node-postgres understands `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE` natively, which is why there is no `DATABASE_URL` in production.
+
+The execution role needs `secretsmanager:GetSecretValue` on that secret, in addition to its SSM permissions.
+
+**The RDS security group must allow 5432 from the task security group** — as a group reference, not a CIDR. Express Mode creates that task security group, so this happens *after* the service exists:
+
+```bash
+ENI=$(aws ecs describe-tasks --cluster default --tasks <task-id> \
+  --query "tasks[0].attachments[0].details[?name=='networkInterfaceId'].value" --output text)
+TASK_SG=$(aws ec2 describe-network-interfaces --network-interface-ids $ENI \
+  --query 'NetworkInterfaces[0].Groups[0].GroupId' --output text)
+aws ec2 authorize-security-group-ingress --group-id <rds-sg> \
+  --protocol tcp --port 5432 --source-group $TASK_SG
+```
 
 ### 5. Push an image and register the task definition
 
@@ -128,20 +148,31 @@ aws ecs register-task-definition --profile liftoff --region us-east-2 \
 ```bash
 aws ecs create-express-gateway-service --profile liftoff --region us-east-2 \
   --service-name liftoff-api \
-  --task-definition liftoff-api \
-  --execution-role-arn arn:aws:iam::582908772109:role/liftoff-api-task-execution \
+  --task-definition liftoff-api:2 \
   --infrastructure-role-arn arn:aws:iam::582908772109:role/ecsInfrastructureRoleForExpressServices \
   --health-check-path /health
 ```
 
+**Three things the docs do not make obvious, each of which failed the call once:**
+
+1. **Do not pass `--execution-role-arn` alongside `--task-definition`.** Express Mode reads the execution and task roles *from* the task definition, and rejects the combination outright: `primaryContainer, executionRoleArn, taskRoleArn, cpu, and memory cannot be specified when taskDefinitionArn is provided`. Only `--infrastructure-role-arn` is passed separately, because it is not part of a task definition.
+2. **The primary container must be named `Main`.** Anything else fails with `Task definition must have a container named Main`. Renaming it later also breaks Express Mode's ability to update the service, so leave it.
+3. **`--health-check-path` is mandatory.** It defaults to `/ping`, which this API does not serve, so every task would fail its check and cycle forever.
+
 **`--health-check-path` is not optional here.** It defaults to `/ping`, which this API does not serve, so every task would fail its health check and cycle forever. `/health` deliberately does not touch the database — a check that queries Postgres fails whenever Postgres hiccups, which makes the load balancer replace healthy tasks and turns a blip into an outage.
 
-Then read the URL back:
+Then read the URL back — note this takes `--service-arn`, **not** `--service-name`:
 
 ```bash
 aws ecs describe-express-gateway-service --profile liftoff --region us-east-2 \
-  --cluster default --service-name liftoff-api
+  --service-arn arn:aws:ecs:us-east-2:582908772109:service/default/liftoff-api \
+  --query 'service.activeConfigurations[0].endpoint' --output text
 ```
+
+The endpoint has the form `<id>.ecs.<region>.on.aws` and is served over HTTPS with an ACM certificate Express Mode manages. **A freshly created record takes a while to propagate** — if your resolver returns NXDOMAIN, it is not broken; confirm with `nslookup <host> 1.1.1.1` and test meanwhile with
+`curl --resolve <host>:443:<ip> https://<host>/health`.
+
+Express Mode creates **two** target groups, for canary deployments. Only one has registered targets at any time, so an empty one is expected rather than a symptom.
 
 ### 7. Wire up CI
 
@@ -190,6 +221,11 @@ Two results that look like problems and aren't: `MISSING_RESOURCE` on the trust 
 | Service creation fails, role not named | infrastructure role trust principal is `ecs-tasks.amazonaws.com` instead of `ecs.amazonaws.com` |
 | API cannot reach the database | RDS security group doesn't allow 5432 from the Express-created task security group |
 | `AccessDenied` on deploy | deploy role missing `iam:PassRole` for all three roles, or missing `ecs.amazonaws.com` in the `PassedToService` condition |
+| `...cannot be specified when taskDefinitionArn is provided` | passing `--execution-role-arn` together with `--task-definition` |
+| `Task definition must have a container named Main` | the primary container is named anything else |
+| `describe-express-gateway-service` rejects `--service-name` | it takes `--service-arn` |
+| Endpoint returns `Could not resolve host` while the target is healthy | DNS propagation on a new record; verify with a public resolver |
+| One target group shows no targets | normal — Express Mode keeps two for canary deploys |
 | Deploy green but API broken | the settle-polling loop was removed from `deploy.yml` |
 | `Token has expired` on any command | `aws sso login --profile liftoff` |
 

@@ -38,7 +38,7 @@ env:
   ECS_CLUSTER: default
   ECS_SERVICE: liftoff-api
   ECS_TASK_DEFINITION: infra/ecs/task-definition.json
-  CONTAINER_NAME: liftoff-api
+  CONTAINER_NAME: Main
 
 jobs:
   deploy:

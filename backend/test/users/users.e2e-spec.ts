@@ -55,10 +55,22 @@ describe('UsersController (e2e)', () => {
   let authClient: SupabaseClient;
   let reference: ReferenceData;
 
-  let testUser: TestUser;
-  /** Recorded the instant the auth user exists, so a fixture that throws partway
+  /** A single user shared by every test expected to FAIL validation. Those never
+   * create a profile, so they cannot collide. Success cases take a fresh user via
+   * `freshUser()`, because POST /users/profile is once-per-user.
+   *
+   * This matters beyond tidiness: the previous version created an auth user in
+   * beforeEach, so one run burned ~13 Supabase signups. Auth is the one thing
+   * still on the shared project, and that burst is enough to trip its rate limit
+   * — which surfaces as "Database error creating new user" and reads like a
+   * broken trigger rather than throttling. */
+  let sharedUser: TestUser;
+
+  /** Recorded the instant each auth user exists, so a fixture that throws partway
    * can still be torn down. */
   const createdUserIds: string[] = [];
+
+  const freshUser = () => createTestUser(supabase, authClient, (id) => createdUserIds.push(id));
 
   beforeAll(async () => {
     requireLiveOptIn();
@@ -92,13 +104,8 @@ describe('UsersController (e2e)', () => {
       config.get<string>('SUPABASE_SECRET_KEY')!,
     );
 
-    reference = await findReferenceData(supabase);
-  });
-
-  beforeEach(async () => {
-    // A fresh user per test: POST /users/profile is once-per-user, so tests would
-    // collide on a shared one.
-    testUser = await createTestUser(supabase, authClient, (id) => createdUserIds.push(id));
+    reference = await findReferenceData();
+    sharedUser = await freshUser();
   });
 
   afterAll(async () => {
@@ -113,7 +120,7 @@ describe('UsersController (e2e)', () => {
      * have. */
     const baseUserData = () => ({
       ...e2eProfileMarkers(),
-      username: testUser.username,
+      username: sharedUser.username,
       gender: reference.gender as Gender,
       date_of_birth: '1990-01-01',
       is_athlete: false,
@@ -126,13 +133,17 @@ describe('UsersController (e2e)', () => {
       weight_class_id: reference.weightClassId,
     });
 
-    const post = () =>
+    /** Defaults to the shared validation user; success cases pass their own. */
+    const post = (as: TestUser = sharedUser) =>
       request(app.getHttpServer() as Server)
         .post('/users/profile')
-        .set('Authorization', `Bearer ${testUser.token}`);
+        .set('Authorization', `Bearer ${as.token}`);
 
     it('should successfully create only a user profile', async () => {
-      const response = await post().send(baseUserData()).expect(201);
+      const user = await freshUser();
+      const response = await post(user)
+        .send({ ...baseUserData(), username: user.username })
+        .expect(201);
 
       expect(response.body).toEqual({
         message: 'User profile created successfully!',
@@ -140,8 +151,9 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should successfully create profile with all fields (athlete)', async () => {
-      const response = await post()
-        .send({ ...baseUserData(), is_athlete: true, ...athleteIds() })
+      const user = await freshUser();
+      const response = await post(user)
+        .send({ ...baseUserData(), username: user.username, is_athlete: true, ...athleteIds() })
         .expect(201);
 
       expect(response.body).toEqual({
@@ -150,9 +162,11 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should successfully create profile with all fields (coach)', async () => {
-      const response = await post()
+      const user = await freshUser();
+      const response = await post(user)
         .send({
           ...baseUserData(),
+          username: user.username,
           is_coach: true,
           biography: 'Experienced coach',
           years_of_experience: 5,
@@ -165,9 +179,11 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should successfully create profile with all fields (both)', async () => {
-      const response = await post()
+      const user = await freshUser();
+      const response = await post(user)
         .send({
           ...baseUserData(),
+          username: user.username,
           is_athlete: true,
           is_coach: true,
           ...athleteIds(),

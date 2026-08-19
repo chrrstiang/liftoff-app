@@ -27,6 +27,13 @@ export class ValueExistsValidator implements ValidatorConstraintInterface {
       return false;
     }
 
+    // Guard before building SQL. Interpolating undefined into a template produced
+    // `where "users"."username" =  limit $1` -- a syntax error, surfaced as a 500.
+    // A missing value does not exist, by definition. Optionality is the DTO's job.
+    if (value === null || value === undefined || value === '') {
+      return false;
+    }
+
     const [tableName, columnName] = args.constraints as [string, string];
     const column = resolveValidatableColumn(tableName, columnName);
 

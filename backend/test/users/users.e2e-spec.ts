@@ -125,9 +125,17 @@ describe('UsersController (e2e)', () => {
      * cross-validates weight_class against federation AND gender, so a hardcoded
      * gender would fail against whatever reference row this project happens to
      * have. */
+    /** A distinct username per call, on purpose.
+     *
+     * The auth user is shared, but @IsUnique('users','username') checks the live
+     * table — and once the first successful POST writes the shared username, every
+     * later test reusing it fails uniqueness. Varying the username keeps the
+     * validator honest while still costing only one signup: the upsert simply
+     * renames the same row. */
+    let usernameCounter = 0;
     const baseUserData = () => ({
       ...e2eProfileMarkers(),
-      username: sharedUser.username,
+      username: `${sharedUser.username}_${++usernameCounter}`,
       gender: reference.gender as Gender,
       date_of_birth: '1990-01-01',
       is_athlete: false,

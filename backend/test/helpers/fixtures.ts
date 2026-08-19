@@ -165,6 +165,45 @@ export async function findReferenceData(_supabase?: SupabaseClient): Promise<Ref
   };
 }
 
+/** Transient auth failures worth waiting out. A genuinely bad request (duplicate
+ * email, malformed address) is not retried -- that would just slow down a real
+ * failure. */
+function isTransientAuthError(message: string): boolean {
+  return /database error|rate limit|too many|timeout|temporarily/i.test(message);
+}
+
+async function createAuthUserWithRetry(supabase: SupabaseClient, email: string) {
+  const delays = [1_000, 3_000, 8_000, 15_000];
+  let lastMessage = 'no user returned';
+
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password: TEST_PASSWORD,
+      email_confirm: true,
+    });
+
+    if (!error && data.user) return data;
+
+    lastMessage = error?.message ?? 'no user returned';
+
+    if (!error || !isTransientAuthError(lastMessage) || attempt === delays.length) break;
+
+    console.warn(
+      `[e2e] auth createUser attempt ${attempt + 1} failed (${lastMessage}); ` +
+        `retrying in ${delays[attempt] / 1000}s`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+  }
+
+  throw new Error(
+    `Failed to create test user: ${lastMessage}. ` +
+      'If this says "Database error creating new user", it is almost certainly the ' +
+      "Supabase project's per-hour auth rate limit rather than a broken trigger -- " +
+      'verify by creating a user by hand before chasing the schema.',
+  );
+}
+
 let userCounter = 0;
 
 /** Creates a confirmed auth user and returns a usable access token.
@@ -187,15 +226,15 @@ export async function createTestUser(
   // admin.createUser, not signUp: it is an admin endpoint, so it leaves no session
   // on the client, and email_confirm removes any dependency on the project having
   // email confirmation switched off.
-  const { data: created, error } = await supabase.auth.admin.createUser({
-    email,
-    password: TEST_PASSWORD,
-    email_confirm: true,
-  });
-
-  if (error || !created.user) {
-    throw new Error(`Failed to create test user: ${error?.message ?? 'no user returned'}`);
-  }
+  //
+  // Retried with backoff because auth is the one dependency still on the shared
+  // Supabase project, and its rate limit is per-hour and cumulative across CI
+  // runs. When tripped it returns "Database error creating new user", which reads
+  // like a broken trigger rather than throttling and has already cost one
+  // debugging detour. Retrying is the honest response to a shared, throttled
+  // dependency; the alternative is a suite that fails for reasons unrelated to
+  // the code under test.
+  const created = await createAuthUserWithRetry(supabase, email);
 
   const userId = created.user.id;
   onCreated?.(userId);

@@ -13,6 +13,7 @@ import {
   cleanupUsers,
   createAuthClient,
   createTestUser,
+  dataDb,
   e2eProfileMarkers,
   findReferenceData,
   requireLiveOptIn,
@@ -42,6 +43,12 @@ describe('Athlete profile (GET) (e2e)', () => {
 
   let athleteId: string;
   let token: string;
+  let reference: {
+    federationId: string;
+    divisionId: string;
+    weightClassId: string;
+    gender: string;
+  };
 
   /** Set the instant the auth user exists, before any step that can throw, so
    * afterAll can still tear it down if the fixture fails halfway. The previous
@@ -85,6 +92,7 @@ describe('Athlete profile (GET) (e2e)', () => {
     });
     athleteId = fixture.athleteId;
     token = fixture.token;
+    reference = fixture.reference;
   });
 
   afterAll(async () => {
@@ -105,39 +113,58 @@ describe('Athlete profile (GET) (e2e)', () => {
       .set('Authorization', `Bearer ${token}`);
 
   describe('valid queries', () => {
-    // [test name, the select string the endpoint should build, the ?data= param]
-    const cases: Array<[string, string, string]> = [
-      ['no query returns the public profile', PUBLIC_PROFILE_QUERY, ''],
-      ['one nested field from users', 'users (username)', '?data=users.username'],
-      ['one direct field from athletes', 'federation_id', '?data=federation_id'],
-      ['a full-table request', 'federations (*)', '?data=federations'],
-      [
-        'direct, nested and full-table combined',
-        'id, users (username), federations (*)',
-        '?data=id,users.username,federations',
-      ],
-    ];
+    /** The old version compared the response against the same select issued
+     * directly to Supabase, which proved the compiler produced an equivalent
+     * PostgREST string. There is no such string any more — the service builds a
+     * Drizzle selection — so these assert on the response shape and values
+     * instead. The compiler's own logic (dedupe, full-table collapse, allowlist
+     * rejection) is covered exhaustively by athlete.service.spec.ts. */
 
-    test.each(cases)('%s', async (_name, expectedSelect, queryParam) => {
-      const res = await get(queryParam);
+    it('returns the public profile when no data param is given', async () => {
+      const res = await get('');
 
       expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('id', athleteId);
+      expect(res.body.users).toMatchObject({ username: expect.any(String) });
+      expect(res.body.federations).toMatchObject({ id: reference.federationId });
+      expect(res.body.divisions).toMatchObject({ id: reference.divisionId });
+      expect(res.body.weight_classes).toMatchObject({ id: reference.weightClassId });
+      // Never exposed on a profile endpoint.
+      expect(res.body.users).not.toHaveProperty('email');
+    });
 
-      // Compare against the same select issued directly, so the test asserts the
-      // compiler produced an equivalent query rather than hardcoding fixture values.
-      const expected = await supabase
-        .from('athletes')
-        .select(expectedSelect)
-        .eq('id', athleteId)
-        .single();
+    it('returns one nested field from users', async () => {
+      const res = await get('?data=users.username');
 
-      if (expected.error) {
-        throw new Error(
-          `Reference query failed for '${expectedSelect}': ${expected.error.message}`,
-        );
-      }
+      expect(res.status).toBe(200);
+      expect(Object.keys(res.body)).toEqual(['users']);
+      expect(Object.keys(res.body.users)).toEqual(['username']);
+    });
 
-      expect(res.body).toEqual(expected.data);
+    it('returns one direct field from athletes', async () => {
+      const res = await get('?data=federation_id');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ federation_id: reference.federationId });
+    });
+
+    it('returns a full table', async () => {
+      const res = await get('?data=federations');
+
+      expect(res.status).toBe(200);
+      expect(res.body.federations).toMatchObject({
+        id: reference.federationId,
+        code: expect.any(String),
+      });
+    });
+
+    it('combines direct, nested and full-table requests', async () => {
+      const res = await get('?data=id,users.username,federations');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('id', athleteId);
+      expect(Object.keys(res.body.users)).toEqual(['username']);
+      expect(res.body.federations).toHaveProperty('code');
     });
   });
 
@@ -201,43 +228,38 @@ async function createAthleteFixture(
   authClient: SupabaseClient,
   onUserCreated: (id: string) => void,
 ) {
-  // Reference data is looked up, not hardcoded, so this is portable across projects.
-  const reference = await findReferenceData(supabase);
+  const reference = await findReferenceData();
 
-  // createTestUser registers the id via onUserCreated the instant the auth user
-  // exists — before anything that can throw — so a half-built fixture still tears
-  // down. It also mints the token on the throwaway client, keeping `supabase` at
-  // service_role.
+  // Auth user still comes from Supabase -- that is where auth lives. The profile
+  // rows go to Postgres, which is where data lives now.
   const { userId, username, token } = await createTestUser(supabase, authClient, onUserCreated);
 
-  // Gender must match the weight class, or the app-level cross-validation would
-  // reject this combination on the write path.
-  const { error: userError } = await supabase
-    .from('users')
-    .update({
-      ...e2eProfileMarkers(),
+  const db = dataDb();
+  const markers = e2eProfileMarkers();
+
+  // INSERT, not UPDATE. The Supabase trigger that created public.users at signup
+  // does not exist here, so the row has to be created outright.
+  await db.query(
+    `insert into users (id, email, first_name, last_name, username, gender, date_of_birth, is_athlete, is_coach)
+     values ($1, $2, $3, $4, $5, $6, $7, true, false)`,
+    [
+      userId,
+      `${username}@example.com`,
+      markers.first_name,
+      markers.last_name,
       username,
-      gender: reference.gender,
-      date_of_birth: '1995-06-15',
-      is_athlete: true,
-      is_coach: false,
-    })
-    .eq('id', userId);
+      // Gender must match the weight class or the app-level cross-validation
+      // would reject this combination on the write path.
+      reference.gender,
+      '1995-06-15',
+    ],
+  );
 
-  if (userError) {
-    throw new Error(`Failed to populate users row: ${userError.message}`);
-  }
+  await db.query(
+    `insert into athletes (id, federation_id, division_id, weight_class_id)
+     values ($1, $2, $3, $4)`,
+    [userId, reference.federationId, reference.divisionId, reference.weightClassId],
+  );
 
-  const { error: athleteError } = await supabase.from('athletes').insert({
-    id: userId,
-    federation_id: reference.federationId,
-    division_id: reference.divisionId,
-    weight_class_id: reference.weightClassId,
-  });
-
-  if (athleteError) {
-    throw new Error(`Failed to create athletes row: ${athleteError.message}`);
-  }
-
-  return { athleteId: userId, token };
+  return { athleteId: userId, token, reference };
 }

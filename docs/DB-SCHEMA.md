@@ -1,155 +1,182 @@
-# Database schema — INFERRED, NOT AUTHORITATIVE
+# Database schema — VERIFIED
 
-> ⚠️ **This document is a reconstruction, not a source of truth.**
+> **This document is now derived from the live schema, not from application code.**
 >
-> The real schema exists **only in the hosted Supabase project**. This repo contains no migrations, no `.sql` files, and no Supabase CLI directory. Everything below was derived from:
+> Captured 2026-08-03 from the `powerlifting-hub` Supabase project (`hqvnvnuuczqlpffebuui`, us-east-2) via `information_schema.columns`, `information_schema.table_constraints`, `pg_get_viewdef`, and `pg_policies`.
 >
-> - `backend/src/users/entities/` — `UserData.ts`, `AthleteData.ts`, `CoachData.ts`
-> - `backend/src/users/dto/` — validation rules
-> - `backend/src/common/types/select.queries.ts` — query allowlists
-> - every `.from(...).select(...)` call in the backend and frontend
->
-> Consequences: columns the code never touches are **missing here**; types are inferred from usage; and nullability/defaults/indexes/RLS policies are largely unknown. A column appearing below is evidence that *code references it*, not proof it exists.
->
-> **Before relying on this, verify against Supabase.** See "Making this authoritative" at the bottom.
+> Still not committed: the table DDL itself. `supabase db pull` needs Docker and a database password; run it to backfill `supabase/migrations/` with a real baseline. Until then this document is the record, and it is accurate for columns, types, nullability, defaults, foreign keys, view definitions, and policies — but it is a *transcription*, so a schema change made in the dashboard will silently make it stale. The `supabase db diff` drift check is what closes that gap.
 
----
+## Tables
 
-## `users`
+18 tables in `public`. `id` is `uuid` everywhere. Timestamps are `timestamptz`.
 
-Extends Supabase's `auth.users`. The row is created by Supabase Auth on signup with the profile fields empty, then **updated** (never inserted) by `POST /users/profile`.
+### Identity
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | uuid, PK | Same value as `auth.users.id` |
-| `first_name` | text | Required at profile completion |
-| `last_name` | text | Required |
-| `username` | text, unique | Lowercase, 3–30 chars, `^[a-z0-9._]+$`. Uniqueness enforced in-app by `@IsUnique('users','username')` — unclear whether a DB constraint also exists |
-| `gender` | text/enum | `'Male'` \| `'Female'` \| `'Gender-fluid'` (`Gender` enum in `create-user.dto.ts`) |
-| `date_of_birth` | date | ISO date string |
-| `is_athlete` | boolean | Independent of `is_coach` — both may be true |
-| `is_coach` | boolean | |
-| `email` | text | ⚠️ Allowlisted in `VALID_TABLE_FIELDS`, never written by app code — presumably mirrored from `auth.users`. Opt-in via `?data=` only |
-| `role` | text | ⚠️ Allowlisted, **never written**. Likely vestigial, superseded by `is_athlete` / `is_coach`. Removed from the default profile query so it can't break it; an explicit `?data=users.role` may still error |
+`users` — the profile row. `id` defaults to `auth.uid()`, so a row inserts itself against the caller's identity.
 
-There is **no `name` column** in the app's model. `select.queries.ts` used to select one, which would have broken the default profile query; it now uses `first_name` and `last_name`.
+| Column | Type | Null | Default |
+|---|---|---|---|
+| `id` | uuid PK | NO | `auth.uid()` |
+| `username` | text | YES | |
+| `email` | text | **NO** | |
+| `gender` | enum | YES | |
+| `created_at` | timestamptz | YES | `now()` |
+| `date_of_birth` | date | YES | |
+| `first_name` | text | YES | |
+| `last_name` | text | YES | |
+| `is_athlete` | boolean | YES | |
+| `is_coach` | boolean | YES | |
+| `avatar_url` | text | YES | |
 
-The five columns checked by `checkProfileCompletion` — `first_name`, `last_name`, `username`, `gender`, `date_of_birth` — are what gate app access.
+There is **no `role` column** and no `name` column. `role` was allowlisted in `VALID_TABLE_FIELDS.users`, which made `?data=users.role` a guaranteed 500 — removed. `email` is real and `NOT NULL`, but it was also removed from the allowlist: it is another user's PII on an otherwise public profile endpoint, and nothing requested it.
 
-## `athletes`
+The five columns `checkProfileCompletion` gates on are `first_name`, `last_name`, `username`, `gender`, `date_of_birth`.
 
-One row per user with `is_athlete = true`. Inserted by `UsersService.createUserProfile`.
+`athletes` — `id` is both PK and FK to `users.id`, so athlete id == user id == `auth.uid()`.
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | uuid, PK | FK → `users.id` |
-| `federation_id` | uuid, nullable | FK → `federations.id` |
-| `division_id` | uuid, nullable | FK → `divisions.id`. App validates it belongs to `federation_id` |
-| `weight_class_id` | uuid, nullable | FK → `weight_classes.id`. App validates it matches `federation_id` **and** `gender` |
-| `team_id` | uuid, nullable | ⚠️ In the query allowlist but absent from `AthleteData` and never written. Presumably for the unbuilt teams/communities feature |
-| `coach_id` | uuid, nullable | ⚠️ Same — allowlisted, never written. For the unbuilt coach-roster feature |
-| `user_id` | uuid | ⚠️ **Deliberately excluded** from `VALID_ATHLETES_COLUMNS_QUERIES` because it maps to `auth.uid()`. Do not add it to the allowlist |
+| Column | Type | Null | References |
+|---|---|---|---|
+| `id` | uuid PK | NO | `users.id` |
+| `federation_id` | uuid | YES | `federations.id` |
+| `division_id` | uuid | YES | `divisions.id` |
+| `weight_class_id` | uuid | YES | `weight_classes.id` |
+| `team_id` | uuid | YES | `teams.id` |
 
-Note `AthleteData` (the write shape) has only four fields, while the read allowlist has six — the table is wider than the entity.
+**There is no `coach_id` column.** It was in `VALID_ATHLETES_COLUMNS_QUERIES`, making `?data=coach_id` a guaranteed 500 — removed. Coach linkage lives in `coach_athlete_relationships`.
 
-## `coaches`
+`coaches` — same identity pattern: `id` PK → `users.id`. Plus `biography` (text) and `years_of_experience` (integer), both nullable.
 
-One row per user with `is_coach = true`.
+`teams` — exists, with only `id` (uuid PK, **no default**) and `created_at`. No name column, no rows written by anything. `athletes.team_id` points at it. A placeholder for unbuilt team features.
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | uuid, PK | FK → `users.id` |
-| `biography` | text, nullable | Max 500 chars (`@Length(0, 500)`) |
-| `years_of_experience` | integer, nullable | `@Min(0)` |
+### Coach ↔ athlete
 
-## `federations`
+`coach_requests` — the invite. `id`, `created_at`, `updated_at` (nullable), `athlete_id` → `athletes.id`, `coach_id` → `coaches.id`, `status` (`coach_request_status`, default `'pending'`).
 
-Reference data — powerlifting federations (USAPL, IPF, …). Read directly by the client to populate dropdowns. Seeded manually in Supabase; nothing in this repo creates rows.
+`coach_athlete_relationships` — the accepted link. `id`, `athlete_id` → `athletes.id`, `coach_id` → `coaches.id`, `status` (`coach_athlete_relationship_status`, NOT NULL, default `'pending'`), `created_at`.
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | uuid, PK | |
-| `name` | text | Display name |
-| `code` | text | Short code. A `@ValueExists('federations','code')` validator exists (`validate-federation.ts`) |
+### Messaging
 
-## `divisions`
+`conversations` — `id`, `created_at`, `name` (nullable), `avatar_url` (nullable), `updated_at` (default `now()`).
 
-Reference data, scoped to a federation (age-based divisions).
+**No `created_by` column.** This is load-bearing for authorization: there is no way for a policy to express "I created this conversation", which is why client inserts into `conversations` and `conversation_members` are denied outright and `POST /conversations` must own that flow under the service-role key. See the note in the RLS migration.
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | uuid, PK | |
-| `federation_id` | uuid | FK → `federations.id` |
-| `name` | text | |
-| `minimum_age` | integer | |
-| `maximum_age` | integer | |
+`conversation_members` — `id`, `created_at`, `conversation_id` → `conversations.id`, `user_id` → `users.id`, `last_read_at` (nullable).
 
-## `weight_classes`
+`messages` — `id`, `conversation_id` → `conversations.id`, `user_id` → `users.id` (**nullable**), `created_at`, `content` (NOT NULL), `message_type` (enum, **NOT NULL, no default** — must be supplied on every insert), `media_url` (nullable).
 
-Reference data, scoped to a federation **and** gender.
+### Programming
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | uuid, PK | |
-| `federation_id` | uuid | FK → `federations.id` |
-| `name` | text | |
-| `gender` | text/enum | Matched against the user's `gender` |
-| `min_weight` | numeric | |
-| `max_weight` | numeric | |
-| `sort_order` | integer | Client orders dropdowns by this |
-| `active` | boolean | Retired weight classes presumably set false. Nothing in the app filters on it yet |
+`workouts` — `id`, `athlete_id` → `athletes.id` (**nullable**), `coach_id` → `coaches.id` (**NOT NULL**), `created_at`, `date` (date, NOT NULL), `name` (text, NOT NULL), `notes`, `is_template` (boolean, **nullable, no default**).
 
----
+The nullability pattern defines what a template is: a workout with `athlete_id IS NULL` belongs solely to its coach. And `is_template` having no default is why the template list is provably always empty — `createWorkout` never writes the column, so it is `NULL`, and `.eq("is_template", true)` never matches `NULL`.
 
-## Relationships
+`workout_exercises` — `id`, `workout_id` → `workouts.id`, `exercise_id` → `exercises.id`, `"order"` (integer, nullable — **a reserved word, needs quoting in raw SQL**), `notes`, `exercise_template_id` → `exercise_templates.id` (nullable), `created_at`, `display_name` (text, nullable).
+
+`sets` — `id`, `workout_exercise_id` → `workout_exercises.id`, `created_at`, `set_number` (integer NOT NULL), `prescribed_reps` (**bigint** NOT NULL), `prescribed_intensity` (**text**), `suggested_load_min`/`suggested_load_max` (double precision), `actual_load` (double precision), `actual_intensity` (**double precision**), `is_completed` (boolean).
+
+Note the asymmetry: `prescribed_intensity` is text but `actual_intensity` is double precision.
+
+### Exercise library
+
+`exercises` — `id`, `name` (NOT NULL), `created_by` → **`coaches.id`** (NOT NULL), `created_at`.
+
+`exercise_templates` — `id`, `created_at`, `created_by` → **`coaches.id`** (NOT NULL), `name` (nullable), `exercise_id` → `exercises.id` (NOT NULL).
+
+`exercise_default_set_templates` — `id`, `exercise_template_id` → `exercise_templates.id` (NOT NULL), `created_at`, `set_number` (NOT NULL), `prescribed_reps` (bigint NOT NULL), `prescribed_intensity` (text).
+
+Both `created_by` columns reference `coaches`, not `users` — so only a user with a `coaches` row can author library content.
+
+### Reference data
+
+`federations` — `id`, `code` (NOT NULL), `name`.
+`divisions` — `id`, `federation_id` → `federations.id` (NOT NULL), `name`, `minimum_age`, `maximum_age`.
+`weight_classes` — `id`, `federation_id` → `federations.id` (NOT NULL), `gender` (enum), `name`, `min_weight`, `max_weight` (double precision), `sort_order` (smallint), `active` (boolean).
+
+## Ownership chains
+
+These are what the API's authorization checks traverse, now that the backend's service-role key bypasses RLS:
 
 ```
-auth.users
-   │ 1:1
-users ─────┬──── 1:0..1 ──── athletes ──┬── FK → federations
-           │                            ├── FK → divisions      (must belong to federation)
-           │                            ├── FK → weight_classes (must match federation + gender)
-           │                            ├── FK → coaches?  (coach_id, unused)
-           │                            └── FK → teams?    (team_id, table not referenced anywhere)
-           └──── 1:0..1 ──── coaches
+auth.uid() == users.id == athletes.id == coaches.id
 
-federations ──< divisions
-federations ──< weight_classes
+sets → workout_exercises.workout_id → workouts.athlete_id | workouts.coach_id
+messages → conversations, gated by conversation_members.user_id
+coach_athlete_relationships → athletes.id | coaches.id
+exercises / exercise_templates → created_by → coaches.id
 ```
 
-A user may have **both** an `athletes` and a `coaches` row.
+## Views
 
-There is no `teams` table referenced anywhere in the code — only the dangling `athletes.team_id` column.
+Five views, all in `public`. **None reference `auth.uid()`** — every one is parameterized by explicit columns, so they return correct results from the backend's service-role client with an added `.eq()`. Read endpoints can be thin pass-throughs; do not rewrite the joins.
 
-## Not yet modeled
+All five had `security_invoker` **off** (the default), meaning they executed with their owner's privileges and RLS on the base tables never ran. `20260804040000_harden_rls_policies.sql` turns it on for all of them. Before that migration, `select * from messages_with_sender` with no filter returned every message in the application to any holder of the anon key.
 
-Core product features from the README have no schema at all: workout programs, logged workouts, exercises/lifts, coach↔athlete messaging, posts/meet recaps, communities, leaderboards. Designing these is greenfield.
+| View | Shape |
+|---|---|
+| `coach_athletes_view` | `coach_athlete_relationships` ⨝ `athletes` ⨝ `users`, left-joined to the three reference tables. Yields `coach_id`, `athlete_id`, name/username/avatar, `federation_code`, `division_name`, `weight_class_name`. |
+| `messages_with_sender` | `messages` ⨝ `users`. Renames `user_id`→`sender_id` and `created_at`→`sent_at`, adds sender name and avatar. |
+| `user_coach_requests_view` | `coach_requests` ⨝ `coaches` ⨝ `users`. Adds `coach_username`, `coach_avatar_url`. |
+| `user_profiles_enriched_view` | `users` ⨝ `athletes`, left-joined to reference tables. Exposes `athlete_id` (**not `id`**) plus federation/division/weight-class ids and names. |
+| `user_conversations_view` | `conversations` ⨝ `conversation_members`, with six correlated subqueries. See below. |
 
-## RLS
+### `user_conversations_view` specifics
 
-Unknown from this repo, and it matters more than usual:
+It emits **one row per `(conversation, member)` pair**, not one per conversation. `conversation_members` SELECT is scoped to co-membership rather than `user_id = auth.uid()` on purpose, because `other_user_name`, `other_user_avatar_url`, and `other_user_id` are derived from the *other* member's row and would be NULL under the narrower rule.
 
-- The **frontend** uses the anon key and reads `users`, `federations`, `divisions`, and `weight_classes` directly. RLS is the only thing protecting those reads.
-- The **backend** uses the service-role key and **bypasses RLS entirely**, so every backend query must scope itself in application code.
+That makes the `.eq("user_id", userId)` filter in `lib/api/conversations.ts` **load-bearing, not cosmetic** — without it the inbox renders one duplicate entry per participant. Pinned by `supabase/tests/rls_regression.sql`.
 
-Before adding a client-side read of a new table, confirm its RLS policy.
+`unread_count` is exactly:
 
----
-
-## Making this authoritative
-
-Two options, in order of value:
-
-**Add migrations to the repo.** `supabase init` + `supabase db pull` captures the live schema as versioned SQL, making this document generated rather than guessed, and giving e2e tests something local to run against. This is the highest-leverage infrastructure change available in this project.
-
-**Or paste the current definitions below** as a stopgap — from the Supabase dashboard, or:
-
-```bash
-supabase db dump --schema public > docs/schema.sql
+```sql
+count(*) from messages m
+ where m.conversation_id = c.id
+   and m.created_at > coalesce(cm.last_read_at, epoch)
+   and m.user_id <> cm.user_id
 ```
 
-<!-- ── PASTE REAL SCHEMA BELOW ──────────────────────────────────────────
-Replace this block with actual table definitions. Once real, delete the
-"INFERRED" banner at the top of this file and the doubtful-column warnings
-above (users.email, users.role, athletes.team_id, athletes.coach_id).
-──────────────────────────────────────────────────────────────────────── -->
+Strict `>`, and your own messages are excluded. Any reimplementation that gets the boundary wrong presents as a permanently stuck unread badge.
+
+`user_profiles_enriched_view` exposes `athlete_id` and has **no `id`** column, which is why the exclusion filter in `lib/api/athlete.ts` compared against `undefined` and never removed already-invited athletes.
+
+## Row Level Security
+
+`pg_policies` was captured before any changes; the original 39 policies and the analysis of what was wrong with them are in the plan and in the header comments of `supabase/migrations/20260804040000_harden_rls_policies.sql`. Summary of what that migration changes:
+
+- `security_invoker = on` for all five views.
+- RLS explicitly enabled on all 18 tables (idempotent — `pg_policies` cannot tell you whether row security is actually on, and a policy on a table with RLS disabled is inert).
+- Three policies contained tautologies (`cm.conversation_id = cm.conversation_id`, `r.athlete_id = r.athlete_id`) that made their checks unconditionally true.
+- Blanket `with_check (true)` policies were OR'd alongside scoped ones, defeating them. Removed.
+- `conversation_members` was world-readable *and* world-insertable; `sets` UPDATE was `auth.role() = 'authenticated'`; `coach_athlete_relationships` INSERT was `with_check (true)`.
+- Every remaining policy targets `authenticated` rather than `public`, so the anon key alone reads nothing.
+- Authorization helpers (`is_conversation_member`, `is_coach_of`, `can_access_workout`, `can_access_workout_exercise`, `is_coach`) are `SECURITY DEFINER` with a pinned `search_path`. They must be — a policy on a table that subqueries the same table recurses, which is the trap the previous `conversation_members` UPDATE policy was in.
+- Column privileges narrow client writes to the three columns the app actually writes: `users.avatar_url`, `sets.(actual_load, actual_intensity, is_completed)`, `conversation_members.last_read_at`.
+
+`supabase/tests/rls_regression.sql` re-attempts each original attack and asserts the legitimate paths still work — 26 assertions, run inside a transaction that rolls back.
+
+### Known remaining exposure
+
+`users` SELECT is still `using (true)` for `authenticated`, so any signed-in user can read every user's `date_of_birth` and `email`. Row-level policies cannot fix this; it needs column privileges, which in turn need a `GET /users/me` endpoint so an owner can still read their own full row. Sequenced with the read migration.
+
+## Enums
+
+Four user-defined types are referenced. Names confirmed for two:
+
+- `coach_request_status` — includes `'pending'`, `'accepted'`, `'rejected'`.
+- `coach_athlete_relationship_status` — includes `'pending'`, `'active'`.
+- `users.gender` / `weight_classes.gender` — reported as `USER-DEFINED`; the DTO's `Gender` enum is `'Male' | 'Female' | 'Gender-fluid'`.
+- `messages.message_type` — reported as `USER-DEFINED`; NOT NULL with no default.
+
+The exact type names and full value lists for the gender and message-type enums have not been captured. Get them with:
+
+```sql
+select t.typname, string_agg(e.enumlabel, ', ' order by e.enumsortorder)
+from pg_type t join pg_enum e on e.enumtypid = t.oid
+join pg_namespace n on n.oid = t.typnamespace
+where n.nspname = 'public' group by t.typname;
+```
+
+## Making this fully authoritative
+
+1. `supabase link --project-ref hqvnvnuuczqlpffebuui`, then `supabase db pull` (needs Docker and the database password) to commit a real DDL baseline.
+2. Capture the enum definitions above.
+3. Add `supabase db diff` to CI so dashboard edits fail the build instead of silently forking production.

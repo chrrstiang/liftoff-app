@@ -10,7 +10,7 @@ Living status for the move off Supabase Postgres to RDS behind the API. Update i
 |---|---|
 | Week 1 — foundation | ✅ done |
 | Week 2 — schema port + AWS | ✅ done |
-| Week 2 — endpoint port (3 existing) | 🔄 2 of 3 (`?data=` compiler left) |
+| Week 2 — endpoint port (3 existing) | ✅ done — **the backend no longer reads data from Supabase** |
 | Week 3 — deploy | ✅ done (ahead of schedule) |
 | Week 4 — new endpoints | ⬜ not started |
 | Week 4 — frontend flip | ⛔ blocked (see below) |
@@ -35,6 +35,10 @@ Living status for the move off Supabase Postgres to RDS behind the API. Update i
 - Local Postgres via `docker compose` — the local database story this project never had.
 - Full AWS infrastructure, live and serving.
 - **`UsersService` on Drizzle with a real transaction.** `POST`/`PATCH /users/profile` now insert rather than update, taking id and email from the verified JWT — the API has taken over the job the Supabase trigger used to do. Both DB-backed validators and `AthleteExistsGuard` are ported too.
+- **`AthleteService` ported.** The `?data=` compiler built a PostgREST select string; it now builds a Drizzle selection and reassembles the same nested response shape, so the API contract is unchanged. The allowlists are untouched — they are still the only thing constraining what the endpoint returns.
+- **e2e is now hermetic for data.** CI runs a Postgres service container, migrates, seeds and runs `verify-port.sql` before the suite. Only auth users still touch the shared Supabase project, because that is where auth genuinely lives.
+
+**The backend is off Supabase for data.** The only remaining consumer is `JwtAuthGuard`, which is correct — that is auth.
 
 ### Verified against real Postgres
 
@@ -62,8 +66,7 @@ The two rollback rows are the ones that matter: under the old compensating-delet
 
 ## Follow-ups worth doing
 
-- **Integration tests in CI.** The `createUserProfile` checks above were run by hand against `docker compose` Postgres. They should be a committed suite — now genuinely possible, and hermetic, for the first time.
-- **`AthleteService` (`?data=`)** is the last Supabase data reader. Its allowlist compiler builds a PostgREST select string, so porting it means rethinking the mechanism, not translating it.
+- **Commit the integration checks.** The `createUserProfile` assertions above were run by hand against `docker compose` Postgres. CI now has a database, so they can become a committed suite.
 - **`JwtAuthGuard` → local JWKS.** Still a network round trip to Supabase on every request.
 
 ## Ownership rules for the new endpoints

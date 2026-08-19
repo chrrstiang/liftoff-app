@@ -1,132 +1,117 @@
+import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { AthleteService } from './athlete.service';
-import { SupabaseClient } from '@supabase/supabase-js';
-import { SupabaseService } from 'src/supabase/supabase.service';
-import { PUBLIC_PROFILE_QUERY } from 'src/common/types/select.queries';
-import { Test, TestingModule } from '@nestjs/testing';
+import { DRIZZLE } from 'src/db/db.module';
 
+/** Tests for the `?data=` sparse-fieldset compiler.
+ *
+ * The previous version asserted on the PostgREST select *string* the service
+ * built (`'id, users (username)'`). That string no longer exists — the service
+ * builds a Drizzle selection instead — so these assert on the columns actually
+ * selected, which is the same intent expressed against the new mechanism.
+ *
+ * Selection keys are `table.column`, so `'users.username'` here means the same
+ * thing `'users (username)'` used to.
+ */
 describe('AthleteService - retrieveProfileDetails', () => {
   let service: AthleteService;
-  let supabase: jest.Mocked<SupabaseClient>;
+  /** Columns handed to db.select() on the last call. */
+  let selected: string[];
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    selected = [];
 
-    const mockAthleteData = {
-      id: 'athlete-id',
-      users: {
-        name: 'test',
-        username: 'testuser',
-      },
+    const chain = {
+      from: jest.fn().mockReturnThis(),
+      leftJoin: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockResolvedValue([]),
     };
 
-    const mockSupabaseClient = {
-      from: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            single: jest.fn().mockResolvedValue({
-              data: mockAthleteData,
-              error: null,
-            }),
-          }),
-        }),
+    const db = {
+      select: jest.fn().mockImplementation((sel: Record<string, unknown>) => {
+        selected = Object.keys(sel);
+        return chain;
       }),
-    } as unknown as jest.Mocked<SupabaseClient>;
-
-    const mockSupabaseService = {
-      getClient: jest.fn().mockReturnValue(mockSupabaseClient),
-    } as unknown as jest.Mocked<SupabaseService>;
+    };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        AthleteService,
-        {
-          provide: SupabaseService,
-          useValue: mockSupabaseService,
-        },
-      ],
+      providers: [AthleteService, { provide: DRIZZLE, useValue: db }],
     }).compile();
 
     service = module.get<AthleteService>(AthleteService);
-    supabase = mockSupabaseClient;
   });
 
   it('should be defined', () => {
     expect(service).toBeDefined();
   });
-  it('should successfully pass the correct query to select all (no arg)', async () => {
-    await service.retrieveProfileDetails('anyrandomuuid', undefined);
-    expect(supabase.from).toHaveBeenCalledWith('athletes');
-    expect(supabase.from('athletes').select).toHaveBeenCalledWith(PUBLIC_PROFILE_QUERY);
-    expect(supabase.from('athletes').select(PUBLIC_PROFILE_QUERY).eq).toHaveBeenCalledWith(
-      'id',
-      'anyrandomuuid',
-    );
-    expect(
-      supabase.from('athletes').select(PUBLIC_PROFILE_QUERY).eq('id', 'anyrandomuuid').single,
-    ).toHaveBeenCalled();
+
+  it('selects the default profile when no data param is given', async () => {
+    await service.retrieveProfileDetails('athlete-1');
+
+    expect(selected).toContain('athletes.id');
+    expect(selected).toContain('users.username');
+    expect(selected).toContain('users.first_name');
+    // Full-table requests expand to every allowlisted column.
+    expect(selected).toContain('federations.code');
+    expect(selected).toContain('divisions.name');
+    expect(selected).toContain('weight_classes.name');
+    // Never exposed: email is another user's PII, and there is no `role` column.
+    expect(selected).not.toContain('users.email');
+    expect(selected).not.toContain('users.role');
   });
-  it('should successfully pass the correct query to select all (individual)', async () => {
-    await service.retrieveProfileDetails('anyrandomuuid', [
-      'users.first_name',
-      'users.username',
-      'weight_classes.name',
-    ]);
-    expect(supabase.from).toHaveBeenCalledWith('athletes');
-    expect(supabase.from('athletes').select).toHaveBeenCalledWith(
-      'users (first_name, username), weight_classes (name)',
-    );
-    expect(
-      supabase.from('athletes').select('users (first_name, username), weight_classes (name)').eq,
-    ).toHaveBeenCalledWith('id', 'anyrandomuuid');
-    expect(
-      supabase
-        .from('athletes')
-        .select('users (first_name, username), weight_classes (name)')
-        .eq('id', 'anyrandomuuid').single,
-    ).toHaveBeenCalled();
+
+  it('selects exactly the requested direct and nested fields', async () => {
+    await service.retrieveProfileDetails('athlete-1', ['id', 'users.username']);
+
+    expect(selected.sort()).toEqual(['athletes.id', 'users.username']);
   });
-  it('should successfully get rid of duplicate queries', async () => {
-    await service.retrieveProfileDetails('anyrandomuuid', [
-      'users.first_name',
-      'users.first_name',
-      'weight_classes.name',
-      'weight_classes.name',
-    ]);
-    expect(supabase.from('athletes').select).toHaveBeenCalledWith(
-      'users (first_name), weight_classes (name)',
-    );
+
+  it('deduplicates repeated fields', async () => {
+    await service.retrieveProfileDetails('athlete-1', ['id', 'id', 'users.username']);
+
+    expect(selected.sort()).toEqual(['athletes.id', 'users.username']);
   });
-  it('should successfully get rid of nested field due to full table query', async () => {
-    await service.retrieveProfileDetails('anyrandomuuid', [
-      'users.first_name',
-      'users.username',
-      'weight_classes',
-    ]);
-    expect(supabase.from('athletes').select).toHaveBeenCalledWith(
-      'users (first_name, username), weight_classes (*)',
+
+  /** A full-table request subsumes any nested field from the same table, so
+   * asking for both should not select the column twice or narrow the table. */
+  it('drops nested fields made redundant by a full-table request', async () => {
+    await service.retrieveProfileDetails('athlete-1', ['federations', 'federations.id']);
+
+    expect(selected).toContain('federations.id');
+    expect(selected).toContain('federations.name');
+    expect(selected).toContain('federations.code');
+    expect(selected.filter((k) => k === 'federations.id')).toHaveLength(1);
+  });
+
+  it('expands a full-table request to every allowlisted column of that table', async () => {
+    await service.retrieveProfileDetails('athlete-1', ['weight_classes']);
+
+    expect(selected).toEqual(
+      expect.arrayContaining(['weight_classes.min_weight', 'weight_classes.sort_order']),
     );
   });
-  it('should fail due to invalid direct column (name)', async () => {
-    const call = service.retrieveProfileDetails('anyrandomuuid', [
-      'name',
-      'users.username',
-      'weight_classes.name',
-    ]);
-    await expect(call).rejects.toThrow(new BadRequestException(`Invalid query: 'name'`));
+
+  describe('rejects anything off-allowlist', () => {
+    // These allowlists are the only thing constraining what this endpoint
+    // returns, so each rejection is a security assertion, not a validation nicety.
+    const cases: Array<[string, string[]]> = [
+      ['an invalid direct column', ['name']],
+      ['an invalid nested column', ['federations.horse']],
+      ['a table that is not full-table queryable', ['users']],
+      ['user_id, which maps to the auth identity', ['user_id']],
+      ['a mistyped table prefix', ['user.username']],
+      ['a nested column with no prefix', ['username']],
+    ];
+
+    it.each(cases)('%s', async (_name, data) => {
+      await expect(service.retrieveProfileDetails('athlete-1', data)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
   });
-  it('should fail due to invalid nested column (federation.horse)', async () => {
-    const call = service.retrieveProfileDetails('anyrandomuuid', [
-      'users.first_name',
-      'users.username',
-      'federation.horse',
-    ]);
-    await expect(call).rejects.toThrow(
-      new BadRequestException(`Invalid query: 'federation.horse'`),
-    );
-  });
-  it('should fail due to invalid table query (users)', async () => {
-    const call = service.retrieveProfileDetails('anyrandomuuid', ['users']);
-    await expect(call).rejects.toThrow(new BadRequestException(`Invalid query: 'users'`));
+
+  it('returns null when the athlete has no row', async () => {
+    await expect(service.retrieveProfileDetails('missing')).resolves.toBeNull();
   });
 });

@@ -72,6 +72,26 @@ jobs:
     needs: backend-ci
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
 
+    # Data lives in Postgres now, so e2e needs a real one. This is what finally
+    # makes the suite hermetic for data: only the AUTH half still touches the
+    # shared Supabase project, because that is where auth genuinely lives.
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: liftoff
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d liftoff"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres@localhost:5432/liftoff
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -105,6 +125,18 @@ jobs:
         if: steps.creds.outputs.configured == 'true'
         working-directory: ./backend
         run: npm ci
+
+      # Tables, then the five views, then reference data. Profile creation
+      # validates every athlete against federations/divisions/weight_classes, so
+      # without the seed each of those specs fails on a lookup rather than on the
+      # behaviour it is testing.
+      - name: Migrate and seed the test database
+        if: steps.creds.outputs.configured == 'true'
+        working-directory: ./backend
+        run: |
+          npx drizzle-kit migrate
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f src/db/seed-reference-data.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f src/db/verify-port.sql
 
       # E2E_ALLOW_LIVE is the deliberate acknowledgement that this writes to the
       # live project. CI sets it; locally you have to type it, which is the point.

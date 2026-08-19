@@ -1,81 +1,170 @@
-import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
-import { SupabaseClient } from '@supabase/supabase-js';
-import { SupabaseService } from 'src/supabase/supabase.service';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { eq } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
+import { DRIZZLE, type Database } from 'src/db/db.module';
+import { athletes, divisions, federations, users, weightClasses } from 'src/db/schema';
 import {
-  PUBLIC_PROFILE_QUERY,
   VALID_ATHLETES_COLUMNS_QUERIES,
   VALID_FULL_TABLE_QUERIES,
   VALID_TABLE_FIELDS,
 } from 'src/common/types/select.queries';
 
-/** The AthleteService class contains business logic for the API endpoints of the AthleteController.
- *  This contains operations such as inserting/updating athlete profiles to Supabase and
- * retrieveing profile details of an Athlete.
+/** Maps the snake_case names the `?data=` API speaks to real Drizzle columns.
  *
+ * The API's vocabulary is the database's old column names, and Drizzle's schema
+ * uses camelCase properties, so something has to bridge them. Doing it with an
+ * explicit map rather than a transform keeps the allowlists in
+ * select.queries.ts as the single source of truth for what is reachable.
  */
+const ATHLETE_COLUMNS: Record<string, PgColumn> = {
+  id: athletes.id,
+  federation_id: athletes.federationId,
+  division_id: athletes.divisionId,
+  weight_class_id: athletes.weightClassId,
+  team_id: athletes.teamId,
+};
 
+const RELATED_COLUMNS: Record<string, Record<string, PgColumn>> = {
+  users: {
+    first_name: users.firstName,
+    last_name: users.lastName,
+    username: users.username,
+    gender: users.gender,
+  },
+  federations: { id: federations.id, name: federations.name, code: federations.code },
+  divisions: {
+    id: divisions.id,
+    federation_id: divisions.federationId,
+    name: divisions.name,
+    minimum_age: divisions.minimumAge,
+    maximum_age: divisions.maximumAge,
+  },
+  weight_classes: {
+    id: weightClasses.id,
+    federation_id: weightClasses.federationId,
+    name: weightClasses.name,
+    gender: weightClasses.gender,
+    min_weight: weightClasses.minWeight,
+    max_weight: weightClasses.maxWeight,
+    sort_order: weightClasses.sortOrder,
+    active: weightClasses.active,
+  },
+};
+
+/** What `?data=` compiled to, as a structure rather than a PostgREST string. */
+interface QueryPlan {
+  direct: string[];
+  nested: Record<string, string[]>;
+}
+
+/** The shape returned when no `data` param is given. Previously a literal select
+ * string (PUBLIC_PROFILE_QUERY); expressed as a plan now so there is one code
+ * path. Deliberately omits users.email — another user's PII on a profile
+ * endpoint — and there is no users.role column at all. */
+const DEFAULT_PLAN: QueryPlan = {
+  direct: ['id'],
+  nested: {
+    users: ['first_name', 'last_name', 'username', 'gender'],
+    federations: ['*'],
+    divisions: ['*'],
+    weight_classes: ['*'],
+  },
+};
+
+/** Business logic for AthleteController: the sparse-fieldset profile read.
+ *
+ * Ported from supabase-js. The allowlists are unchanged and remain a security
+ * boundary — with no RLS behind this, they are the only thing constraining what
+ * the endpoint will return.
+ */
 @Injectable()
 export class AthleteService {
-  supabase: SupabaseClient;
+  constructor(@Inject(DRIZZLE) private readonly db: Database) {}
 
-  constructor(private readonly supabaseService: SupabaseService) {
-    if (!this.supabaseService) {
-      throw new InternalServerErrorException('SupabaseService is undefined');
-    }
-    this.supabase = this.supabaseService.getClient();
-  }
-
-  /** Queries the 'athletes' table for the row with the same user_id as the current authenticated
-   * user's id, fetching information requested in the data array. If undefined,
-   * then it selects all columns in the athletes table.
+  /** Returns the requested columns of an athlete's profile.
    *
-   * @param user The user containing the authenticated user's id.
-   * @param data An array containing the columns of the profile to return.
-   * @returns An object containing the values of the columns requested.
+   * @param athleteId The athlete to read.
+   * @param data Requested fields; the default profile when omitted.
    */
   async retrieveProfileDetails(athleteId: string, data?: string[]) {
-    const cleanArray = this.cleanDataArray(data);
-    const query = this.constructSelectQuery(cleanArray);
+    const plan = this.buildPlan(this.cleanDataArray(data));
 
-    const select = await this.supabase.from('athletes').select(query).eq('id', athleteId).single();
-
-    if (select.error) {
-      // Local rather than borrowed from UsersService: that service is on Drizzle
-      // now, and this one is still the last Supabase reader in the codebase.
-      // It goes away when the ?data= compiler is ported.
-      console.error(select.error);
-      throw new BadRequestException(
-        `Failed to retrieve profile details: ${select.error.code} - ${select.error.message}`,
-      );
+    const selection: Record<string, PgColumn> = {};
+    for (const field of plan.direct) {
+      selection[`athletes.${field}`] = ATHLETE_COLUMNS[field];
+    }
+    for (const [table, columns] of Object.entries(plan.nested)) {
+      const available = RELATED_COLUMNS[table];
+      const wanted = columns.includes('*') ? Object.keys(available) : columns;
+      for (const column of wanted) {
+        selection[`${table}.${column}`] = available[column];
+      }
     }
 
-    return select.data;
+    // Left joins throughout: federation_id, division_id and weight_class_id are
+    // all nullable, and an athlete without them should still return a row rather
+    // than disappearing.
+    const rows = await this.db
+      .select(selection)
+      .from(athletes)
+      .leftJoin(users, eq(users.id, athletes.id))
+      .leftJoin(federations, eq(federations.id, athletes.federationId))
+      .leftJoin(divisions, eq(divisions.id, athletes.divisionId))
+      .leftJoin(weightClasses, eq(weightClasses.id, athletes.weightClassId))
+      .where(eq(athletes.id, athleteId))
+      .limit(1);
+
+    if (rows.length === 0) return null;
+
+    return this.nest(rows[0] as Record<string, unknown>, plan);
   }
 
-  /** This helper method ensure that duplicate queries and redundant queries for retrieveProfileDetails
-   * are removed. This includes:
-   * - same field: [federation_id, federation_id, name] -> [federation_id, name]
-   * - field from object: [federation, federation.id,] -> [federation]
-   *
-   * @param fields The array containing the fields of the query.
-   * @returns A clean array of columns/fields to create a query with.
-   */
-  private cleanDataArray(fields?: string[]): string[] | undefined {
-    if (!fields || fields.length === 0) {
-      return undefined;
+  /** Rebuilds the nested shape the endpoint has always returned, so the response
+   * contract survives the move off PostgREST:
+   *   { id, users: {...}, federations: {...} } */
+  private nest(flat: Record<string, unknown>, plan: QueryPlan) {
+    const result: Record<string, unknown> = {};
+
+    for (const field of plan.direct) {
+      result[field] = flat[`athletes.${field}`];
     }
 
-    // Basic deduplication
+    for (const [table, columns] of Object.entries(plan.nested)) {
+      const available = RELATED_COLUMNS[table];
+      const wanted = columns.includes('*') ? Object.keys(available) : columns;
+      const nested: Record<string, unknown> = {};
+      let present = false;
+
+      for (const column of wanted) {
+        const value = flat[`${table}.${column}`];
+        nested[column] = value;
+        if (value !== null && value !== undefined) present = true;
+      }
+
+      // A left join that matched nothing yields all-null columns; report that as
+      // a null relation rather than an object full of nulls, which is what
+      // PostgREST did.
+      result[table] = present ? nested : null;
+    }
+
+    return result;
+  }
+
+  /** Removes duplicates and nested fields made redundant by a full-table request:
+   * - [federation_id, federation_id, name] -> [federation_id, name]
+   * - [federations, federations.id]        -> [federations]
+   */
+  private cleanDataArray(fields?: string[]): string[] | undefined {
+    if (!fields || fields.length === 0) return undefined;
+
     const uniqueFields = [...new Set(fields)];
+    const fullTables = uniqueFields.filter(
+      (f) => !f.includes('.') && VALID_FULL_TABLE_QUERIES.has(f),
+    );
 
-    // Handle full table vs nested field conflicts
-    const fullTables = uniqueFields.filter((f) => !f.includes('.') && VALID_FULL_TABLE_QUERIES[f]);
-
-    // If we have full table requests, remove conflicting nested requests
     if (fullTables.length > 0) {
       return uniqueFields.filter((field) => {
         if (!field.includes('.')) return true;
-
         const [tableName] = field.split('.');
         return !fullTables.includes(tableName);
       });
@@ -84,27 +173,20 @@ export class AthleteService {
     return uniqueFields;
   }
 
-  /** This helper method is responsible for creating select queries for retrieveProfileDetails.
-   * Examples of...
-   * Direct queries: 'user_id', 'federation_id' (in 'athletes' table)
-   * Nested queries: 'federation.id', 'users.name', (in a relational table)
-   * Table queries: 'federation', 'division' (row of a relational table)
+  /** Validates the requested fields against the allowlists and returns a plan.
    *
-   * @param data The array containing the data to be retrieved.
-   * @returns A query ready to immediately insert into a select query.
+   * ⚠️ Anything off-allowlist throws. These lists are the only constraint on what
+   * this endpoint exposes, so widening them to make a query convenient widens the
+   * endpoint's reach. `user_id` stays out because it maps to the auth identity.
    */
-  private constructSelectQuery(data?: string[]) {
-    if (!data) {
-      return PUBLIC_PROFILE_QUERY;
-    }
+  private buildPlan(data?: string[]): QueryPlan {
+    if (!data) return DEFAULT_PLAN;
 
-    const directFields: string[] = [];
-    const nestedFields: { [key: string]: string[] } = {};
+    const plan: QueryPlan = { direct: [], nested: {} };
 
-    data.forEach((c) => {
-      // if nested field (federation.name)
-      if (c.includes('.')) {
-        const [tableName, column] = c.split('.') as [string, string];
+    for (const field of data) {
+      if (field.includes('.')) {
+        const [tableName, column] = field.split('.') as [string, string];
 
         if (
           !(tableName in VALID_TABLE_FIELDS) ||
@@ -113,36 +195,17 @@ export class AthleteService {
           throw new BadRequestException(`Invalid query: '${tableName}.${column}'`);
         }
 
-        if (!nestedFields[tableName]) {
-          nestedFields[tableName] = [];
-        }
-        nestedFields[tableName].push(column);
-        // if field is a full row request (federation)
-      } else if (VALID_FULL_TABLE_QUERIES.has(c)) {
-        nestedFields[c] = ['*'];
-        // if a normal request (federation_id)
+        (plan.nested[tableName] ??= []).push(column);
+      } else if (VALID_FULL_TABLE_QUERIES.has(field)) {
+        plan.nested[field] = ['*'];
       } else {
-        if (!VALID_ATHLETES_COLUMNS_QUERIES.has(c)) {
-          throw new BadRequestException(`Invalid query: '${c}'`);
+        if (!VALID_ATHLETES_COLUMNS_QUERIES.has(field)) {
+          throw new BadRequestException(`Invalid query: '${field}'`);
         }
-        directFields.push(c);
+        plan.direct.push(field);
       }
-    });
+    }
 
-    // sets up query with normal fields first
-    const queryParts = [...directFields];
-
-    // construct parts of query for queries like federation.name & provides alias to match client input
-    Object.entries(nestedFields).forEach(
-      ([tableName, columns]: [table: string, columns: string[]]) => {
-        if (columns.includes('*')) {
-          queryParts.push(`${tableName} (*)`);
-        } else {
-          queryParts.push(`${tableName} (${columns.join(', ')})`);
-        }
-      },
-    );
-
-    return queryParts.join(', ');
+    return plan;
   }
 }

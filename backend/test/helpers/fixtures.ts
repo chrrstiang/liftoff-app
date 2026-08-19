@@ -23,6 +23,34 @@
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { Pool } from 'pg';
+
+/** Data now lives in Postgres, not Supabase. These fixtures are therefore hybrid:
+ * **auth** operations go to Supabase (that is where auth genuinely lives) and
+ * **data** operations go to the database the API writes to.
+ *
+ * That split is why the suite is now hermetic for data — a local Postgres in CI
+ * means table rows never touch a shared project again. Only auth users do. */
+let dataPool: Pool | undefined;
+
+export function dataDb(): Pool {
+  if (!dataPool) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error(
+        'DATABASE_URL is not set. e2e writes to Postgres now, not Supabase. ' +
+          'Locally: `npm run db:up && npm run db:migrate && npm run db:seed`.',
+      );
+    }
+    dataPool = new Pool({ connectionString, max: 4 });
+  }
+  return dataPool;
+}
+
+export async function closeDataDb(): Promise<void> {
+  await dataPool?.end();
+  dataPool = undefined;
+}
 
 /** Stable across schema changes: the sweeper matches on these, not on the run id,
  * so cleanup still works for artifacts left by an older revision of this file. */
@@ -104,38 +132,29 @@ export function createAuthClient(url: string, key: string) {
  * pinned CI to specific production rows: reference data could never be reseeded
  * without breaking the suite, and the suite could never be fixed by deleting rows
  * real users point at. */
-export async function findReferenceData(supabase: SupabaseClient): Promise<ReferenceData> {
-  const { data: divisionRow, error: divisionError } = await supabase
-    .from('divisions')
-    .select('id, federation_id')
-    .limit(1)
-    .single();
+export async function findReferenceData(_supabase?: SupabaseClient): Promise<ReferenceData> {
+  const db = dataDb();
 
-  const division = divisionRow as { id: string; federation_id: string } | null;
+  const { rows: divisionRows } = await db.query<{ id: string; federation_id: string }>(
+    'select id, federation_id from divisions limit 1',
+  );
+  const division = divisionRows[0];
 
-  if (divisionError || !division) {
+  if (!division) {
     throw new Error(
-      `No divisions in the target Supabase project — seed reference data before running e2e: ${
-        divisionError?.message ?? 'no rows'
-      }`,
+      'No divisions in the test database — run `npm run db:seed` (CI does this in the ' +
+        '"Migrate and seed the test database" step).',
     );
   }
 
-  const { data: weightClassRow, error: weightClassError } = await supabase
-    .from('weight_classes')
-    .select('id, gender')
-    .eq('federation_id', division.federation_id)
-    .limit(1)
-    .single();
+  const { rows: weightClassRows } = await db.query<{ id: string; gender: string }>(
+    'select id, gender from weight_classes where federation_id = $1 limit 1',
+    [division.federation_id],
+  );
+  const weightClass = weightClassRows[0];
 
-  const weightClass = weightClassRow as { id: string; gender: string } | null;
-
-  if (weightClassError || !weightClass) {
-    throw new Error(
-      `No weight_classes for federation ${division.federation_id} — seed reference data before running e2e: ${
-        weightClassError?.message ?? 'no rows'
-      }`,
-    );
+  if (!weightClass) {
+    throw new Error(`No weight_classes for federation ${division.federation_id} — reseed.`);
   }
 
   return {
@@ -217,57 +236,62 @@ const DIRECT_USER_REFERENCES: ReadonlyArray<{ table: string; columns: string[] }
   { table: 'exercises', columns: ['created_by'] },
 ];
 
-/** Deletes everything belonging to the given user ids, children first. */
+/** Deletes everything belonging to the given user ids, children first.
+ *
+ * Rows come out of Postgres; the auth users come out of Supabase. Adding a table
+ * to a spec means adding it here, or its rows leak — though "leak" now means a
+ * throwaway CI database rather than production, which is the whole point of the
+ * move.
+ */
 async function sweepForUserIds(supabase: SupabaseClient, userIds: string[]): Promise<string[]> {
   const problems: string[] = [];
   if (userIds.length === 0) return problems;
 
-  // workouts -> workout_exercises -> sets, deepest first.
-  const { data: workouts } = await supabase
-    .from('workouts')
-    .select('id')
-    .or(userIds.map((id) => `athlete_id.eq.${id},coach_id.eq.${id}`).join(','));
+  const db = dataDb();
 
-  const workoutIds = (workouts ?? []).map((w: { id: string }) => w.id);
+  // Deepest first. A single statement per table, using = ANY($1) so the id list
+  // is a bound parameter rather than interpolated.
+  const statements: Array<[string, string]> = [
+    [
+      'sets',
+      `delete from sets where workout_exercise_id in (
+       select we.id from workout_exercises we join workouts w on w.id = we.workout_id
+       where w.athlete_id = any($1) or w.coach_id = any($1))`,
+    ],
+    [
+      'workout_exercises',
+      `delete from workout_exercises where workout_id in (
+       select id from workouts where athlete_id = any($1) or coach_id = any($1))`,
+    ],
+    ['workouts', 'delete from workouts where athlete_id = any($1) or coach_id = any($1)'],
+    ['messages', 'delete from messages where user_id = any($1)'],
+    ['conversation_members', 'delete from conversation_members where user_id = any($1)'],
+    [
+      'coach_requests',
+      'delete from coach_requests where athlete_id = any($1) or coach_id = any($1)',
+    ],
+    [
+      'coach_athlete_relationships',
+      'delete from coach_athlete_relationships where athlete_id = any($1) or coach_id = any($1)',
+    ],
+    ['exercise_templates', 'delete from exercise_templates where created_by = any($1)'],
+    ['exercises', 'delete from exercises where created_by = any($1)'],
+    ['athletes', 'delete from athletes where id = any($1)'],
+    ['coaches', 'delete from coaches where id = any($1)'],
+    ['users', 'delete from users where id = any($1)'],
+  ];
 
-  if (workoutIds.length > 0) {
-    const { data: workoutExercises } = await supabase
-      .from('workout_exercises')
-      .select('id')
-      .in('workout_id', workoutIds);
-
-    const weIds = (workoutExercises ?? []).map((we: { id: string }) => we.id);
-
-    if (weIds.length > 0) {
-      const { error } = await supabase.from('sets').delete().in('workout_exercise_id', weIds);
-      if (error) problems.push(`sets: ${error.message}`);
+  for (const [table, text] of statements) {
+    try {
+      await db.query(text, [userIds]);
+    } catch (error) {
+      problems.push(`${table}: ${(error as Error).message}`);
     }
-
-    const { error: weError } = await supabase
-      .from('workout_exercises')
-      .delete()
-      .in('workout_id', workoutIds);
-    if (weError) problems.push(`workout_exercises: ${weError.message}`);
-
-    const { error: wError } = await supabase.from('workouts').delete().in('id', workoutIds);
-    if (wError) problems.push(`workouts: ${wError.message}`);
-  }
-
-  for (const { table, columns } of DIRECT_USER_REFERENCES) {
-    for (const column of columns) {
-      const { error } = await supabase.from(table).delete().in(column, userIds);
-      if (error) problems.push(`${table}.${column}: ${error.message}`);
-    }
-  }
-
-  for (const table of ['athletes', 'coaches', 'users']) {
-    const { error } = await supabase.from(table).delete().in('id', userIds);
-    if (error) problems.push(`${table}: ${error.message}`);
   }
 
   for (const userId of userIds) {
     const { error } = await supabase.auth.admin.deleteUser(userId);
-    // "not found" is the expected outcome when a previous teardown already got it.
+    // "not found" is expected when a previous teardown already got it.
     if (error && !/not found/i.test(error.message)) {
       problems.push(`auth user ${userId}: ${error.message}`);
     }

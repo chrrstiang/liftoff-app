@@ -29,7 +29,6 @@
         "ssm:GetParameters"
       ],
       "Resource": [
-        "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/DATABASE_URL",
         "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_PROJECT_URL",
         "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_SECRET_KEY"
       ]
@@ -46,6 +45,14 @@
           "kms:ViaService": "ssm.us-east-2.amazonaws.com"
         }
       }
+    },
+    {
+      "Sid": "ReadRdsManagedMasterPassword",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": "arn:aws:secretsmanager:us-east-2:582908772109:secret:rds!db-18b8d17f-8554-45c6-bf0c-a4b21700e697-vsQPzR"
     }
   ]
 }

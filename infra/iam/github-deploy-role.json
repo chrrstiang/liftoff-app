@@ -60,7 +60,9 @@
         "ecs:DescribeExpressGatewayService",
         "ecs:DescribeServices"
       ],
-      "Resource": "*"
+      "Resource": [
+        "arn:aws:ecs:us-east-2:582908772109:service/default/liftoff-api"
+      ]
     },
     {
       "Sid": "PassOnlyOurOwnRolesAndOnlyToEcs",

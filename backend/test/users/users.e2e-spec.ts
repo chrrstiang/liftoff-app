@@ -55,15 +55,22 @@ describe('UsersController (e2e)', () => {
   let authClient: SupabaseClient;
   let reference: ReferenceData;
 
-  /** A single user shared by every test expected to FAIL validation. Those never
-   * create a profile, so they cannot collide. Success cases take a fresh user via
-   * `freshUser()`, because POST /users/profile is once-per-user.
+  /** ONE auth user for the whole suite.
    *
-   * This matters beyond tidiness: the previous version created an auth user in
-   * beforeEach, so one run burned ~13 Supabase signups. Auth is the one thing
-   * still on the shared project, and that burst is enough to trip its rate limit
-   * — which surfaces as "Database error creating new user" and reads like a
-   * broken trigger rather than throttling. */
+   * This is the single most effective thing for suite reliability. The original
+   * created a user in `beforeEach` — ~13 Supabase signups per run — and auth is
+   * the one dependency still on the shared project. Its rate limit is per-hour
+   * and cumulative across CI runs, and when tripped it returns "Database error
+   * creating new user", which reads like a broken trigger rather than throttling.
+   *
+   * Sharing is safe now for a reason worth knowing: `createUserProfile` upserts
+   * (`onConflictDoUpdate` on users, `onConflictDoNothing` on athletes/coaches),
+   * so a second POST for the same user succeeds rather than colliding on the
+   * primary key. The four "success" cases are really asserting that the DTO
+   * accepts each field combination, which holds regardless of whether the row
+   * already existed.
+   *
+   * The validation-failure cases never write at all, so they cannot interfere. */
   let sharedUser: TestUser;
 
   /** Recorded the instant each auth user exists, so a fixture that throws partway
@@ -140,10 +147,7 @@ describe('UsersController (e2e)', () => {
         .set('Authorization', `Bearer ${as.token}`);
 
     it('should successfully create only a user profile', async () => {
-      const user = await freshUser();
-      const response = await post(user)
-        .send({ ...baseUserData(), username: user.username })
-        .expect(201);
+      const response = await post().send(baseUserData()).expect(201);
 
       expect(response.body).toEqual({
         message: 'User profile created successfully!',
@@ -151,9 +155,8 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should successfully create profile with all fields (athlete)', async () => {
-      const user = await freshUser();
-      const response = await post(user)
-        .send({ ...baseUserData(), username: user.username, is_athlete: true, ...athleteIds() })
+      const response = await post()
+        .send({ ...baseUserData(), is_athlete: true, ...athleteIds() })
         .expect(201);
 
       expect(response.body).toEqual({
@@ -162,11 +165,9 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should successfully create profile with all fields (coach)', async () => {
-      const user = await freshUser();
-      const response = await post(user)
+      const response = await post()
         .send({
           ...baseUserData(),
-          username: user.username,
           is_coach: true,
           biography: 'Experienced coach',
           years_of_experience: 5,
@@ -179,11 +180,9 @@ describe('UsersController (e2e)', () => {
     });
 
     it('should successfully create profile with all fields (both)', async () => {
-      const user = await freshUser();
-      const response = await post(user)
+      const response = await post()
         .send({
           ...baseUserData(),
-          username: user.username,
           is_athlete: true,
           is_coach: true,
           ...athleteIds(),

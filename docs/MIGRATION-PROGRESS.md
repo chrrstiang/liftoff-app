@@ -56,26 +56,28 @@ Living status for the move off Supabase Postgres to RDS behind the API. Update i
 
 The two rollback rows are the ones that matter: under the old compensating-delete scheme that was exactly the window that could leave a half-created profile behind.
 
-## Open PR: #17 (endpoint port)
+## Open PR: #17 — everything verified, `backend-e2e` red for one environmental reason
 
-Everything in it is verified, but **`backend-e2e` is red for an environmental reason** and the standing rule is CI-green-only merges, so it is parked rather than merged.
+**Do this first: re-run the `backend-e2e` job.** No code change needed. If it passes, merge.
 
-`users.e2e-spec` — the suite that actually exercises the port — **passes**. `athlete-retrieve` fails entirely, and every one of its tests fails including "returns 401 without a token", which cannot fail on its own merits. Its `beforeAll` is throwing on `auth.admin.createUser` with:
+`users.e2e-spec` and `app.e2e-spec` **pass** — those are the suites that exercise the port. `athlete-retrieve` fails entirely, and every one of its tests fails including "returns 401 without a token", which cannot fail on its own merits. Its `beforeAll` throws on `auth.admin.createUser`:
 
 ```
 Database error creating new user
 ```
 
-That is **Supabase's per-hour auth rate limit**, not a broken trigger. Confirmed by creating a user by hand against the same project — signup works and the trigger fires correctly. The limit is cumulative across CI runs and tonight had many.
+That is **Supabase's per-hour auth rate limit**, not a broken trigger. Verified by creating a user by hand against the same project: signup works and the trigger fires correctly. The quota is cumulative across CI runs and this session had many.
 
-Already mitigated as far as code can:
-- signups per run cut from ~13 to ~6 (shared user for validation-failure cases)
-- bounded backoff on transient auth failures (1s/3s/8s/15s) — it fired all four times and the limit still held
-- the final error message now says what this usually is, so the next person does not go schema-hunting
+Everything code can do has been done, and each step surfaced a real problem underneath:
 
-**To land it: re-run the `backend-e2e` job once an hour has passed.** No code change needed.
+| Change | Why | What it revealed |
+|---|---|---|
+| Shared one auth user per suite | ~13 signups per run → **2** | `@IsUnique` then rejected the reused username — real bug, fixed by varying the username while keeping one signup |
+| Retry with backoff (1s/3s/8s/15s) | auth is a throttled shared dependency | fired all four times; the quota outlasts any sane backoff |
+| `testTimeout: 60000` | Jest's 5s default is absurd for network I/O | had been **masking** the rate limit as a hook timeout |
+| Self-explanatory error message | "Database error creating new user" reads like a broken trigger | cost one debugging detour before a manual probe settled it |
 
-## Blocked, and why
+## Blocked, and why## Blocked, and why
 
 | Item | Blocker |
 |---|---|

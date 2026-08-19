@@ -18,7 +18,13 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "e2e:sweep": "ts-node -r tsconfig-paths/register test/helpers/sweep.ts"
+    "e2e:sweep": "ts-node -r tsconfig-paths/register test/helpers/sweep.ts",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down -v",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "docker compose exec -T db psql -U postgres -d liftoff -v ON_ERROR_STOP=1 < src/db/seed-reference-data.sql",
+    "db:verify": "docker compose exec -T db psql -U postgres -d liftoff -v ON_ERROR_STOP=1 < src/db/verify-port.sql"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -29,6 +35,8 @@
     "@supabase/supabase-js": "^2.88.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
@@ -41,9 +49,11 @@
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.10.7",
+    "@types/pg": "^8.23.1",
     "@types/supertest": "^6.0.2",
     "@typescript-eslint/eslint-plugin": "^8.50.0",
     "@typescript-eslint/parser": "^8.50.0",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",

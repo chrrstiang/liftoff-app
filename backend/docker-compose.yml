@@ -1,0 +1,41 @@
+# Local Postgres for development and tests.
+#
+#   npm run db:up        start it
+#   npm run db:migrate   apply the migration chain (tables, then views)
+#   npm run db:seed      load reference data
+#   npm run db:verify    prove the port is sound
+#
+# Local connection string (no password -- see below):
+#   DATABASE_URL=postgres://postgres@127.0.0.1:55440/liftoff
+#
+# This is the local database story the project never had. Until now the only
+# database was the hosted Supabase project, which is why e2e had to run against
+# production.
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: liftoff
+      # No password at all, deliberately -- combined with the loopback-only bind
+      # below. A hardcoded password in a committed file is a credential whether or
+      # not it is a "real" one, and secret scanners are right to flag it.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      # Bound to 127.0.0.1, NOT 0.0.0.0. Docker publishes to all interfaces by
+      # default, so the previous form exposed this database to the whole LAN with
+      # only a guessable password in front of it. Loopback-only is what makes
+      # trust auth safe here.
+      #
+      # 55440 rather than 5432 so it cannot collide with a Postgres already on the
+      # host.
+      - "127.0.0.1:55440:5432"
+    volumes:
+      - liftoff-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d liftoff"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  liftoff-pgdata:

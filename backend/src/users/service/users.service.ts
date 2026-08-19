@@ -6,6 +6,10 @@ import { athletes, coaches, divisions, users, weightClasses } from 'src/db/schem
 import { UpdateUserDto } from '../dto/update-user.dto';
 import { CreateUserDto, Gender } from '../dto/create-user.dto';
 
+/** Postgres rejects a malformed uuid with 22P02 before any row is examined, so
+ * this is used only to name which of several candidate ids was the bad one. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class UsersService {
   constructor(@Inject(DRIZZLE) private readonly db: Database) {}
@@ -143,13 +147,36 @@ export class UsersService {
       throw new BadRequestException('Federation is required to validate division');
     }
 
-    const rows = await this.db
-      .select({ one: sql<number>`1` })
-      .from(divisions)
-      .where(and(eq(divisions.id, divisionId), eq(divisions.federationId, federationId)))
-      .limit(1);
+    const rows = await this.runReferenceLookup(
+      () =>
+        this.db
+          .select({ one: sql<number>`1` })
+          .from(divisions)
+          .where(and(eq(divisions.id, divisionId), eq(divisions.federationId, federationId)))
+          .limit(1),
+      [divisionId, federationId],
+    );
 
     if (rows.length === 0) throw new BadRequestException('Division not found');
+  }
+
+  /** Runs a reference-data lookup, turning a malformed uuid into a 400.
+   *
+   * PostgREST used to reject a bad uuid as a request error, which this service
+   * mapped to a 400 naming the offending value. Postgres raises 22P02
+   * (invalid_text_representation) instead, which would otherwise escape as an
+   * unhandled 500 — the client sent bad input and deserves to be told which part.
+   */
+  private async runReferenceLookup<T>(run: () => Promise<T[]>, candidates: string[]): Promise<T[]> {
+    try {
+      return await run();
+    } catch (error) {
+      if ((error as { cause?: { code?: string } })?.cause?.code === '22P02') {
+        const malformed = candidates.find((c) => !UUID_PATTERN.test(c)) ?? candidates.join(', ');
+        throw new BadRequestException(`Invalid identifier: '${malformed}'`);
+      }
+      throw error;
+    }
   }
 
   private async validateWeightClass(
@@ -161,17 +188,21 @@ export class UsersService {
       throw new BadRequestException('Federation is required to validate weight class');
     }
 
-    const rows = await this.db
-      .select({ one: sql<number>`1` })
-      .from(weightClasses)
-      .where(
-        and(
-          eq(weightClasses.id, weightClassId),
-          eq(weightClasses.federationId, federationId),
-          eq(weightClasses.gender, gender),
-        ),
-      )
-      .limit(1);
+    const rows = await this.runReferenceLookup(
+      () =>
+        this.db
+          .select({ one: sql<number>`1` })
+          .from(weightClasses)
+          .where(
+            and(
+              eq(weightClasses.id, weightClassId),
+              eq(weightClasses.federationId, federationId),
+              eq(weightClasses.gender, gender),
+            ),
+          )
+          .limit(1),
+      [weightClassId, federationId],
+    );
 
     if (rows.length === 0) throw new BadRequestException('Weight class not found');
   }

@@ -31,6 +31,14 @@ export class IsUniqueValidator implements ValidatorConstraintInterface {
       return false;
     }
 
+    // Guard before building SQL. Interpolating undefined into a template produced
+    // `where "users"."username" =  limit $1` -- a syntax error, surfaced as a 500.
+    // A missing value cannot collide with anything. Emptiness is @IsNotEmpty's job;
+    // reporting it as 'not unique' here would produce a misleading second error.
+    if (value === null || value === undefined || value === '') {
+      return true;
+    }
+
     const [tableName, columnName] = args.constraints as [string, string];
     const column = resolveValidatableColumn(tableName, columnName);
 

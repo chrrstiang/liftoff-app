@@ -1,6 +1,6 @@
 name: Deploy API
 
-# Deploys backend/ to ECS Fargate.
+# Deploys backend/ to ECS Fargate via Express Mode.
 #
 # ⚠️ NOT ACTIVE until the AWS resources exist and AWS_DEPLOY_ROLE_ARN is set as a
 # repository variable. Until then every step is skipped with a loud warning rather
@@ -35,7 +35,7 @@ concurrency:
 env:
   AWS_REGION: us-east-2
   ECR_REPOSITORY: liftoff-api
-  ECS_CLUSTER: liftoff-cluster
+  ECS_CLUSTER: default
   ECS_SERVICE: liftoff-api
   ECS_TASK_DEFINITION: infra/ecs/task-definition.json
   CONTAINER_NAME: liftoff-api
@@ -95,26 +95,55 @@ jobs:
           docker push "$IMAGE"
           echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
 
-      - name: Render task definition
+      # Express Mode manages the service, load balancer and scaling, but a custom
+      # task definition is still how SUPABASE_SECRET_KEY and DATABASE_URL get
+      # injected from SSM -- the --primary-container shorthand cannot express
+      # secrets. So: register a new revision pointing at the new image, then tell
+      # the Express service to use it.
+      - name: Register task definition revision
         if: steps.config.outputs.configured == 'true'
         id: taskdef
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: ${{ env.ECS_TASK_DEFINITION }}
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.image.outputs.uri }}
+        env:
+          IMAGE: ${{ steps.image.outputs.uri }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          d = json.load(open(os.environ['ECS_TASK_DEFINITION'] if 'ECS_TASK_DEFINITION' in os.environ else 'infra/ecs/task-definition.json'))
+          for c in d['containerDefinitions']:
+              if c['name'] == os.environ['CONTAINER_NAME']:
+                  c['image'] = os.environ['IMAGE']
+          json.dump(d, open('/tmp/taskdef.json', 'w'))
+          PY
+          ARN=$(aws ecs register-task-definition \
+            --cli-input-json file:///tmp/taskdef.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+          echo "registered $ARN"
 
-      # wait-for-service-stability is the point of this step. Without it the job goes
-      # green as soon as the API call returns, which means a container that
-      # crash-loops on startup still reports a successful deploy.
-      - name: Deploy to ECS
+      # No wait-for-service-stability equivalent here, so poll explicitly. Without
+      # this the job goes green the moment the API call returns, which means a
+      # container that crash-loops on startup still reports a successful deploy.
+      - name: Deploy to Express service
         if: steps.config.outputs.configured == 'true'
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.taskdef.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+        env:
+          TASKDEF_ARN: ${{ steps.taskdef.outputs.arn }}
+        run: |
+          aws ecs update-express-gateway-service \
+            --cluster "$ECS_CLUSTER" \
+            --service-name "$ECS_SERVICE" \
+            --task-definition "$TASKDEF_ARN"
+
+          echo "waiting for the service to settle..."
+          for i in $(seq 1 40); do
+            STATUS=$(aws ecs describe-express-gateway-service \
+              --cluster "$ECS_CLUSTER" --service-name "$ECS_SERVICE" \
+              --query 'service.status' --output text 2>/dev/null || echo UNKNOWN)
+            echo "  [$i/40] status=$STATUS"
+            [ "$STATUS" = "ACTIVE" ] && exit 0
+            sleep 15
+          done
+          echo "::error title=Deploy did not settle::Service never reached ACTIVE."
+          exit 1
 
       # Independent confirmation that the thing users hit actually works. A stable
       # service means the tasks are running and passing the target group check; this

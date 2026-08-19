@@ -12,7 +12,7 @@ Living status for the move off Supabase Postgres to RDS behind the API. Update i
 | Week 2 — schema port + AWS | ✅ done |
 | Week 2 — endpoint port (3 existing) | ✅ done — **the backend no longer reads data from Supabase** |
 | Week 3 — deploy | ✅ done (ahead of schedule) |
-| Week 4 — new endpoints | ⬜ not started |
+| Week 4 — new endpoints | 🔄 in progress |
 | Week 4 — frontend flip | ⛔ blocked (see below) |
 | Week 5 — feature | ⛔ blocked (needs a product decision) |
 
@@ -55,6 +55,25 @@ Living status for the move off Supabase Postgres to RDS behind the API. Update i
 | `updateProfile` touches only the caller | ✅ |
 
 The two rollback rows are the ones that matter: under the old compensating-delete scheme that was exactly the window that could leave a half-created profile behind.
+
+## Open PR: #17 (endpoint port)
+
+Everything in it is verified, but **`backend-e2e` is red for an environmental reason** and the standing rule is CI-green-only merges, so it is parked rather than merged.
+
+`users.e2e-spec` — the suite that actually exercises the port — **passes**. `athlete-retrieve` fails entirely, and every one of its tests fails including "returns 401 without a token", which cannot fail on its own merits. Its `beforeAll` is throwing on `auth.admin.createUser` with:
+
+```
+Database error creating new user
+```
+
+That is **Supabase's per-hour auth rate limit**, not a broken trigger. Confirmed by creating a user by hand against the same project — signup works and the trigger fires correctly. The limit is cumulative across CI runs and tonight had many.
+
+Already mitigated as far as code can:
+- signups per run cut from ~13 to ~6 (shared user for validation-failure cases)
+- bounded backoff on transient auth failures (1s/3s/8s/15s) — it fired all four times and the limit still held
+- the final error message now says what this usually is, so the next person does not go schema-hunting
+
+**To land it: re-run the `backend-e2e` job once an hour has passed.** No code change needed.
 
 ## Blocked, and why
 

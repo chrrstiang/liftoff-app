@@ -3,45 +3,52 @@ import {
   ValidatorConstraint,
   ValidatorConstraintInterface,
 } from 'class-validator';
-import { Injectable } from '@nestjs/common';
-import { SupabaseService } from 'src/supabase/supabase.service';
+import { Inject, Injectable } from '@nestjs/common';
+import { sql } from 'drizzle-orm';
+import { DRIZZLE, type Database } from 'src/db/db.module';
+import { resolveValidatableColumn } from './validation-columns';
 
-/** This validator is responsible for checking that the given value exists,
- * in the context of the given table and column. If true, the validator passes.
- *
+/** Checks that a value exists for the given table and column — the inverse of
+ * IsUniqueValidator, and it shares the same column registry.
  */
 @ValidatorConstraint({ name: 'valueExists', async: true })
 @Injectable()
 export class ValueExistsValidator implements ValidatorConstraintInterface {
-  constructor(private readonly supabaseService: SupabaseService) {}
+  constructor(@Inject(DRIZZLE) private readonly db: Database) {}
 
-  async validate(value: any, validationArguments?: ValidationArguments): Promise<boolean> {
-    if (!this.supabaseService) {
-      console.error('SupabaseService not injected!');
+  async validate(value: unknown, args?: ValidationArguments): Promise<boolean> {
+    if (!this.db) {
+      console.error('Database not injected into ValueExistsValidator');
       return false;
     }
 
-    if (!validationArguments?.constraints || validationArguments.constraints.length < 2) {
+    if (!args?.constraints || args.constraints.length < 2) {
       console.error('Missing constraints for ValueExistsValidator');
       return false;
     }
-    const [tableName, column] = validationArguments?.constraints as [string, string];
-    const supabase = this.supabaseService.getClient();
 
-    const { data } = await supabase.from(tableName).select('id').eq(column, value);
+    const [tableName, columnName] = args.constraints as [string, string];
+    const column = resolveValidatableColumn(tableName, columnName);
 
-    if (data && data.length > 0) {
-      return true;
+    if (!column) {
+      console.error(`ValueExistsValidator: ${tableName}.${columnName} is not registered`);
+      return false;
     }
 
-    return false;
+    const rows = await this.db
+      .select({ one: sql<number>`1` })
+      .from(column.table)
+      .where(sql`${column} = ${value}`)
+      .limit(1);
+
+    return rows.length > 0;
   }
 
-  defaultMessage?(validationArguments?: ValidationArguments): string {
-    if (!validationArguments?.constraints || validationArguments.constraints.length < 2) {
-      return `${validationArguments?.property} is not a valid value.`;
+  defaultMessage(args?: ValidationArguments): string {
+    if (!args?.constraints || args.constraints.length < 2) {
+      return `${args?.property} is not a valid value.`;
     }
-    const [column] = validationArguments?.constraints as [string];
-    return `${validationArguments?.property} is not a valid value for ${column}.`;
+    const [column] = args.constraints as [string];
+    return `${args?.property} is not a valid value for ${column}.`;
   }
 }

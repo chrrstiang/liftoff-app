@@ -4,7 +4,7 @@ Run every command from `backend/`. See the root `CLAUDE.md` for product context 
 
 ## Stack
 
-NestJS 11 on Express · TypeScript (**not** strict) · Node 20 · Jest 30 + supertest · Supabase JS (no ORM)
+NestJS 11 on Express · TypeScript (**not** strict) · Node 20 · Jest 30 + supertest · **Drizzle** on RDS Postgres · Supabase JS (**auth only**)
 
 Serves `PORT || 8000` on `HOST || 0.0.0.0` (`src/main.ts`).
 
@@ -48,18 +48,28 @@ src/
 
 Controllers stay thin: `@UseGuards(JwtAuthGuard)` **per route** (not class-level), explicit `@HttpCode(...)`, `@Body() dto`, `@Req() req: RequestWithUser`, delegate to the service, return `{ message: '...' }`. Constructor DI with `private readonly`.
 
-## Supabase access
+## Database access
 
-No ORM — always `supabaseService.getClient()`, then the query builder:
+**Data lives in RDS Postgres, reached through Drizzle. Supabase is auth only.**
 
 ```ts
-const { data, error } = await this.supabase.from('users').update(dto).eq('id', user.id);
-if (error) UsersService.handleSupabaseError(error, 'Failed to update user profile');
+constructor(@Inject(DRIZZLE) private readonly db: Database) {}
+
+await this.db.update(users).set(patch).where(eq(users.id, user.id));
 ```
 
-Route Supabase errors through `handleSupabaseError` rather than throwing ad hoc.
+`DbModule` is `@Global`, so `DRIZZLE` is injectable anywhere without importing it. It takes `DATABASE_URL` locally (what `drizzle-kit` reads) or `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE` in ECS — the second form exists because RDS manages the master password itself in Secrets Manager, so there is no URL to assemble without writing the secret down somewhere.
 
-⚠️ **The backend holds the service-role key, which bypasses RLS entirely.** Nothing in the database will stop a query from reading or writing another user's rows. Every query must scope itself — `.eq('id', user.id)` or equivalent — and the correctness of that is entirely on the code you write here.
+⚠️ **There is no RLS. The API is the entire trust boundary.** Nothing in the database will stop a query from reading or writing another user's rows. Every query must scope itself — `eq(users.id, user.id)` or a walk up the ownership chain — and the correctness of that is entirely on the code here. Getting one wrong is a data breach, not a bug.
+
+**Still on Supabase, deliberately:** `JwtAuthGuard` (it verifies tokens, which is auth) and `AthleteService` (the `?data=` compiler, not yet ported).
+
+Local database:
+
+```bash
+npm run db:up && npm run db:migrate && npm run db:seed
+npm run db:verify   # 18 assertions that the port is sound
+```
 
 ## Validation and error handling
 
@@ -91,13 +101,14 @@ Custom exceptions live in `common/exceptions/` with the suffix dropped from the 
 
 ## Writes that span tables
 
-`UsersService.createUserProfile` touches `coaches`, `athletes`, and `users`. There is **no transaction available** through the Supabase client, so the method is structured defensively and the order matters:
+`UsersService.createUserProfile` touches `users`, `athletes` and `coaches`, and now runs in a **real transaction** — `db.transaction(async (tx) => ...)`. A failure anywhere rolls everything back.
 
-1. All cross-field validation (division↔federation, weight-class↔federation↔gender) runs **before any write**.
-2. Inserts are tracked in `insertedTables` as they succeed.
-3. If a later step fails, `rollbackInsertedProfiles` deletes them in reverse order.
+The previous version hand-rolled compensating deletes, tracking `insertedTables` and reversing them on failure. That existed *only* because supabase-js has no transaction API; it narrowed the window for a half-created profile but could not close it. Do not reintroduce that pattern — use a transaction.
 
-Rollback is **best-effort**: failures there are logged, never thrown, so the original error still reaches the caller. Keep that property — throwing from rollback replaces the real cause with a misleading one. If you add a fourth write to this flow, add it to the tracked set too.
+Two things that stay:
+
+1. **Cross-field validation runs before the transaction opens.** These are reads, and a clean 400 beats an aborted transaction.
+2. **`createUserProfile` INSERTs the users row, it does not update it.** On Supabase a trigger on `auth.users` created `public.users` at signup and copied the email; that trigger does not exist in RDS, and there is no foreign key between the two databases. The id and email come from the verified JWT, never the body.
 
 ## The sparse-fieldset `?data=` pattern
 

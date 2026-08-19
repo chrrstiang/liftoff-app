@@ -4,9 +4,12 @@ import {
   ExecutionContext,
   NotFoundException,
   BadRequestException,
+  Inject,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { SupabaseService } from 'src/supabase/supabase.service';
+import { eq, sql } from 'drizzle-orm';
+import { DRIZZLE, type Database } from 'src/db/db.module';
+import { athletes } from 'src/db/schema';
 
 /** This guard ensures that an ID passed to a request as a parameter exists and corresponds with
  * an Athlete user. The ID is extracted from the params of the request, and used to query
@@ -15,7 +18,7 @@ import { SupabaseService } from 'src/supabase/supabase.service';
  */
 @Injectable()
 export class AthleteExistsGuard implements CanActivate {
-  constructor(private supabaseService: SupabaseService) {}
+  constructor(@Inject(DRIZZLE) private readonly db: Database) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // Typed params rather than an `as string` on the read: Express types
@@ -30,14 +33,13 @@ export class AthleteExistsGuard implements CanActivate {
       throw new BadRequestException(`Must include ID of athlete requested.`);
     }
 
-    const supabase = this.supabaseService.getClient();
-    const { data, error } = await supabase
-      .from('athletes')
-      .select('id')
-      .eq('id', athleteId)
-      .single();
+    const rows = await this.db
+      .select({ one: sql<number>`1` })
+      .from(athletes)
+      .where(eq(athletes.id, athleteId))
+      .limit(1);
 
-    if (error || !data) {
+    if (rows.length === 0) {
       throw new NotFoundException(`Athlete with ID ${athleteId} could not be found`);
     }
 

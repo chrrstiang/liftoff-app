@@ -1,10 +1,9 @@
 import { Module } from '@nestjs/common';
 import { IsUniqueValidator } from './unique.validator';
 import { ValueExistsValidator } from './value-exists.validator';
-import { SupabaseModule } from 'src/supabase/supabase.module';
 
+/** DbModule is @Global, so DRIZZLE is available without importing it here. */
 @Module({
-  imports: [SupabaseModule],
   providers: [
     IsUniqueValidator,
     ValueExistsValidator,

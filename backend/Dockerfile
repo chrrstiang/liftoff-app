@@ -39,6 +39,17 @@ FROM node:20-alpine AS runtime
 
 ENV NODE_ENV=production
 
+# The commit this image was built from, surfaced by GET /health.
+#
+# This is what lets a deploy prove it rolled: it is the one thing that differs
+# between the old container and the new one. Declared in the *runtime* stage
+# specifically so it does not invalidate the builder's dependency cache -- putting
+# it earlier would reinstall node_modules on every commit.
+#
+# Defaults to "unknown" so a local `docker build` with no --build-arg still works.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./

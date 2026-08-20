@@ -227,6 +227,8 @@ Two results that look like problems and aren't: `MISSING_RESOURCE` on the trust 
 | Endpoint returns `Could not resolve host` while the target is healthy | DNS propagation on a new record; verify with a public resolver |
 | One target group shows no targets | normal — Express Mode keeps two for canary deploys |
 | Deploy green but API broken | the settle-polling loop was removed from `deploy.yml` |
+| `update-express-gateway-service`: `the following arguments are required: --service-arn` | it takes `--service-arn`, not `--cluster` + `--service-name`; and the task definition flag is `--task-definition-arn`, not `--task-definition` |
+| Settle loop always times out | `service.status` is an **object** (`{"statusCode":"ACTIVE"}`) — query `service.status.statusCode` |
 | `Token has expired` on any command | `aws sso login --profile liftoff` |
 
 Logs are in CloudWatch `/ecs/liftoff-api`. For a task that won't start, the ECS console's **Stopped tasks** tab gives a more specific reason than the logs do.

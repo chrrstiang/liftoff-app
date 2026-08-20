@@ -35,8 +35,8 @@ concurrency:
 env:
   AWS_REGION: us-east-2
   ECR_REPOSITORY: liftoff-api
-  ECS_CLUSTER: default
-  ECS_SERVICE: liftoff-api
+  # The Express Mode APIs take a service ARN, not cluster + name.
+  ECS_SERVICE_ARN: arn:aws:ecs:us-east-2:582908772109:service/default/liftoff-api
   ECS_TASK_DEFINITION: infra/ecs/task-definition.json
   CONTAINER_NAME: Main
 
@@ -129,15 +129,18 @@ jobs:
           TASKDEF_ARN: ${{ steps.taskdef.outputs.arn }}
         run: |
           aws ecs update-express-gateway-service \
-            --cluster "$ECS_CLUSTER" \
-            --service-name "$ECS_SERVICE" \
-            --task-definition "$TASKDEF_ARN"
+            --service-arn "$ECS_SERVICE_ARN" \
+            --task-definition-arn "$TASKDEF_ARN"
 
           echo "waiting for the service to settle..."
           for i in $(seq 1 40); do
+            # status is an OBJECT -- {"statusCode": "ACTIVE"} -- so query the
+            # nested field. Comparing service.status to "ACTIVE" never matches,
+            # which would make this loop always time out even once the update
+            # call itself succeeds.
             STATUS=$(aws ecs describe-express-gateway-service \
-              --cluster "$ECS_CLUSTER" --service-name "$ECS_SERVICE" \
-              --query 'service.status' --output text 2>/dev/null || echo UNKNOWN)
+              --service-arn "$ECS_SERVICE_ARN" \
+              --query 'service.status.statusCode' --output text 2>/dev/null || echo UNKNOWN)
             echo "  [$i/40] status=$STATUS"
             [ "$STATUS" = "ACTIVE" ] && exit 0
             sleep 15

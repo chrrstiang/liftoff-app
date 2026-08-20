@@ -106,6 +106,17 @@ Merge order: **#18 → retarget #19 to `main` → #19**. Do **not** use `--delet
 
 This disappears entirely once auth stops creating profile rows, but until then it is a real leak in the one database still shared.
 
+## RDS has no schema yet
+
+The deployed API now talks to RDS through Drizzle, but **the migration chain has only ever been applied to the local `docker compose` Postgres.** RDS is empty. `/health` is fine (it deliberately touches no database), and every data endpoint will fail until this is done.
+
+RDS is `--no-publicly-accessible`, so it cannot be reached from a laptop. Options, cheapest first:
+
+1. **A one-off ECS task** in the same VPC running `drizzle-kit migrate` plus the seed — no exposure, and it is the same path a real migration job would take.
+2. Temporarily set `--publicly-accessible`, migrate from a laptop, turn it back off. Faster, but it puts the database on the internet for the duration.
+
+Whichever: after migrating, apply `backend/src/db/seed-reference-data.sql`, or profile creation fails on every federation/division/weight-class lookup.
+
 ## Follow-ups worth doing
 
 - **Commit the integration checks.** The `createUserProfile` assertions above were run by hand against `docker compose` Postgres. CI now has a database, so they can become a committed suite.

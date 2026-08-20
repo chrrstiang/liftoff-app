@@ -1,4 +1,13 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "test", "dist", "**/*spec.ts", "drizzle.config.ts"]
+  "exclude": [
+    "node_modules",
+    "test",
+    "dist",
+    "**/*spec.ts",
+    "drizzle.config.ts",
+    // Test doubles live under src/ because the unit-test config uses `rootDir: src`
+    // and specs sit next to their sources. They must not reach the image.
+    "src/**/testing/**"
+  ]
 }

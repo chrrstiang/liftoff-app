@@ -1,8 +1,16 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { and, eq, ilike, ne, notInArray, or } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { DRIZZLE, type Database } from 'src/db/db.module';
-import { athletes, divisions, federations, users, weightClasses } from 'src/db/schema';
+import {
+  athletes,
+  coachAthleteRelationships,
+  coachRequests,
+  divisions,
+  federations,
+  users,
+  weightClasses,
+} from 'src/db/schema';
 import {
   VALID_ATHLETES_COLUMNS_QUERIES,
   VALID_FULL_TABLE_QUERIES,
@@ -207,5 +215,78 @@ export class AthleteService {
     }
 
     return plan;
+  }
+
+  /** Athlete search for the roster's invite flow. Replaces
+   * `user_profiles_enriched_view` plus the client-side exclusion filter.
+   *
+   * Three things the client version got wrong, all fixed by moving it here:
+   *
+   * 1. **The search term was interpolated into a PostgREST `.or()` expression**,
+   *    where `,` separates conditions and `()` groups them. A term containing
+   *    either changed the meaning of the filter rather than being matched
+   *    literally. `#8` added quoting as a mitigation; a parameterised `ilike`
+   *    removes the class of problem instead.
+   * 2. **The exclusion filter never excluded anybody.** It compared `user.id`
+   *    against the already-invited set, but the view's identity column is
+   *    `athlete_id` and there is no `id` — so it tested `undefined` every time and
+   *    already-invited athletes kept appearing. It is a SQL `not in` now.
+   * 3. **It fetched 50 rows to return 20.** The limit is applied after exclusion.
+   *
+   * `%` and `_` are escaped: unescaped, a term of `%` matches every athlete in the
+   * database, which is a listing endpoint nobody asked for.
+   */
+  async searchAthletes(query: string, callerId: string, limit = 20) {
+    const term = query.trim();
+    if (!term) return [];
+
+    const pattern = `%${term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+
+    // Anyone this coach has already invited or signed. `pending` counts: an
+    // athlete with an outstanding invite should not be offered again, which is the
+    // whole point of the filter the client failed to apply.
+    const connected = this.db
+      .select({ athleteId: coachAthleteRelationships.athleteId })
+      .from(coachAthleteRelationships)
+      .where(eq(coachAthleteRelationships.coachId, callerId));
+
+    const pendingInvites = this.db
+      .select({ athleteId: coachRequests.athleteId })
+      .from(coachRequests)
+      .where(and(eq(coachRequests.coachId, callerId), eq(coachRequests.status, 'pending')));
+
+    return this.db
+      .select({
+        athlete_id: users.id,
+        first_name: users.firstName,
+        last_name: users.lastName,
+        username: users.username,
+        avatar_url: users.avatarUrl,
+        federation_id: athletes.federationId,
+        federation_code: federations.code,
+        weight_class_id: athletes.weightClassId,
+        weight_class_name: weightClasses.name,
+        division_id: athletes.divisionId,
+        division_name: divisions.name,
+      })
+      .from(users)
+      .innerJoin(athletes, eq(athletes.id, users.id))
+      .leftJoin(federations, eq(federations.id, athletes.federationId))
+      .leftJoin(weightClasses, eq(weightClasses.id, athletes.weightClassId))
+      .leftJoin(divisions, eq(divisions.id, athletes.divisionId))
+      .where(
+        and(
+          or(
+            ilike(users.firstName, pattern),
+            ilike(users.lastName, pattern),
+            ilike(users.username, pattern),
+          ),
+          // Never offer the caller themselves.
+          ne(users.id, callerId),
+          notInArray(users.id, connected),
+          notInArray(users.id, pendingInvites),
+        ),
+      )
+      .limit(Math.min(limit, 50));
   }
 }

@@ -328,6 +328,19 @@ async function sweepForUserIds(supabase: SupabaseClient, userIds: string[]): Pro
     }
   }
 
+  // ⚠️ Supabase still has a trigger on auth.users that inserts into ITS public.users
+  // whenever an auth user is created. Data lives in Postgres now, so nothing else
+  // touches that table -- which means those rows accumulate forever unless swept
+  // here. They did: 60 orphans against 0 auth users built up within a day of the
+  // cleanup moving to Postgres.
+  //
+  // This goes away entirely once auth stops creating profile rows, but until then
+  // it is a real leak in the one database still shared with anything else.
+  const { error: supabaseRowError } = await supabase.from('users').delete().in('id', userIds);
+  if (supabaseRowError) {
+    problems.push(`supabase public.users: ${supabaseRowError.message}`);
+  }
+
   for (const userId of userIds) {
     const { error } = await supabase.auth.admin.deleteUser(userId);
     // "not found" is expected when a previous teardown already got it.

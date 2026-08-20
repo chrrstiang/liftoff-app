@@ -313,6 +313,13 @@ async function sweepForUserIds(supabase: SupabaseClient, userIds: string[]): Pro
       'coach_athlete_relationships',
       'delete from coach_athlete_relationships where athlete_id = any($1) or coach_id = any($1)',
     ],
+    // Before exercise_templates: it has no `on delete cascade`, so deleting a
+    // template with default sets still attached fails on the constraint.
+    [
+      'exercise_default_set_templates',
+      `delete from exercise_default_set_templates where exercise_template_id in (
+       select id from exercise_templates where created_by = any($1))`,
+    ],
     ['exercise_templates', 'delete from exercise_templates where created_by = any($1)'],
     ['exercises', 'delete from exercises where created_by = any($1)'],
     ['athletes', 'delete from athletes where id = any($1)'],

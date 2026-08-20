@@ -8,6 +8,7 @@ import { ConfigModule } from '@nestjs/config';
 import { DbModule } from './db/db.module';
 import { CoachingModule } from './coaching/coaching.module';
 import { MessagingModule } from './messaging/messaging.module';
+import { ProgrammingModule } from './programming/programming.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { MessagingModule } from './messaging/messaging.module';
     UsersModule,
     CoachingModule,
     MessagingModule,
+    ProgrammingModule,
     // Supabase is auth-only: JwtAuthGuard verifies tokens against it. All data
     // access goes through DbModule.
     SupabaseModule,

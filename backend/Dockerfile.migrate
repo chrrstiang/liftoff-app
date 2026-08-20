@@ -1,0 +1,40 @@
+# One-off migration runner.
+#
+# Separate from the API image on purpose: that one is `npm ci --omit=dev` and
+# copies only dist/, so it has neither the build toolchain nor the .sql files.
+# This image compiles the migration entrypoint, carries the migration chain and
+# the seed, runs once, and exits.
+#
+#   docker build -f Dockerfile.migrate -t <ecr>/liftoff-api:migrate .
+#
+# Run it as a Fargate task in the same VPC as RDS, reusing the API's task
+# execution role so PGPASSWORD arrives from Secrets Manager. See infra/README.md.
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Full install: the compiler is a devDependency.
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY tsconfig*.json nest-cli.json ./
+COPY src ./src
+
+# The .sql files are data, not code, so the compiler does not move them --
+# migrate.ts resolves them relative to __dirname, which is dist/db at runtime.
+RUN npm run db:migrate:build
+
+FROM node:20-alpine AS runtime
+
+ENV NODE_ENV=production
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+COPY --from=builder /app/dist ./dist
+
+USER node
+
+CMD ["node", "dist/db/migrate.js"]

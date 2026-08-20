@@ -24,7 +24,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "docker compose exec -T db psql -U postgres -d liftoff -v ON_ERROR_STOP=1 < src/db/seed-reference-data.sql",
-    "db:verify": "docker compose exec -T db psql -U postgres -d liftoff -v ON_ERROR_STOP=1 < src/db/verify-port.sql"
+    "db:verify": "docker compose exec -T db psql -U postgres -d liftoff -v ON_ERROR_STOP=1 < src/db/verify-port.sql",
+    "db:migrate:run": "npm run db:migrate:build && node dist/db/migrate.js",
+    "db:migrate:build": "nest build && cp -R src/db/migrations dist/db/ && cp src/db/*.sql dist/db/"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

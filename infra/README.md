@@ -229,6 +229,8 @@ Two results that look like problems and aren't: `MISSING_RESOURCE` on the trust 
 | Deploy green but API broken | the settle-polling loop was removed from `deploy.yml` |
 | `update-express-gateway-service`: `the following arguments are required: --service-arn` | it takes `--service-arn`, not `--cluster` + `--service-name`; and the task definition flag is `--task-definition-arn`, not `--task-definition` |
 | Settle loop always times out | `service.status` is an **object** (`{"statusCode":"ACTIVE"}`) — query `service.status.statusCode` |
+| **Deploy reports success but old code is still serving** | `status.statusCode` is `ACTIVE` before, during *and* after a rollout, so polling it proves nothing. Poll `service.activeConfigurations[0].taskDefinitionArn` until it equals the revision you just registered. |
+| Smoke test passes on a stale image | `/health` exists in every revision, so it cannot tell old code from new. Hit a route only the new image has and assert it does not 404. |
 | `Token has expired` on any command | `aws sso login --profile liftoff` |
 
 Logs are in CloudWatch `/ecs/liftoff-api`. For a task that won't start, the ECS console's **Stopped tasks** tab gives a more specific reason than the logs do.

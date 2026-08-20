@@ -120,9 +120,14 @@ jobs:
           echo "arn=$ARN" >> "$GITHUB_OUTPUT"
           echo "registered $ARN"
 
-      # No wait-for-service-stability equivalent here, so poll explicitly. Without
-      # this the job goes green the moment the API call returns, which means a
-      # container that crash-loops on startup still reports a successful deploy.
+      # ⚠️ There is no wait-for-service-stability for Express Mode, and
+      # `service.status.statusCode` is ACTIVE *before, during and after* a
+      # rollout -- so polling it proves nothing. An earlier version did exactly
+      # that, reported success, and left the previous container serving. A deploy
+      # that lies is worse than one that fails.
+      #
+      # The only honest signal is the task definition the service is actually
+      # running. Poll until it matches the revision just registered.
       - name: Deploy to Express service
         if: steps.config.outputs.configured == 'true'
         env:
@@ -132,20 +137,20 @@ jobs:
             --service-arn "$ECS_SERVICE_ARN" \
             --task-definition-arn "$TASKDEF_ARN"
 
-          echo "waiting for the service to settle..."
-          for i in $(seq 1 40); do
-            # status is an OBJECT -- {"statusCode": "ACTIVE"} -- so query the
-            # nested field. Comparing service.status to "ACTIVE" never matches,
-            # which would make this loop always time out even once the update
-            # call itself succeeds.
-            STATUS=$(aws ecs describe-express-gateway-service \
+          echo "waiting for the service to actually run $TASKDEF_ARN ..."
+          for i in $(seq 1 60); do
+            ACTIVE=$(aws ecs describe-express-gateway-service \
               --service-arn "$ECS_SERVICE_ARN" \
-              --query 'service.status.statusCode' --output text 2>/dev/null || echo UNKNOWN)
-            echo "  [$i/40] status=$STATUS"
-            [ "$STATUS" = "ACTIVE" ] && exit 0
+              --query 'service.activeConfigurations[0].taskDefinitionArn' \
+              --output text 2>/dev/null || echo UNKNOWN)
+            echo "  [$i/60] running: $ACTIVE"
+            if [ "$ACTIVE" = "$TASKDEF_ARN" ]; then
+              echo "rolled to the new revision"
+              exit 0
+            fi
             sleep 15
           done
-          echo "::error title=Deploy did not settle::Service never reached ACTIVE."
+          echo "::error title=Rollout did not complete::Service never reported $TASKDEF_ARN as active."
           exit 1
 
       # Independent confirmation that the thing users hit actually works. A stable
@@ -161,6 +166,16 @@ jobs:
             if curl -fsS --max-time 10 "$API_BASE_URL/health"; then
               echo ""
               echo "healthy"
+              # /health exists in every revision, so it cannot tell old code from
+              # new. An authenticated route returning 401 rather than 404 proves
+              # the router in the RUNNING image knows about it -- which is what
+              # actually distinguishes a rollout from a no-op.
+              CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$API_BASE_URL/coach-requests")
+              echo "GET /coach-requests -> $CODE (401 = route exists, 404 = stale image)"
+              [ "$CODE" = "404" ] && {
+                echo "::error title=Stale image::/coach-requests 404s, so the running container predates this deploy."
+                exit 1
+              }
               exit 0
             fi
             echo "attempt $attempt failed, retrying in 10s"

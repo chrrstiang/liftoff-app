@@ -1,0 +1,56 @@
+{
+  "family": "liftoff-migrate",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "networkMode": "awsvpc",
+  "cpu": "256",
+  "memory": "512",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "executionRoleArn": "arn:aws:iam::582908772109:role/liftoff-api-task-execution",
+  "taskRoleArn": "arn:aws:iam::582908772109:role/liftoff-api-task",
+  "containerDefinitions": [
+    {
+      "name": "migrate",
+      "image": "582908772109.dkr.ecr.us-east-2.amazonaws.com/liftoff-api:migrate",
+      "essential": true,
+      "environment": [
+        {
+          "name": "PGHOST",
+          "value": "liftoff-db.crukiqw8455n.us-east-2.rds.amazonaws.com"
+        },
+        {
+          "name": "PGPORT",
+          "value": "5432"
+        },
+        {
+          "name": "PGUSER",
+          "value": "liftoff_admin"
+        },
+        {
+          "name": "PGDATABASE",
+          "value": "liftoff"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "PGPASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:us-east-2:582908772109:secret:rds!db-18b8d17f-8554-45c6-bf0c-a4b21700e697-vsQPzR:password::"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/liftoff-api",
+          "awslogs-region": "us-east-2",
+          "awslogs-stream-prefix": "migrate",
+          "mode": "non-blocking",
+          "max-buffer-size": "4m"
+        }
+      }
+    }
+  ]
+}

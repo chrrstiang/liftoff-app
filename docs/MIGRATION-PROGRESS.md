@@ -92,16 +92,26 @@ Merge order: **#18 → retarget #19 to `main` → #19**. Do **not** use `--delet
 
 This disappears entirely once auth stops creating profile rows, but until then it is a real leak in the one database still shared.
 
-## RDS has no schema yet
+## ~~RDS has no schema yet~~ — DONE
 
-The deployed API now talks to RDS through Drizzle, but **the migration chain has only ever been applied to the local `docker compose` Postgres.** RDS is empty. `/health` is fine (it deliberately touches no database), and every data endpoint will fail until this is done.
+Applied 2026-08-20 via a one-off Fargate task in the VPC: **18 tables, 5 views, 3 federations**. Procedure is in `infra/README.md` under "Applying migrations to RDS", and the tooling is committed (`backend/Dockerfile.migrate`, `src/db/migrate.ts`, `infra/ecs/migrate-task-definition.json`).
 
-RDS is `--no-publicly-accessible`, so it cannot be reached from a laptop. Options, cheapest first:
+### End-to-end verified against the live API
 
-1. **A one-off ECS task** in the same VPC running `drizzle-kit migrate` plus the seed — no exposure, and it is the same path a real migration job would take.
-2. Temporarily set `--publicly-accessible`, migrate from a laptop, turn it back off. Faster, but it puts the database on the internet for the duration.
+| | |
+|---|---|
+| Supabase issues a token | ✅ auth still lives there |
+| unauthenticated request → 401 | ✅ |
+| `POST /users/profile` → 201 | ✅ writes to RDS |
+| `GET /coach-requests` → 200 | ✅ reads RDS |
+| `GET /coach-requests/roster` → 200 | ✅ |
+| `GET /conversations` → 200 | ✅ |
+| profile **not** written to Supabase | ✅ only the trigger's own row |
 
-Whichever: after migrating, apply `backend/src/db/seed-reference-data.sql`, or profile creation fails on every federation/division/weight-class lookup.
+**The split works.** Supabase for auth, RDS for data, through the deployed service.
+
+One leftover: a single test `users` row in RDS (`0e599b99-5170-4991-b2c6-41d8f14c979d`). Harmless in an otherwise empty database; RDS is not reachable from a laptop, and spinning a Fargate task to delete one row is not worth it.
+
 
 ## Follow-ups worth doing
 

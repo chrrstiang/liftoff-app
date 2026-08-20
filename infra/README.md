@@ -193,6 +193,45 @@ Set `EXPO_PUBLIC_API_URL` to the Express Mode URL in `frontend/.env`, restart Me
 
 ⚠️ That URL is compiled into every build you distribute. It is stable for the life of the service, but if you ever recreate the service the hostname changes and every installed copy breaks. That is the one thing a custom domain buys you, and Express Mode supports adding one later.
 
+## Applying migrations to RDS
+
+RDS is `--no-publicly-accessible`, so migrations run as a **one-off Fargate task inside the VPC**. The alternative — flipping public access and opening the security group to a laptop — means putting the database on the internet and handling the master password by hand. This way `PGPASSWORD` arrives from Secrets Manager exactly as the API gets it, and nobody sees it.
+
+```bash
+# 1. Build and push the migration image. Separate from the API image because that
+#    one is `npm ci --omit=dev` and ships only dist/ -- no compiler, no .sql files.
+aws ecr get-login-password --profile liftoff --region us-east-2 \
+  | docker login --username AWS --password-stdin 582908772109.dkr.ecr.us-east-2.amazonaws.com
+docker build --platform linux/amd64 -f backend/Dockerfile.migrate \
+  -t 582908772109.dkr.ecr.us-east-2.amazonaws.com/liftoff-api:migrate ./backend
+docker push 582908772109.dkr.ecr.us-east-2.amazonaws.com/liftoff-api:migrate
+
+# 2. Register and run it. Reuses the API's execution role, so the SSM and Secrets
+#    Manager grants are already in place.
+ARN=$(aws ecs register-task-definition --profile liftoff --region us-east-2 \
+  --cli-input-json file://infra/ecs/migrate-task-definition.json \
+  --query 'taskDefinition.taskDefinitionArn' --output text)
+
+TASK=$(aws ecs run-task --profile liftoff --region us-east-2 \
+  --cluster default --task-definition "$ARN" --launch-type FARGATE \
+  --network-configuration 'awsvpcConfiguration={subnets=[subnet-02e9c4e514b8401f2,subnet-0d64329de8e00d6fc,subnet-03e806a6c9e72865a],securityGroups=[sg-0810b04a7ff54199a],assignPublicIp=ENABLED}' \
+  --query 'tasks[0].taskArn' --output text)
+
+aws ecs wait tasks-stopped --profile liftoff --region us-east-2 --cluster default --tasks "$TASK"
+aws logs get-log-events --profile liftoff --region us-east-2 \
+  --log-group-name /ecs/liftoff-api --log-stream-name "migrate/migrate/${TASK##*/}" \
+  --query 'events[].message' --output text
+```
+
+Expect `done: 18 tables, 5 views, 3 federations`. The task **fails loudly** on any other count rather than reporting success on a half-applied schema.
+
+Two details that matter:
+
+- **`assignPublicIp=ENABLED`** — these are public subnets with no NAT, and without a public IP the task cannot reach ECR or Secrets Manager. It fails to pull with a timeout that reads like a permissions problem.
+- **The security group must be the Express-created task SG** (`sg-0810b04a7ff54199a`), because that is the group RDS already allows 5432 from.
+
+Idempotent: Drizzle records applied migrations in `drizzle.__drizzle_migrations`, and the seed is written as upserts. Re-running is safe.
+
 ## Verifying
 
 ```bash

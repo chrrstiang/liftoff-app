@@ -10,8 +10,8 @@ Living status for the move off Supabase Postgres to RDS behind the API. Update i
 |---|---|
 | Week 1 — foundation | ✅ done |
 | Week 2 — schema port + AWS | ✅ done |
-| Week 2 — endpoint port (3 existing) | ✅ done — **the backend no longer reads data from Supabase** |
-| Week 3 — deploy | ✅ done (ahead of schedule) |
+| Week 2 — endpoint port (3 existing) | ✅ merged |
+| Week 3 — deploy | ✅ done — pipeline deploys on push to `main` and verifies the rollout |
 | Week 4 — new endpoints | 🔄 coach invites + messaging **merged**; programming + reads left |
 | Week 4 — frontend flip | ⛔ blocked (see below) |
 | Week 5 — feature | ⛔ blocked (needs a product decision) |
@@ -56,29 +56,15 @@ Living status for the move off Supabase Postgres to RDS behind the API. Update i
 
 The two rollback rows are the ones that matter: under the old compensating-delete scheme that was exactly the window that could leave a half-created profile behind.
 
-## `backend-e2e` is red on all three PRs — and it needs you
+## All PRs merged
 
-**Not the auth rate limit.** That was my first diagnosis and it was wrong. Corrected:
+`main` now carries the endpoint port, coach invites, messaging, and a deploy pipeline that verifies its own rollout. Nothing is open.
 
-`athlete-retrieve`'s `beforeAll` fails on `auth.admin.createUser` with `Database error creating new user`, through four backoff retries, **a full day after the first failure**. An hourly quota does not survive a day.
+**The e2e failure is resolved.** It was never the auth rate limit (my first guess) or a different project (my second) or a duplicate email (my third). The cause was **60 orphaned rows in Supabase's `public.users`** — its `on_auth_user_created` trigger still writes there, and when fixture cleanup moved to Postgres, nothing swept them. Clearing them turned e2e green on the same commit; the sweeper now prevents recurrence.
 
-Meanwhile the same call **succeeds from a laptop** against `hqvnvnuuczqlpffebuui` (`powerlifting-hub`), using `backend/.env`.
+I do not know the precise mechanism by which orphans broke the trigger, and I am not going to claim one. The empirical result stands.
 
-Works locally, fails in CI ⇒ **CI is pointed at a different Supabase project.** CI reads the `SUPABASE_PROJECT_URL` / `SUPABASE_SECRET_KEY` repository secrets; the laptop reads `backend/.env`.
-
-There is corroborating evidence: on 2026-08-04, CI's e2e **passed** at a moment when `powerlifting-hub` was paused and its hostname returned NXDOMAIN from every public resolver. It could only have passed by talking to some other project.
-
-**Update: the different-project theory is also wrong.** `SUPABASE_PROJECT_URL` is confirmed as `https://hqvnvnuuczqlpffebuui.supabase.co` — the same project the laptop uses.
-
-Also ruled out: it is not sequence-dependent. Creating three users back to back with CI's exact email pattern succeeds locally every time.
-
-So: same project, same call, same pattern — **works from a laptop, fails from a GitHub runner.** What differs is the network origin and the `SUPABASE_SECRET_KEY` secret's actual value, and neither is visible from here.
-
-**The next step needs the Supabase dashboard.** GoTrue's `Database error creating new user` is a *wrapper* — it deliberately hides the underlying Postgres error. That error is visible in **Supabase → Logs → Auth**, filtered to the time of a failing CI run. One log line will say whether it is the `on_auth_user_created` trigger, a constraint, or throttling. Everything above is inference; that log line is fact.
-
-Worth confirming while there: that `SUPABASE_SECRET_KEY` really is the service-role key. A wrong key normally gives a 401 rather than a database error, so this is unlikely — but it is the one input still unverified.
-
-Everything else on all three PRs is verified. `users.e2e-spec` and `app.e2e-spec` pass; only the auth-user creation in `athlete-retrieve` fails.
+**The deploy lied once before it worked.** The first run reported success while leaving the old container serving, because it polled `service.status.statusCode` — which is `ACTIVE` before, during and after a rollout. It now polls the active task definition ARN, and the smoke test hits a route only new code has. Both are in the runbook's failure table.
 
 ## Blocked, and why## Open PRs
 

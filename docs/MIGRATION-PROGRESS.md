@@ -12,7 +12,7 @@ Living status for the move off Supabase Postgres to RDS behind the API. Update i
 | Week 2 — schema port + AWS | ✅ done |
 | Week 2 — endpoint port (3 existing) | ✅ done — **the backend no longer reads data from Supabase** |
 | Week 3 — deploy | ✅ done (ahead of schedule) |
-| Week 4 — new endpoints | 🔄 coach invites (#18) + messaging (#19); programming + reads left |
+| Week 4 — new endpoints | 🔄 coach invites + messaging **merged**; programming + reads left |
 | Week 4 — frontend flip | ⛔ blocked (see below) |
 | Week 5 — feature | ⛔ blocked (needs a product decision) |
 

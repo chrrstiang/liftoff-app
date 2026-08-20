@@ -91,9 +91,12 @@ jobs:
           TAG: ${{ inputs.image_tag || github.sha }}
         run: |
           IMAGE="$REGISTRY/$ECR_REPOSITORY:$TAG"
-          docker build -t "$IMAGE" ./backend
+          # GIT_SHA is baked in so GET /health can report which commit is serving.
+          # That is the only honest rollout signal -- see the deploy step below.
+          docker build --build-arg "GIT_SHA=$TAG" -t "$IMAGE" ./backend
           docker push "$IMAGE"
           echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       # Express Mode manages the service, load balancer and scaling, but a custom
       # task definition is still how SUPABASE_SECRET_KEY and DATABASE_URL get
@@ -120,14 +123,26 @@ jobs:
           echo "arn=$ARN" >> "$GITHUB_OUTPUT"
           echo "registered $ARN"
 
-      # ⚠️ There is no wait-for-service-stability for Express Mode, and
-      # `service.status.statusCode` is ACTIVE *before, during and after* a
-      # rollout -- so polling it proves nothing. An earlier version did exactly
-      # that, reported success, and left the previous container serving. A deploy
-      # that lies is worse than one that fails.
+      # ⚠️ **Three attempts at verifying this have now decayed. Read before editing.**
       #
-      # The only honest signal is the task definition the service is actually
-      # running. Poll until it matches the revision just registered.
+      # There is no wait-for-service-stability for Express Mode, and every piece of
+      # ECS metadata that looks like a rollout signal is not one:
+      #
+      #  1. `service.status.statusCode` is ACTIVE *before, during and after* a
+      #     rollout. Polling it reported success while the old container served.
+      #  2. `activeConfigurations[0].taskDefinitionArn` is the revision the service
+      #     was *told* to run, not the one answering requests. It matched on the
+      #     FIRST poll, one second after the update call, and again reported success
+      #     over a container that never rolled.
+      #  3. A hardcoded canary route (401 = new, 404 = stale) works exactly once.
+      #     The route it names becomes old code on the next deploy and then passes
+      #     unconditionally forever, which is how #2 went unnoticed.
+      #
+      # So the check does not ask ECS anything. The image has its commit baked in
+      # (Dockerfile `ARG GIT_SHA`), `GET /health` reports it, and this polls the
+      # public URL until the SHA it returns is the one just built. That is the
+      # request path users take, answered by the process actually serving it, and it
+      # cannot rot: the expected value changes with every commit by construction.
       - name: Deploy to Express service
         if: steps.config.outputs.configured == 'true'
         env:
@@ -136,50 +151,39 @@ jobs:
           aws ecs update-express-gateway-service \
             --service-arn "$ECS_SERVICE_ARN" \
             --task-definition-arn "$TASKDEF_ARN"
+          echo "asked the service to run $TASKDEF_ARN"
 
-          echo "waiting for the service to actually run $TASKDEF_ARN ..."
+      # Deliberately a separate step, and deliberately not gated on API_BASE_URL
+      # being set: without a reachable URL there is no way to verify a rollout at
+      # all, and silently skipping the only real check is what got us here.
+      - name: Verify the rollout actually happened
+        if: steps.config.outputs.configured == 'true'
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+          EXPECTED: ${{ steps.image.outputs.tag }}
+        run: |
+          if [ -z "$API_BASE_URL" ]; then
+            echo "::error title=Cannot verify::API_BASE_URL is not set, so there is no way to confirm the rollout. Set it as a repository variable."
+            exit 1
+          fi
+
+          echo "waiting for $API_BASE_URL/health to report version=$EXPECTED ..."
+          LAST=""
           for i in $(seq 1 60); do
-            ACTIVE=$(aws ecs describe-express-gateway-service \
-              --service-arn "$ECS_SERVICE_ARN" \
-              --query 'service.activeConfigurations[0].taskDefinitionArn' \
-              --output text 2>/dev/null || echo UNKNOWN)
-            echo "  [$i/60] running: $ACTIVE"
-            if [ "$ACTIVE" = "$TASKDEF_ARN" ]; then
-              echo "rolled to the new revision"
+            BODY=$(curl -fsS --max-time 10 "$API_BASE_URL/health" 2>/dev/null || echo '')
+            VERSION=$(printf '%s' "$BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version","")) ' 2>/dev/null || echo '')
+
+            if [ -n "$VERSION" ] && [ "$VERSION" != "$LAST" ]; then
+              echo "  [$i/60] serving version: $VERSION"
+              LAST="$VERSION"
+            fi
+
+            if [ "$VERSION" = "$EXPECTED" ]; then
+              echo "rolled: the running container reports $EXPECTED"
               exit 0
             fi
             sleep 15
           done
-          echo "::error title=Rollout did not complete::Service never reported $TASKDEF_ARN as active."
-          exit 1
 
-      # Independent confirmation that the thing users hit actually works. A stable
-      # service means the tasks are running and passing the target group check; this
-      # proves the request path through DNS and the ALB does too.
-      - name: Smoke test /health
-        if: steps.config.outputs.configured == 'true' && vars.API_BASE_URL != ''
-        env:
-          API_BASE_URL: ${{ vars.API_BASE_URL }}
-        run: |
-          echo "GET $API_BASE_URL/health"
-          for attempt in 1 2 3 4 5; do
-            if curl -fsS --max-time 10 "$API_BASE_URL/health"; then
-              echo ""
-              echo "healthy"
-              # /health exists in every revision, so it cannot tell old code from
-              # new. An authenticated route returning 401 rather than 404 proves
-              # the router in the RUNNING image knows about it -- which is what
-              # actually distinguishes a rollout from a no-op.
-              CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$API_BASE_URL/coach-requests")
-              echo "GET /coach-requests -> $CODE (401 = route exists, 404 = stale image)"
-              [ "$CODE" = "404" ] && {
-                echo "::error title=Stale image::/coach-requests 404s, so the running container predates this deploy."
-                exit 1
-              }
-              exit 0
-            fi
-            echo "attempt $attempt failed, retrying in 10s"
-            sleep 10
-          done
-          echo "::error title=Smoke test failed::$API_BASE_URL/health did not return 200 after 5 attempts."
+          echo "::error title=Rollout never landed::/health still reports '${LAST:-no response}', not $EXPECTED. The service was told to use the new task definition but the old container is still serving."
           exit 1

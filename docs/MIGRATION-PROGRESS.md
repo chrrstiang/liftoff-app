@@ -12,8 +12,8 @@ Living status for the move off Supabase Postgres to RDS behind the API. Update i
 | Week 2 — schema port + AWS | ✅ done |
 | Week 2 — endpoint port (3 existing) | ✅ merged |
 | Week 3 — deploy | ✅ done — pipeline deploys on push to `main` and verifies the rollout |
-| Week 4 — new endpoints | 🔄 coach invites + messaging **merged**; programming + reads left |
-| Week 4 — frontend flip | ⛔ blocked (see below) |
+| Week 4 — new endpoints | ✅ **all built.** coach invites + messaging merged; programming open as a PR |
+| Week 4 — frontend flip | 🔄 unblocked — Xcode installed, and the endpoints it needs now exist |
 | Week 5 — feature | ⛔ blocked (needs a product decision) |
 
 ## Live infrastructure
@@ -66,25 +66,26 @@ I do not know the precise mechanism by which orphans broke the trigger, and I am
 
 **The deploy lied once before it worked.** The first run reported success while leaving the old container serving, because it polled `service.status.statusCode` — which is `ACTIVE` before, during and after a rollout. It now polls the active task definition ARN, and the smoke test hits a route only new code has. Both are in the runbook's failure table.
 
-## Blocked, and why## Open PRs
+## Open PR
 
-| PR | What | State |
-|---|---|---|
-| **#17** | the endpoint port + giving e2e its own database | verified; `backend-e2e` red on the auth quota below |
-| **#18** | coach invites — 4 endpoints, 16 ownership rules verified | off `main`, independent |
-| **#19** | messaging incl. `POST /conversations` — 16 rules verified | stacked on #18 |
+**Programming endpoints** — `programming-endpoints`. Workouts, sets and the exercise library, plus `GET /athlete/search`. This is the last endpoint slice; with it the API covers everything the seven `lib/api/*` modules do.
 
-#18 and #19 were originally piled onto #17, which was wrong: they depend only on `DbModule` and the schema, both already on `main`, so they never needed to sit behind the port. #17's title described just its first commit while it had grown to 27 files. Split out so each is reviewable on its own.
+Three latent bugs fixed inside it, all of which had been shipping:
 
-Merge order: **#18 → retarget #19 to `main` → #19**. Do **not** use `--delete-branch` on #18 while #19 is stacked on it — GitHub auto-closes PRs whose base branch disappears, and a closed PR with a missing base cannot be reopened. That already happened once this session.
+- **`is_template` was never written**, so it was NULL, and `.eq('is_template', true)` does not match NULL. The template list has been empty for everyone since the feature shipped. Now derived — a workout is a template exactly when it has no athlete — which also makes `is_template=true` *with* an `athlete_id` unrepresentable.
+- **Athlete search excluded nobody.** It compared `user.id` against the already-invited set, but the view's identity column is `athlete_id` and there is no `id`, so it tested `undefined` every time.
+- **The search term was interpolated into a PostgREST `.or()` expression.** Now a parameterised `ilike` with `%` and `_` escaped; a bare `%` previously matched every athlete in the database.
+
+`coach_id` is also gone from the create body — it used to come from the client, so any user could attribute a workout to any coach.
 
 ## Blocked, and why
 
 | Item | Blocker |
 |---|---|
-| **Frontend flip** | No way to verify. `xcode-select` points at Command Line Tools, `simctl` lists no simulators, so the app cannot be run. The flip is all-or-nothing — once data lives in RDS, every direct-to-Supabase read is dead — so shipping it unverified is not sensible. **Unblocked by installing full Xcode.** |
-| **Week-5 feature** | Product decision, not a technical one. |
+| **Week-5 feature** | Product decision, not a technical one. Recommendation: finish the coach↔athlete loop (conversation-creation UI, template list) rather than start something new. |
 | **Authorization review** | Not a hard block (no users yet), but with no RLS the API is the entire trust boundary and a wrong ownership check is a breach. Wants human eyes before real signups. |
+
+**No longer blocked:** the frontend flip. Xcode and the iPhone 17 simulators are installed, and the endpoints it needs to target now exist.
 
 ## Fixed along the way
 
@@ -115,8 +116,23 @@ One leftover: a single test `users` row in RDS (`0e599b99-5170-4991-b2c6-41d8f14
 
 ## Follow-ups worth doing
 
-- **Commit the integration checks.** The `createUserProfile` assertions above were run by hand against `docker compose` Postgres. CI now has a database, so they can become a committed suite.
+- **Commit the integration checks.** The `createUserProfile` assertions above were run by hand against `docker compose` Postgres. CI now has a database, so they can become a committed suite. The programming slice does this properly — `test/programming/programming.e2e-spec.ts` is committed and runs in CI.
 - **`JwtAuthGuard` → local JWKS.** Still a network round trip to Supabase on every request.
+- **Coach invites and messaging have no committed tests.** Their 32 ownership rules were verified by hand against the live API and were never turned into specs, unlike programming's. That verification is not repeatable and does not run in CI.
+- **`DIRECT_USER_REFERENCES` in `test/helpers/fixtures.ts` is dead.** The real cleanup list is the `statements` array below it. A dead const that looks authoritative is worse than none — someone will add a table to it and assume it took effect.
+
+## Testing the endpoints: what proves what
+
+Worth being explicit, because it has already cost debugging time. Unit specs mock the Drizzle client, so **they cannot distinguish valid SQL from invalid**. The earlier port shipped two bugs of exactly that shape: an `undefined` interpolated into a `where` (producing `where "username" =  limit $1`), and a malformed uuid surfacing as a 500 instead of a 400. Both passed their mocked specs.
+
+So each slice wants both:
+
+| Layer | Proves | Cannot prove |
+|---|---|---|
+| unit spec, mocked db | the rule rejects; a rejected write issues no INSERT | the SQL runs; a transaction rolls back |
+| e2e against real Postgres | queries execute, joins produce the expected shape, status codes are right | — |
+
+`src/db/testing/db-mock.ts` is the shared double. It routes results **by table, not by call order** — a flat queue makes every spec depend on the exact sequence of queries, so adding one validation read silently shifts every later result onto the wrong statement and the failure surfaces somewhere unrelated. It is excluded from `tsconfig.build.json`, so it cannot reach the image.
 
 ## Ownership rules for the new endpoints
 
@@ -136,5 +152,5 @@ With RLS gone, these are application code and are the actual deliverable of each
 
 - `users.id` no longer defaults to `auth.uid()`, and the Supabase trigger that created `public.users` rows at signup does not come with us. **The API owns profile-row creation on first login.**
 - `JwtAuthGuard` still calls Supabase Auth on every request. Once auth is the only remote hop, swap it for local JWKS verification.
-- `is_template` has no default, which is why the template list is always empty. Decide the semantics when writing `POST /workouts`.
+- ~~`is_template` has no default, which is why the template list is always empty.~~ **Decided:** a workout is a template exactly when `athlete_id is null`, and `POST /workouts` writes the column rather than accepting it. `listTemplates` also filters on `athlete_id is null` so rows predating the fix still appear.
 - `user_conversations_view` emits one row per (conversation, member); callers must filter by `user_id`.

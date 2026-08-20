@@ -12,7 +12,7 @@ Living status for the move off Supabase Postgres to RDS behind the API. Update i
 | Week 2 — schema port + AWS | ✅ done |
 | Week 2 — endpoint port (3 existing) | ✅ done — **the backend no longer reads data from Supabase** |
 | Week 3 — deploy | ✅ done (ahead of schedule) |
-| Week 4 — new endpoints | 🔄 in progress |
+| Week 4 — new endpoints | 🔄 coach invites (#18) + messaging (#19); programming + reads left |
 | Week 4 — frontend flip | ⛔ blocked (see below) |
 | Week 5 — feature | ⛔ blocked (needs a product decision) |
 
@@ -77,7 +77,31 @@ Everything code can do has been done, and each step surfaced a real problem unde
 | `testTimeout: 60000` | Jest's 5s default is absurd for network I/O | had been **masking** the rate limit as a hook timeout |
 | Self-explanatory error message | "Database error creating new user" reads like a broken trigger | cost one debugging detour before a manual probe settled it |
 
-## Blocked, and why## Blocked, and why
+## Open PRs
+
+| PR | What | State |
+|---|---|---|
+| **#17** | the endpoint port + giving e2e its own database | verified; `backend-e2e` red on the auth quota below |
+| **#18** | coach invites — 4 endpoints, 16 ownership rules verified | off `main`, independent |
+| **#19** | messaging incl. `POST /conversations` — 16 rules verified | stacked on #18 |
+
+#18 and #19 were originally piled onto #17, which was wrong: they depend only on `DbModule` and the schema, both already on `main`, so they never needed to sit behind the port. #17's title described just its first commit while it had grown to 27 files. Split out so each is reviewable on its own.
+
+Merge order: **#18 → retarget #19 to `main` → #19**. Do **not** use `--delete-branch` on #18 while #19 is stacked on it — GitHub auto-closes PRs whose base branch disappears, and a closed PR with a missing base cannot be reopened. That already happened once this session.
+
+## Blocked, and why## Open PRs
+
+| PR | What | State |
+|---|---|---|
+| **#17** | the endpoint port + giving e2e its own database | verified; `backend-e2e` red on the auth quota below |
+| **#18** | coach invites — 4 endpoints, 16 ownership rules verified | off `main`, independent |
+| **#19** | messaging incl. `POST /conversations` — 16 rules verified | stacked on #18 |
+
+#18 and #19 were originally piled onto #17, which was wrong: they depend only on `DbModule` and the schema, both already on `main`, so they never needed to sit behind the port. #17's title described just its first commit while it had grown to 27 files. Split out so each is reviewable on its own.
+
+Merge order: **#18 → retarget #19 to `main` → #19**. Do **not** use `--delete-branch` on #18 while #19 is stacked on it — GitHub auto-closes PRs whose base branch disappears, and a closed PR with a missing base cannot be reopened. That already happened once this session.
+
+## Blocked, and why
 
 | Item | Blocker |
 |---|---|

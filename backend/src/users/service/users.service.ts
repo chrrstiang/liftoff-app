@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { User } from '@supabase/supabase-js';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, type Database } from 'src/db/db.module';
@@ -109,6 +109,53 @@ export class UsersService {
     }
   }
 
+  /** The caller's own profile row, scoped by the verified JWT.
+   *
+   * Returns the columns the client actually renders plus `is_profile_complete`,
+   * computed here rather than in the client. The old client-side version checked
+   * five fields and treated a *thrown* error as incomplete, so a transient network
+   * failure looked identical to a missing profile and bounced the user to
+   * create-profile mid-session.
+   *
+   * `email` is included because this is the caller's own row; it is never exposed
+   * on anyone else's (see the allowlists in select.queries.ts).
+   */
+  async findOwnProfile(user: User) {
+    const [profile] = await this.db
+      .select({
+        id: users.id,
+        first_name: users.firstName,
+        last_name: users.lastName,
+        username: users.username,
+        email: users.email,
+        gender: users.gender,
+        date_of_birth: users.dateOfBirth,
+        is_athlete: users.isAthlete,
+        is_coach: users.isCoach,
+        avatar_url: users.avatarUrl,
+      })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1);
+
+    // Not an error condition: a signed-up user has no row until they finish the
+    // form. The auth gate reads this 404 as "send them to create-profile".
+    if (!profile) {
+      throw new NotFoundException('No profile exists for this user yet');
+    }
+
+    return {
+      ...profile,
+      is_profile_complete: Boolean(
+        profile.first_name &&
+        profile.last_name &&
+        profile.username &&
+        profile.gender &&
+        profile.date_of_birth,
+      ),
+    };
+  }
+
   /** Updates the caller's own users row. Scoped by id from the verified JWT —
    * with no RLS behind this, that scoping is the entire authorization. */
   async updateProfile(dto: UpdateUserDto, user: User): Promise<void> {
@@ -120,6 +167,10 @@ export class UsersService {
     if (dto.date_of_birth !== undefined) patch.dateOfBirth = dto.date_of_birth;
     if (dto.is_athlete !== undefined) patch.isAthlete = dto.is_athlete;
     if (dto.is_coach !== undefined) patch.isCoach = dto.is_coach;
+    // The client used to write this column directly with the anon key. It is a
+    // storage *path*, not a URL — the bucket is still Supabase Storage, and only
+    // the pointer lives in Postgres.
+    if (dto.avatar_url !== undefined) patch.avatarUrl = dto.avatar_url;
 
     if (Object.keys(patch).length === 0) return;
 

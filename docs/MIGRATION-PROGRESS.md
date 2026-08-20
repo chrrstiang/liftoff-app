@@ -56,38 +56,29 @@ Living status for the move off Supabase Postgres to RDS behind the API. Update i
 
 The two rollback rows are the ones that matter: under the old compensating-delete scheme that was exactly the window that could leave a half-created profile behind.
 
-## Open PR: #17 — everything verified, `backend-e2e` red for one environmental reason
+## `backend-e2e` is red on all three PRs — and it needs you
 
-**Do this first: re-run the `backend-e2e` job.** No code change needed. If it passes, merge.
+**Not the auth rate limit.** That was my first diagnosis and it was wrong. Corrected:
 
-`users.e2e-spec` and `app.e2e-spec` **pass** — those are the suites that exercise the port. `athlete-retrieve` fails entirely, and every one of its tests fails including "returns 401 without a token", which cannot fail on its own merits. Its `beforeAll` throws on `auth.admin.createUser`:
+`athlete-retrieve`'s `beforeAll` fails on `auth.admin.createUser` with `Database error creating new user`, through four backoff retries, **a full day after the first failure**. An hourly quota does not survive a day.
 
-```
-Database error creating new user
-```
+Meanwhile the same call **succeeds from a laptop** against `hqvnvnuuczqlpffebuui` (`powerlifting-hub`), using `backend/.env`.
 
-That is **Supabase's per-hour auth rate limit**, not a broken trigger. Verified by creating a user by hand against the same project: signup works and the trigger fires correctly. The quota is cumulative across CI runs and this session had many.
+Works locally, fails in CI ⇒ **CI is pointed at a different Supabase project.** CI reads the `SUPABASE_PROJECT_URL` / `SUPABASE_SECRET_KEY` repository secrets; the laptop reads `backend/.env`.
 
-Everything code can do has been done, and each step surfaced a real problem underneath:
+There is corroborating evidence: on 2026-08-04, CI's e2e **passed** at a moment when `powerlifting-hub` was paused and its hostname returned NXDOMAIN from every public resolver. It could only have passed by talking to some other project.
 
-| Change | Why | What it revealed |
-|---|---|---|
-| Shared one auth user per suite | ~13 signups per run → **2** | `@IsUnique` then rejected the reused username — real bug, fixed by varying the username while keeping one signup |
-| Retry with backoff (1s/3s/8s/15s) | auth is a throttled shared dependency | fired all four times; the quota outlasts any sane backoff |
-| `testTimeout: 60000` | Jest's 5s default is absurd for network I/O | had been **masking** the rate limit as a hook timeout |
-| Self-explanatory error message | "Database error creating new user" reads like a broken trigger | cost one debugging detour before a manual probe settled it |
+**Update: the different-project theory is also wrong.** `SUPABASE_PROJECT_URL` is confirmed as `https://hqvnvnuuczqlpffebuui.supabase.co` — the same project the laptop uses.
 
-## Open PRs
+Also ruled out: it is not sequence-dependent. Creating three users back to back with CI's exact email pattern succeeds locally every time.
 
-| PR | What | State |
-|---|---|---|
-| **#17** | the endpoint port + giving e2e its own database | verified; `backend-e2e` red on the auth quota below |
-| **#18** | coach invites — 4 endpoints, 16 ownership rules verified | off `main`, independent |
-| **#19** | messaging incl. `POST /conversations` — 16 rules verified | stacked on #18 |
+So: same project, same call, same pattern — **works from a laptop, fails from a GitHub runner.** What differs is the network origin and the `SUPABASE_SECRET_KEY` secret's actual value, and neither is visible from here.
 
-#18 and #19 were originally piled onto #17, which was wrong: they depend only on `DbModule` and the schema, both already on `main`, so they never needed to sit behind the port. #17's title described just its first commit while it had grown to 27 files. Split out so each is reviewable on its own.
+**The next step needs the Supabase dashboard.** GoTrue's `Database error creating new user` is a *wrapper* — it deliberately hides the underlying Postgres error. That error is visible in **Supabase → Logs → Auth**, filtered to the time of a failing CI run. One log line will say whether it is the `on_auth_user_created` trigger, a constraint, or throttling. Everything above is inference; that log line is fact.
 
-Merge order: **#18 → retarget #19 to `main` → #19**. Do **not** use `--delete-branch` on #18 while #19 is stacked on it — GitHub auto-closes PRs whose base branch disappears, and a closed PR with a missing base cannot be reopened. That already happened once this session.
+Worth confirming while there: that `SUPABASE_SECRET_KEY` really is the service-role key. A wrong key normally gives a 401 rather than a database error, so this is unlikely — but it is the one input still unverified.
+
+Everything else on all three PRs is verified. `users.e2e-spec` and `app.e2e-spec` pass; only the auth-user creation in `athlete-retrieve` fails.
 
 ## Blocked, and why## Open PRs
 
@@ -108,6 +99,12 @@ Merge order: **#18 → retarget #19 to `main` → #19**. Do **not** use `--delet
 | **Frontend flip** | No way to verify. `xcode-select` points at Command Line Tools, `simctl` lists no simulators, so the app cannot be run. The flip is all-or-nothing — once data lives in RDS, every direct-to-Supabase read is dead — so shipping it unverified is not sensible. **Unblocked by installing full Xcode.** |
 | **Week-5 feature** | Product decision, not a technical one. |
 | **Authorization review** | Not a hard block (no users yet), but with no RLS the API is the entire trust boundary and a wrong ownership check is a breach. Wants human eyes before real signups. |
+
+## Fixed along the way
+
+**A leak this migration introduced.** Moving fixture cleanup to Postgres left nothing sweeping Supabase's side — its `on_auth_user_created` trigger still inserts into *its* `public.users` on every auth user created, and data no longer lives there, so nothing touched those rows. **60 orphans against 0 auth users accumulated within a day.** The sweeper now clears them too, and the existing 60 have been removed.
+
+This disappears entirely once auth stops creating profile rows, but until then it is a real leak in the one database still shared.
 
 ## Follow-ups worth doing
 

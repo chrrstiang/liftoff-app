@@ -7,6 +7,11 @@ import React, {
 } from "react";
 import { supabase } from "@/lib/supabase";
 import { Session, User } from "@supabase/supabase-js";
+import { ApiError, api, describeApiError } from "@/lib/api/client";
+
+/** Supabase remains the auth provider — signUp, signInWithPassword, signOut and
+ * the session listener below are all still it, and correctly so. What moved is
+ * every read of the `users` *table*, which now lives in RDS behind the API. */
 
 interface UserProfile {
   first_name: string;
@@ -27,8 +32,11 @@ interface AuthContextType {
   logout: () => Promise<void>;
   signup: (email: string, password: string) => Promise<void>;
   isProfileComplete: boolean;
-  fetchProfile: (userId: string) => Promise<void>;
-  checkProfileCompletion: (userId: string) => Promise<void>;
+  /** The `userId` argument is now ignored — the API derives the caller from the
+   * token. Kept in the signature so existing call sites still compile; it can go
+   * once they stop passing it. */
+  fetchProfile: (userId?: string) => Promise<void>;
+  checkProfileCompletion: (userId?: string) => Promise<void>;
   session: Session | null;
   user: User | null;
   profile: UserProfile | null;
@@ -49,51 +57,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log("🔥 isAuthenticated state changed to:", isAuthenticated);
   }, [isAuthenticated]);
 
-  /** Checks if the user's profile is complete */
-  const checkProfileCompletion = useCallback(async (userId: string) => {
+  /** Fetches the caller's own profile from the API.
+   *
+   * Both this and `checkProfileCompletion` used to read the `users` table directly
+   * with the anon key, against a table whose SELECT policy is `using (true)` — so
+   * any signed-in user could read any other user's row, email included. One
+   * endpoint now serves both, and `is_profile_complete` is computed server-side.
+   *
+   * ⚠️ **A 404 is a normal state, not an error.** Between signing up and completing
+   * the form there is no `users` row at all: the Supabase trigger that used to
+   * create one does not exist in RDS, so the API owns creation. That 404 is exactly
+   * the "send them to create-profile" signal the gate in `app/_layout.tsx` needs.
+   *
+   * Any *other* failure deliberately leaves `isProfileComplete` alone rather than
+   * setting it false. The old version treated every thrown error as "incomplete",
+   * so a dropped connection was indistinguishable from a missing profile and
+   * bounced the user out of their session mid-use.
+   */
+  const loadProfile = useCallback(async (): Promise<boolean> => {
     try {
-      const { data: profile, error } = await supabase
-        .from("users")
-        .select("first_name, last_name, username, gender, date_of_birth")
-        .eq("id", userId)
-        .single();
-
-      if (error) throw error;
-
-      const isComplete = !!(
-        profile?.first_name &&
-        profile?.last_name &&
-        profile?.username &&
-        profile?.gender &&
-        profile?.date_of_birth
+      const data = await api.get<UserProfile & { is_profile_complete: boolean }>(
+        "/users/me",
       );
 
-      if (!isComplete) {
-        throw new Error("Missing profile fields");
-      }
-      setIsProfileComplete(isComplete);
+      setProfile(data);
+      setIsProfileComplete(data.is_profile_complete);
+      return data.is_profile_complete;
     } catch (error) {
-      console.error("Error checking profile completion:", error);
-      setIsProfileComplete(false);
+      if (error instanceof ApiError && error.statusCode === 404) {
+        setProfile(null);
+        setIsProfileComplete(false);
+        return false;
+      }
+
+      console.error("Error loading profile:", describeApiError(error));
+      return false;
     }
   }, []);
 
-  // fetches user profile metadata
-  const fetchProfile = useCallback(async (userId: string) => {
-    const { data, error } = await supabase
-      .from("users")
-      .select(
-        "first_name, last_name, username, email, gender, date_of_birth, is_athlete, is_coach, avatar_url"
-      )
-      .eq("id", userId)
-      .single();
+  /** Kept as separate names because callers use them for different intents, but
+   * both now hit the one endpoint — there is no reason to make two round trips
+   * for data that arrives together. */
+  const checkProfileCompletion = useCallback(
+    async (_userId?: string) => {
+      await loadProfile();
+    },
+    [loadProfile],
+  );
 
-    if (error) {
-      console.error("Error fetching profile:", error);
-      return;
-    }
-    setProfile(data);
-  }, []);
+  const fetchProfile = useCallback(
+    async (_userId?: string) => {
+      await loadProfile();
+    },
+    [loadProfile],
+  );
 
   // listens to real-time auth updates in case of session expire or manual action
   useEffect(() => {
@@ -107,8 +124,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(session?.user || null);
 
       if (session?.user) {
-        await fetchProfile(session.user.id);
-        await checkProfileCompletion(session.user.id);
+        // One call, not two. These were separate reads of the same row, so the
+        // second could observe a different state than the first — and both had to
+        // finish before the gate could decide anything.
+        await loadProfile();
       } else {
         setProfile(null);
         setIsProfileComplete(false);
@@ -117,7 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchProfile, checkProfileCompletion]);
+  }, [loadProfile]);
 
   /** Signs up a new user with email and password */
   const signup = async (email: string, password: string) => {

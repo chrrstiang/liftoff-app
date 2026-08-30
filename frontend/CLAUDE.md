@@ -107,11 +107,31 @@ No Redux, Zustand or Jotai. Screen state is plain `useState`.
 
 ## Talking to the backend
 
-**Almost nothing goes through the API.** Reads *and* writes go straight to Supabase via `lib/api/*` (`athlete`, `conversations`, `exercises`, `notifications`, `roster`, `storage`, `workouts`) — including 13 direct `insert`/`update` calls.
+**Everything goes through the API now.** All seven `lib/api/*` modules (`athlete`, `conversations`, `exercises`, `notifications`, `roster`, `storage`, `workouts`) call `lib/api/client.ts`. The app does not work with the backend stopped — that is the intended state, not a regression.
 
-The **only** backend call in the entire frontend is `POST /users/profile` from `app/(app)/create-profile.tsx`. So profile creation is the one flow that needs the API running; everything else works with the backend stopped.
+**Supabase is still used for exactly two things, and both are correct:**
 
-⚠️ **Those direct writes run with the anon key, so RLS is the only thing authorising them.** Nothing client-side stops a user inserting a `coach_athlete` row for someone else's athlete or updating another user's set.
+1. **Auth** — `signUp` / `signInWithPassword` / `signOut` / `onAuthStateChange` in `contexts/AuthContext.tsx`, and `getSession()` inside the API client to attach the bearer token. Supabase is the identity provider.
+2. **Storage** — the two image buckets in `lib/api/storage.ts`. Only *Postgres* moved to RDS; the buckets are independent. Moving them means the backend minting signed upload URLs and the client PUTting directly (never proxying binary through Fargate), which is its own piece of work.
+
+`lib/api/storage.ts` is therefore the one module that talks to both: bucket uploads to Supabase, and `updateUserAvatar` — which writes a *table* — through the API.
+
+⚠️ **Both buckets are world-readable by URL.** Pre-existing and unchanged; an avatar path is effectively public.
+
+**The id arguments are gone.** Functions that used to take a `userId` / `coachId` / `athleteId` for their own caller no longer do — the API derives the caller from the token. Passing one would have been a lie: it could not change what you were allowed to see. Where you still see an id parameter (`fetchAthleteProfile(athleteId)`, `fetchAthleteWorkouts(athleteId)`) it names *someone else*, and the API authorizes it.
+
+### Polling replaced realtime
+
+There is no Supabase realtime any more — the data it watched is in RDS. Two screens depended on it and now poll, with intervals in `lib/api/polling.ts`:
+
+- **open thread** — 5s (`THREAD_POLL_MS`)
+- **inbox** — 30s (`INBOX_POLL_MS`)
+
+They differ by an order of magnitude because the cost of staleness does. Polling the inbox at 5s means twelve requests a minute per signed-in user for a number that rarely changes. `refetchIntervalInBackground` stays at its default `false`.
+
+This is a deliberate downgrade, not a destination. If messaging becomes central the honest fix is a websocket or SSE endpoint — **not a shorter interval**, which multiplies requests to chase a delay it can never close.
+
+Removing the thread subscription also removed a bug: it merged each new message into the cache and deduped on `m.id`, but the optimistic message's id is `Math.random().toString()`, which can never equal a server uuid — so your own sent message appeared twice until something invalidated the query. A refetch *replaces* the list, so that cannot happen. `ChatBubble`'s `id.length < 30` pending check still works for the same reason: a random id is short, a uuid is 36 characters.
 
 **All backend calls go through `lib/api/client.ts`.** Do not hand-roll a `fetch`:
 

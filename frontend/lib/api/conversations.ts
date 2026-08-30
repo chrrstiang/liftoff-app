@@ -1,83 +1,69 @@
-import { supabase } from "../supabase";
+import { api } from "@/lib/api/client";
+import type { Message, UserConversation } from "@/types";
 
-export async function fetchConversations(userId: string) {
-  const { data, error } = await supabase
-    .from("user_conversations_view")
-    .select("*")
-    .eq("user_id", userId)
-    .order("updated_at", { ascending: false });
+/** Conversations and messages, through the API.
+ *
+ * Every function here used to take the caller's `userId` and pass it to Supabase
+ * as a filter. They don't any more: the API derives the caller from the bearer
+ * token, so an id parameter would be both redundant and a lie — passing someone
+ * else's would change nothing.
+ */
 
-  if (error) {
-    console.error("Error fetching conversations:", error);
-    return;
-  }
-
-  return data;
+export async function fetchConversations() {
+  return api.get<UserConversation[]>("/conversations");
 }
 
-export async function fetchMessages(conversationId: string) {
-  const { data, error } = await supabase
-    .from("messages_with_sender")
-    .select("*")
-    .eq("conversation_id", conversationId)
-    .order("sent_at", { ascending: true });
+/** Messages in a conversation, oldest first.
+ *
+ * ⚠️ **The API returns newest-first and this reverses it.** That is not an
+ * oversight on either side: pagination has to select the most recent N, so the
+ * query must order descending, while the thread renders chronologically. Reversing
+ * here keeps the screen's contract identical to the Supabase version, which
+ * ordered ascending and fetched *every* message in the thread with no limit —
+ * fine at 35 messages, not at 35,000.
+ */
+export async function fetchMessages(conversationId: string, limit = 50) {
+  const messages = await api.get<Message[]>(
+    `/conversations/${conversationId}/messages?limit=${limit}`,
+  );
 
-  if (error) {
-    console.error("Error fetching messages:", error);
-    return;
-  }
-
-  return data;
+  return [...messages].reverse();
 }
 
-export async function markAsRead(conversationId: string, userId: string) {
-  const updatedConversation = await supabase
-    .from("conversation_members")
-    .update({ last_read_at: new Date().toISOString() })
-    .eq("conversation_id", conversationId)
-    .eq("user_id", userId);
-
-  if (updatedConversation.error) {
-    console.error(
-      "Error marking conversation as read:",
-      updatedConversation.error
-    );
-  }
-}
-
-export async function fetchMessageById(id: string) {
-  const { data, error } = await supabase
-    .from("messages_with_sender")
-    .select("*")
-    .eq("id", id)
-    .single();
-
-  if (error) {
-    console.error("Error fetching message:", error);
-    return;
-  }
-
-  return data;
+/** Marks the thread read for the caller. */
+export async function markAsRead(conversationId: string) {
+  await api.post(`/conversations/${conversationId}/read`);
 }
 
 export interface SendMessageParams {
   conversation_id: string;
-  user_id: string;
   content: string;
   message_type: string;
   media_url?: string;
 }
 
-export async function sendMessage(body: SendMessageParams) {
-  const { data, error } = await supabase
-    .from("messages")
-    .insert([body])
-    .select();
+/** Sends a message. `user_id` is gone from the payload — the sender is the token
+ * holder, and letting the client name it meant anyone could post as anyone. */
+export async function sendMessage({
+  conversation_id,
+  content,
+  message_type,
+  media_url,
+}: SendMessageParams) {
+  return api.post<{ id: string; sent_at: string }>(
+    `/conversations/${conversation_id}/messages`,
+    { content, message_type, media_url },
+  );
+}
 
-  if (error) {
-    console.error("Error sending message:", error);
-    throw error;
-  }
-
-  return data;
+/** Starts a conversation with another user, or returns the existing one.
+ *
+ * **This had no implementation at all before** — nothing in the app created a
+ * conversation or a membership row, so messaging was unreachable for every new
+ * user. It is idempotent, so tapping a name twice does not accumulate threads.
+ */
+export async function createConversation(participantId: string) {
+  return api.post<{ conversation_id: string; message: string }>("/conversations", {
+    participant_id: participantId,
+  });
 }

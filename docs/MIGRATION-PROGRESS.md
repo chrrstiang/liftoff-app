@@ -11,9 +11,9 @@ Living status for the move off Supabase Postgres to RDS behind the API. Update i
 | Week 1 — foundation | ✅ done |
 | Week 2 — schema port + AWS | ✅ done |
 | Week 2 — endpoint port (3 existing) | ✅ merged |
-| Week 3 — deploy | ✅ done — pipeline deploys on push to `main` and verifies the rollout |
-| Week 4 — new endpoints | ✅ **all built.** coach invites + messaging merged; programming open as a PR |
-| Week 4 — frontend flip | 🔄 unblocked — Xcode installed, and the endpoints it needs now exist |
+| Week 3 — deploy | ✅ done — and the rollout check is now honest (third attempt, see below) |
+| Week 4 — new endpoints | ✅ **all built and merged** — coach invites, messaging, programming |
+| Week 4 — frontend flip | 🔄 committed and pushed; **unverified** — see below |
 | Week 5 — feature | ⛔ blocked (needs a product decision) |
 
 ## Live infrastructure
@@ -64,19 +64,67 @@ The two rollback rows are the ones that matter: under the old compensating-delet
 
 I do not know the precise mechanism by which orphans broke the trigger, and I am not going to claim one. The empirical result stands.
 
-**The deploy lied once before it worked.** The first run reported success while leaving the old container serving, because it polled `service.status.statusCode` — which is `ACTIVE` before, during and after a rollout. It now polls the active task definition ARN, and the smoke test hits a route only new code has. Both are in the runbook's failure table.
+## The deploy check has been wrong three times. Read this before editing it.
 
-## Open PR
+Each fix decayed into the next failure, and the pattern is identical every time: the signal was something that *happened to* differ between the old container and the new one when it was written, and then stopped differing.
 
-**Programming endpoints** — `programming-endpoints`. Workouts, sets and the exercise library, plus `GET /athlete/search`. This is the last endpoint slice; with it the API covers everything the seven `lib/api/*` modules do.
+| Attempt | Signal | Why it decayed |
+|---|---|---|
+| 1 | `service.status.statusCode` | `ACTIVE` before, during **and** after a rollout. Never meant anything. |
+| 2 | `activeConfigurations[0].taskDefinitionArn` | The revision the service was *told* to run, not the one answering requests. Matched on poll `[1/60]`, one second after the update call. |
+| 3 | `/coach-requests` returning 401 not 404 | Worked exactly once. That route became old code on the next deploy and then passed unconditionally — which is how (2) went unnoticed. |
 
-Three latent bugs fixed inside it, all of which had been shipping:
+Attempt 2 and 3 failed **together** on the programming-endpoints deploy: it reported success while every new route 404'd in production.
+
+**The current check does not ask ECS anything.** The commit is baked into the image (`ARG GIT_SHA` in the runtime stage), `GET /health` reports it, and the deploy polls the public URL until the SHA it returns is the one just built. That is the request path users take, answered by the process actually serving it, and the expected value changes with every commit by construction — there is nothing left to rot.
+
+Two details that matter:
+
+- `ARG GIT_SHA` is in the **runtime** stage. In the builder it invalidates the dependency layer on every commit and reinstalls `node_modules` each build.
+- The verify step **fails** when `API_BASE_URL` is unset rather than skipping. Silently skipping the only real check is how this class of bug survives.
+
+Confirmed working: after the fix, `/health` reported `version: 492e9984…` matching the deployed commit, and all new routes returned 401 rather than 404.
+
+**What attempt 1 actually hid, established from ECS afterwards.** Pairing task-definition registration times against container start times settles it:
+
+| Revision | Registered | Container started |
+|---|---|---|
+| **6** | 14:42:09 | **never** |
+| 7 | 14:47:33 | 14:48:32 |
+| 8 | 14:52:53 | 14:54:05 |
+| 9 | 16:33:33 | 16:34:35 |
+| 10 | 17:38:24 | 17:38:51 |
+| 11 | 18:01:34 | 18:02:05 |
+
+Revision 6 was registered and **no task ever ran it**; every later revision rolled within 30–70 seconds. So the deploy registered a task definition, the update call did not take effect, and the old container kept serving — while `statusCode` read `ACTIVE` throughout and the job reported success. That is the failure mode in row 1, with evidence rather than inference.
+
+Two caveats on reproducing this: ECS retains stopped tasks for roughly an hour, so `describe-tasks` is useless after the fact — the durable evidence is CloudWatch log-stream creation times against `registeredAt`. And each stream spans only ~10 seconds because Nest logs its route table at boot and nothing per-request; that is not a crash loop.
+
+## The API surface is complete
+
+Every one of the seven `lib/api/*` modules now has endpoints to call. Merged as #24:
+
+| Resource | Endpoints |
+|---|---|
+| workouts | `GET /workouts?athlete_id=`, `GET /workouts/templates`, `GET /workouts/:id`, `POST /workouts`, `POST /workouts/:id/exercises`, `DELETE /workouts/:id` |
+| sets | `PATCH /sets/:id` |
+| exercises | `GET`/`POST /exercises`, `GET /exercises/templates` |
+| athletes | `GET /athlete/profile/:id`, `GET /athlete/search?q=` |
+| users | `GET /users/me`, `POST`/`PATCH /users/profile` |
+| coaching | `GET`/`POST /coach-requests`, `PATCH /coach-requests/:id`, `GET /coach-requests/roster` |
+| messaging | `GET`/`POST /conversations`, `GET`/`POST /conversations/:id/messages`, `POST /conversations/:id/read` |
+
+### Latent bugs the programming slice fixed
+
+All of these had been shipping:
 
 - **`is_template` was never written**, so it was NULL, and `.eq('is_template', true)` does not match NULL. The template list has been empty for everyone since the feature shipped. Now derived — a workout is a template exactly when it has no athlete — which also makes `is_template=true` *with* an `athlete_id` unrepresentable.
 - **Athlete search excluded nobody.** It compared `user.id` against the already-invited set, but the view's identity column is `athlete_id` and there is no `id`, so it tested `undefined` every time.
 - **The search term was interpolated into a PostgREST `.or()` expression.** Now a parameterised `ilike` with `%` and `_` escaped; a bare `%` previously matched every athlete in the database.
+- **`coach_id` came from the client** on workout creation, so any user could attribute a workout to any coach. It comes from the token now, and sending it is a 400.
+- **`is_profile_complete` treated a thrown error as "incomplete"**, so a transient network failure was indistinguishable from a missing profile and bounced the user to create-profile mid-session. Computed server-side now.
 
-`coach_id` is also gone from the create body — it used to come from the client, so any user could attribute a workout to any coach.
+One thing worth knowing before someone "fixes" it: **`GET /users/me` returning 404 is a normal state.** Between signing up and completing the form there is no `users` row at all, and that 404 is the signal the auth gate uses to route to create-profile.
 
 ## Blocked, and why
 

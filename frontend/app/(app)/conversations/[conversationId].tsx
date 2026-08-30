@@ -18,11 +18,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Message } from "@/types";
 import {
   fetchConversations,
-  fetchMessageById,
   fetchMessages,
   markAsRead,
   sendMessage,
 } from "@/lib/api/conversations";
+import { INBOX_POLL_MS, THREAD_POLL_MS } from "@/lib/api/polling";
 import {
   ChevronLeft,
   ImagePlus,
@@ -34,8 +34,6 @@ import { useEffect, useRef, useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { uploadImageMessage } from "@/lib/api/storage";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
-import { supabase } from "@/lib/supabase";
-import { RealtimeChannel } from "@supabase/supabase-js";
 
 /** RNImage takes a style object, not a className. */
 const styles = StyleSheet.create({
@@ -50,13 +48,24 @@ export default function Conversation() {
   const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
 
   const queryClient = useQueryClient();
-  const channelRef = useRef<RealtimeChannel | null>(null);
 
   const { data: conversations } = useQuery({
     queryKey: ["conversations", user?.id],
-    queryFn: () => fetchConversations(user?.id || ""),
+    queryFn: fetchConversations,
+    refetchInterval: INBOX_POLL_MS,
   });
 
+  /** Polling replaces the realtime subscription this screen used to hold.
+   *
+   * `markAsRead` is awaited rather than fired and forgotten. The old version called
+   * it without awaiting *inside* the query function and returned the unawaited
+   * messages promise alongside it, so the two raced: the read marker could land
+   * before or after the fetch, and a failure was invisible.
+   *
+   * It runs on every poll, which is correct while the thread is open — the user is
+   * looking at it, so anything that arrives is read. It is cheap: one indexed
+   * UPDATE of the caller's own membership row.
+   */
   const {
     data: messages,
     isLoading,
@@ -64,11 +73,12 @@ export default function Conversation() {
     refetch,
   } = useQuery({
     queryKey: ["messages", conversationId],
-    queryFn: () => {
-      const messages = fetchMessages(conversationId);
-      markAsRead(conversationId, user?.id || "");
-      return messages;
+    queryFn: async () => {
+      const result = await fetchMessages(conversationId);
+      await markAsRead(conversationId);
+      return result;
     },
+    refetchInterval: THREAD_POLL_MS,
   });
 
   const sendMessageMutation = useMutation({
@@ -87,7 +97,6 @@ export default function Conversation() {
 
         await sendMessage({
           conversation_id: conversationId,
-          user_id: user?.id || "",
           content: "Sent an image",
           media_url: uploadResponse.path,
           message_type: "image",
@@ -97,7 +106,6 @@ export default function Conversation() {
       if (text) {
         await sendMessage({
           conversation_id: conversationId,
-          user_id: user?.id || "",
           content: text,
           message_type: "text",
         });
@@ -157,52 +165,21 @@ export default function Conversation() {
     },
   });
 
-  // real-time listener for message insert
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const channel = supabase
-      .channel(`conversation-${conversationId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        async (payload) => {
-          console.log("New payload for message", payload);
-
-          const newMessage = await fetchMessageById(payload.new.id);
-
-          if (newMessage) {
-            queryClient.setQueryData<Message[]>(
-              ["messages", conversationId],
-              (old = []) => {
-                if (old.some((m) => m.id === newMessage.id)) {
-                  return old;
-                }
-                return [...old, newMessage];
-              }
-            );
-
-            queryClient.invalidateQueries({
-              queryKey: ["conversations", user.id],
-            });
-          }
-        }
-      )
-      .subscribe();
-
-    channelRef.current = channel;
-
-    return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-      }
-    };
-  }, [user?.id, conversationId, queryClient]);
+  /* The realtime `postgres_changes` subscription that used to live here is gone —
+   * `refetchInterval` on the messages query above replaces it.
+   *
+   * Removing it also removed a bug. The subscription merged each new message into
+   * the cache and deduped on `m.id`, but the optimistic message inserted by
+   * `onMutate` uses `Math.random().toString()` as its id, which can never equal the
+   * uuid the server assigns. So your own sent message was appended twice — once
+   * optimistically, once from the subscription — and stayed doubled until something
+   * else invalidated the query.
+   *
+   * Under polling the refetch *replaces* the list rather than merging into it, so
+   * the optimistic entry is discarded when the real one arrives and the duplicate
+   * cannot occur. `ChatBubble` still detects pending state via `id.length < 30`,
+   * which continues to work for exactly the same reason: a random id is short, a
+   * uuid is 36 characters. */
 
   const pickImage = async () => {
     try {

@@ -37,7 +37,10 @@ export default function ProfilePage() {
       const avatarUrl = await uploadAvatar(user.id);
 
       if (avatarUrl) {
-        await updateUserAvatar(user.id, avatarUrl);
+        // The id is gone: the API scopes the update to the token holder. The
+        // previous call took one and wrote that row, so it could set any user's
+        // avatar to any path.
+        await updateUserAvatar(avatarUrl);
         setProfile({ ...profile, avatar_url: avatarUrl });
       }
     } catch (error) {

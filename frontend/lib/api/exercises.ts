@@ -1,105 +1,43 @@
-import { ExerciseFormData, ExerciseTemplate } from "@/types";
-import { supabase } from "../supabase";
+import { api } from "@/lib/api/client";
+import type { ExerciseFormData, ExerciseTemplate } from "@/types";
+import { addWorkoutExercise } from "@/lib/api/workouts";
 
+/** The exercise library.
+ *
+ * ⚠️ **`createExercise` used to swallow its own failures.** Each of its three
+ * inserts logged the error and `return`ed `undefined` — so a failure looked
+ * identical to success to the caller, and the optimistic cache update was never
+ * rolled back. The exercise simply vanished on the next refetch. Errors now throw,
+ * which is what the mutation's `onError` was always written to expect.
+ */
+
+/** Creates an exercise and attaches it to a workout, with its sets.
+ *
+ * Three unguarded client inserts became one request. That matters beyond tidiness:
+ * the writes had no transaction, so a failure on the sets left an exercise attached
+ * to the workout with no sets under it — a row the UI renders as an empty exercise
+ * that cannot be completed.
+ */
 export async function createExercise(exerciseData: ExerciseFormData) {
-  // add exercise to exercises
-  const { data: exercise, error: exerciseError } = await supabase
-    .from("exercises")
-    .insert({
-      name: exerciseData.name,
-      created_by: exerciseData.created_by,
-    })
-    .select()
-    .single();
-
-  if (exerciseError) {
-    console.error("Error adding exercise", exerciseError);
-    return;
-  }
-
-  console.log("Exercise added successfully", exercise);
-  // add workout_exercises record with exercise id and workout id
-  const { data: workoutExercise, error: workoutExerciseError } = await supabase
-    .from("workout_exercises")
-    .insert({
-      exercise_id: exercise.id,
-      workout_id: exerciseData.workout_id,
-      order: exerciseData.order,
-    })
-    .select()
-    .single();
-
-  if (workoutExerciseError) {
-    console.error("Error adding workout exercise", workoutExerciseError);
-    return;
-  }
-
-  console.log("Workout exercise added successfully", workoutExercise);
-
-  const workoutExerciseId = workoutExercise.id;
-
-  const setQuery = exerciseData.sets.map((set) => ({
-    ...set,
-    workout_exercise_id: workoutExerciseId,
-  }));
-
-  console.log("Set query", setQuery);
-
-  // add sets with workout_exercises_id
-  const { data: sets, error: setsError } = await supabase
-    .from("sets")
-    .insert(setQuery)
-    .select();
-
-  if (setsError) {
-    console.error("Error adding sets", setsError);
-    return;
-  }
-
-  console.log("Sets added successfully", sets);
+  return addWorkoutExercise(exerciseData.workout_id, {
+    name: exerciseData.name,
+    order: exerciseData.order,
+    sets: exerciseData.sets,
+  });
 }
 
-export async function fetchExerciseTemplates(coachId: string) {
-  console.log("🏋️ [API] Fetching exercise templates for coach:", coachId);
+/** The caller's exercise library, for the workout builder's picker. */
+export async function fetchExercises() {
+  return api.get<{ id: string; name: string; created_at: string }[]>("/exercises");
+}
 
-  // Get exercises created by this coach that have templates
-  const { data, error } = await supabase
-    .from("exercises")
-    .select(
-      `
-      id,
-      name,
-      templates:exercise_templates (
-        id,
-        name,
-        sets:exercise_default_set_templates (
-          id,
-          set_number,
-          prescribed_reps,
-          prescribed_intensity
-        )
-      )
-    `,
-    )
-    .eq("created_by", coachId)
-    .not("templates", "is", null)
-    .order("name", { ascending: true });
-
-  if (error) throw error;
-  if (!data) return [];
-
-  // sort sets by set number
-  data.forEach((exercise) => {
-    exercise.templates.forEach((template) => {
-      template.sets = template.sets.sort((a, b) => a.set_number - b.set_number);
-    });
-  });
-
-  console.log(
-    "🏋️ [API] Exercise templates fetched:",
-    data?.length || 0,
-    "exercises",
-  );
-
-  return data as ExerciseTemplate[];
+/** The caller's exercises that have at least one set template, grouped by exercise.
+ *
+ * `coachId` is gone — the API scopes this to the token. It also now scopes the
+ * *templates* to the caller, which the old query did not: it filtered exercises by
+ * `created_by` but left the nested templates unfiltered, so a template another
+ * coach had authored against a shared exercise would have leaked in.
+ */
+export async function fetchExerciseTemplates() {
+  return api.get<ExerciseTemplate[]>("/exercises/templates");
 }

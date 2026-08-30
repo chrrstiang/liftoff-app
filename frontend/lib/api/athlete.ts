@@ -1,64 +1,65 @@
-import { supabase } from "@/lib/supabase";
-import type { UserProfileEnriched } from "@/types";
+import { api } from "@/lib/api/client";
+import type { AthleteProfileView, UserProfileEnriched } from "@/types";
 
-export async function fetchAthleteProfile(athleteId: string) {
-  const { data, error } = await supabase
-    .from("coach_athletes_view")
-    .select("*")
-    .eq("athlete_id", athleteId)
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-/** Escapes a search term for use as a PostgREST filter value.
+/** One athlete's profile, in the flat shape the roster and program screens render.
  *
- * `.or()` takes a raw filter expression, where `,` separates conditions and
- * parentheses group them. Interpolating a user's search string straight in means a
- * term containing either character changes the meaning of the filter rather than
- * being matched literally. PostgREST allows a value to be double-quoted to hold
- * reserved characters, so quote it — after removing the two characters that would
- * escape the quoting itself.
+ * ⚠️ **This no longer reads `coach_athletes_view`, and the change is a fix.** That
+ * view joins through `coach_athlete_relationships`, and the old call ended in
+ * `.single()` — so an athlete with **no coach** matched zero rows and `.single()`
+ * errored. The Program tab points at the signed-in user's own id, which means every
+ * athlete without a coach hit an error on their own program screen.
+ *
+ * `GET /athlete/profile/:id` has no such dependency: it reads the athlete and their
+ * reference data, so it works for a coachless athlete and for a coach viewing
+ * someone on their roster alike. `coach_id` is therefore no longer part of the
+ * response — nothing rendered it.
  */
-function toFilterValue(query: string): string {
-  return `"%${query.replace(/["\\]/g, "")}%"`;
+export async function fetchAthleteProfile(
+  athleteId: string,
+): Promise<Omit<AthleteProfileView, "coach_id">> {
+  const profile = await api.get<{
+    id: string;
+    users: { first_name: string; last_name: string; username: string } | null;
+    federations: { code: string | null } | null;
+    divisions: { name: string | null } | null;
+    weight_classes: { name: string | null } | null;
+  }>(`/athlete/profile/${athleteId}`);
+
+  // The endpoint returns relations as nested objects; these screens want it flat.
+  // Left joins report null relations rather than objects full of nulls, hence the
+  // optional chaining rather than a default-object spread.
+  return {
+    athlete_id: profile.id,
+    first_name: profile.users?.first_name ?? "",
+    last_name: profile.users?.last_name ?? "",
+    username: profile.users?.username ?? "",
+    // Not exposed by the public-profile allowlist, and nothing renders it here.
+    avatar_url: null,
+    federation_code: profile.federations?.code ?? null,
+    division_name: profile.divisions?.name ?? null,
+    weight_class_name: profile.weight_classes?.name ?? null,
+  };
 }
 
-// search for users based off query, filter athletes already connected to this coach
-export async function searchAthletes(query: string, coachId: string) {
-  const { data: existingAthletes, error: existingError } = await supabase
-    .from("coach_athlete_relationships")
-    .select("athlete_id")
-    .eq("coach_id", coachId)
-    .in("status", ["active", "pending"]);
+/** Athlete search for the invite flow.
+ *
+ * `coachId` is gone, and so is every bit of the old client-side filtering. What
+ * that filtering did — or rather failed to do — is worth remembering:
+ *
+ *  - it fetched the already-invited ids, then excluded on `user.id`, but the view's
+ *    identity column is `athlete_id` and there is no `id`, so it compared against
+ *    `undefined` and excluded **nobody**
+ *  - it asked for 50 rows to return 20, because exclusion happened after the fetch
+ *  - the search term went into a PostgREST `.or()` expression, where `,` and `(`
+ *    change the filter's meaning rather than being matched literally
+ *
+ * All three are now the server's problem, expressed as one parameterised query.
+ */
+export async function searchAthletes(query: string) {
+  const term = query.trim();
+  if (!term) return [];
 
-  if (existingError) {
-    throw existingError;
-  }
-
-  const existingIds = new Set<string>(
-    existingAthletes?.map((a) => a.athlete_id as string) || [],
+  return api.get<UserProfileEnriched[]>(
+    `/athlete/search?q=${encodeURIComponent(term)}`,
   );
-
-  const term = toFilterValue(query);
-
-  const { data, error } = await supabase
-    .from("user_profiles_enriched_view")
-    .select("*")
-    .or(
-      `first_name.ilike.${term},last_name.ilike.${term},username.ilike.${term}`,
-    )
-    .limit(50);
-
-  if (error) throw error;
-
-  const results = (data || []) as UserProfileEnriched[];
-
-  // Was `!existingIds.has(user.id)`. user_profiles_enriched_view has no `id`
-  // column — its identity column is `athlete_id` — so this compared athlete ids
-  // against `undefined` and excluded nobody. Already-invited athletes kept showing
-  // up in search. It typechecked only because Supabase's `data` is untyped here.
-  return results
-    .filter((user) => !existingIds.has(user.athlete_id))
-    .slice(0, 20);
 }

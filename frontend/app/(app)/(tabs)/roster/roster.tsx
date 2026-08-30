@@ -131,8 +131,11 @@ export default function RosterPage() {
     refetch,
   } = useQuery<AthleteProfileView[]>({
     queryKey: ["roster", userId],
-    queryFn: () =>
-      fetchRoster(userId!) as unknown as Promise<AthleteProfileView[]>,
+    // The `as unknown as` cast is gone: fetchRoster is typed now, because the API
+    // client is generic over the response rather than handing back Supabase's
+    // untyped `data`. That untypedness is what let three wrong field names through
+    // in this file alone.
+    queryFn: fetchRoster,
     enabled: !!userId,
   });
 
@@ -142,7 +145,7 @@ export default function RosterPage() {
   // coach's roster.
   const { data: searchResults = [], isLoading: isSearching } = useQuery({
     queryKey: ["userSearch", debouncedQuery],
-    queryFn: () => searchAthletes(debouncedQuery, userId!),
+    queryFn: () => searchAthletes(debouncedQuery),
     enabled: selectedIndex === 1 && debouncedQuery.length >= 3 && !!userId,
     staleTime: 30000,
   });
@@ -150,7 +153,7 @@ export default function RosterPage() {
   const queryClient = useQueryClient();
 
   const sendInviteMutation = useMutation({
-    mutationFn: (athleteId: string) => sendInvite(athleteId, userId!),
+    mutationFn: (athleteId: string) => sendInvite(athleteId),
     onMutate: async (athleteId: string) => {
       setInvitingUserId(athleteId);
 

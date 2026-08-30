@@ -179,10 +179,10 @@ export default function CreateProfile() {
         accessToken: session?.access_token,
       });
 
-      if (session?.user?.id) {
-        await fetchProfile(session?.user?.id);
-        await checkProfileCompletion(session?.user?.id);
-      }
+      // One call, not two. These were separate reads of the same row, and both
+      // had to resolve before the auth gate would let the user out of this
+      // screen. `fetchProfile` sets `isProfileComplete` as well now.
+      await fetchProfile();
       router.replace("/(app)/(tabs)/home");
     } catch (error) {
       console.error("Error creating profile:", error);

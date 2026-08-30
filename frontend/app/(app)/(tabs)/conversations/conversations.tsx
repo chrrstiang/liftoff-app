@@ -1,14 +1,12 @@
 import { Avatar, EmptyState, Screen, Text } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchConversations } from "@/lib/api/conversations";
-import { supabase } from "@/lib/supabase";
+import { INBOX_POLL_MS } from "@/lib/api/polling";
 import { useTheme } from "@/theme/useTheme";
 import { UserConversation } from "@/types";
-import { RealtimeChannel } from "@supabase/supabase-js";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ChevronRight, MessageCircle } from "lucide-react-native";
-import { useEffect, useRef } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -25,45 +23,23 @@ const styles = StyleSheet.create({
 export default function ConversationsScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { colors } = useTheme();
-  const channelRef = useRef<RealtimeChannel | null>(null);
 
+  /** Polling replaces the Supabase realtime subscription this screen used to hold.
+   *
+   * The subscription listened for any UPDATE on `conversations` — unfiltered, so
+   * every user's thread activity woke every client — and then invalidated. Data
+   * lives in RDS now, so there is no realtime channel to subscribe to.
+   *
+   * `refetchIntervalInBackground` is left at its default (false) on purpose: an
+   * inbox does not need to update while the app is backgrounded, and polling from
+   * the background is how you drain a phone battery for no user-visible benefit.
+   */
   const { data: conversations, isLoading } = useQuery({
     queryKey: ["conversations", user?.id],
-    queryFn: () => fetchConversations(user?.id || ""),
+    queryFn: fetchConversations,
+    refetchInterval: INBOX_POLL_MS,
   });
-
-  // real-time listener for conversation update
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const channel = supabase
-      .channel("user_conversations")
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "conversations",
-        },
-        () => {
-          console.log("Trigger for conversation update, invalidating queries");
-          queryClient.invalidateQueries({
-            queryKey: ["conversations", user?.id],
-          });
-        },
-      )
-      .subscribe();
-
-    channelRef.current = channel;
-
-    return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-      }
-    };
-  }, [user?.id, queryClient]);
 
   const renderConversation = ({ item }: { item: UserConversation }) => {
     const unread = item.unread_count > 0;

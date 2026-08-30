@@ -121,6 +121,36 @@ jobs:
             echo "::warning title=E2E skipped::Set the SUPABASE_PROJECT_URL and SUPABASE_SECRET_KEY repository secrets to run the e2e suite."
           fi
 
+      # Present is not the same as reachable. A free-tier Supabase project pauses
+      # itself after a week of inactivity, and a paused project stops resolving in
+      # DNS entirely — the secrets were still set, so the check above happily said
+      # "configured", and the job then died 51s later inside the sweeper with an
+      # opaque `TypeError: fetch failed` (getaddrinfo ENOTFOUND underneath). That
+      # reads like a code bug, which is exactly the wrong place to send someone.
+      #
+      # /auth/v1/health answers 401 without an apikey header, so a 2xx is the wrong
+      # test — ANY HTTP status proves we got to GoTrue. Only a connection/DNS
+      # failure counts as unreachable, which curl reports as http_code 000.
+      #
+      # Same policy as the missing-secret path: warn loudly, skip, do NOT fail. A
+      # red required check because the auth provider is asleep is the trap the
+      # presence guard was added to avoid in the first place.
+      - name: Check that Supabase is reachable
+        id: reachable
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          SUPABASE_PROJECT_URL: ${{ secrets.SUPABASE_PROJECT_URL }}
+        run: |
+          status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+            "${SUPABASE_PROJECT_URL%/}/auth/v1/health" || true)
+          if [ -n "$status" ] && [ "$status" != "000" ]; then
+            echo "up=true" >> "$GITHUB_OUTPUT"
+            echo "Supabase auth endpoint answered with HTTP $status — reachable."
+          else
+            echo "up=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=E2E skipped::Supabase did not answer at /auth/v1/health (no HTTP response within 15s). The secrets are set, so this is almost certainly a PAUSED or deleted Supabase project — free-tier projects pause after ~7 days idle and stop resolving in DNS. Resume it in the Supabase dashboard and re-run this job. Skipping the e2e suite and the sweeper rather than failing."
+          fi
+
       - name: Install backend dependencies
         if: steps.creds.outputs.configured == 'true'
         working-directory: ./backend
@@ -142,7 +172,7 @@ jobs:
       # live project. CI sets it; locally you have to type it, which is the point.
       # globalTeardown sweeps prefixed artifacts, so a crashed run still cleans up.
       - name: Run backend e2e tests
-        if: steps.creds.outputs.configured == 'true'
+        if: steps.creds.outputs.configured == 'true' && steps.reachable.outputs.up == 'true'
         working-directory: ./backend
         run: npm run test:e2e
         env:
@@ -154,8 +184,15 @@ jobs:
       # Backstop: if the suite was killed (timeout, cancellation) globalTeardown
       # never ran, so leaked users would persist in the project real users are in.
       # `if: always()` is what makes this useful.
+      #
+      # It also has to honour the reachability gate. `sweep.ts` ends in
+      # `main().catch(... process.exit(1))`, so against an unreachable project it
+      # exits 1 on the first fetch and — because of `always()` — fails the job even
+      # when every other step was skipped. That is the exact step the paused-project
+      # incident died in. Nothing can have leaked if the suite never ran, so there
+      # is nothing to sweep.
       - name: Sweep leaked e2e artifacts
-        if: always() && steps.creds.outputs.configured == 'true'
+        if: always() && steps.creds.outputs.configured == 'true' && steps.reachable.outputs.up == 'true'
         working-directory: ./backend
         run: npm run e2e:sweep -- --all
         env:

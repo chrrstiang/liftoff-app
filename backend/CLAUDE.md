@@ -141,7 +141,7 @@ Anything off-allowlist throws `BadRequestException`. `PUBLIC_PROFILE_QUERY` is t
 
 Adding a table to a spec means adding it to `DIRECT_USER_REFERENCES` in `fixtures.ts`, or its rows leak.
 
-⚠️ **A green `backend-e2e` job does not mean e2e passed.** The job checks for the `SUPABASE_PROJECT_URL` / `SUPABASE_SECRET_KEY` repository secrets first and skips its remaining steps if either is absent, emitting a workflow warning. Without that gate every spec fails identically at `SupabaseService` construction and the job is permanently red, which is worse than no signal. Open the run and look for the "E2E skipped" warning before trusting the check mark.
+⚠️ **A green `backend-e2e` job does not mean e2e passed.** The job checks for the `SUPABASE_PROJECT_URL` / `SUPABASE_SECRET_KEY` repository secrets first and skips its remaining steps if either is absent, emitting a workflow warning. Without that gate every spec fails identically at `SupabaseService` construction and the job is permanently red, which is worse than no signal. A second gate then probes `$SUPABASE_PROJECT_URL/auth/v1/health` and skips the same way if nothing answers at all — present secrets do not mean a reachable project, and a paused one used to sail past the presence check and die in the sweeper with an opaque `TypeError: fetch failed`. Open the run and look for the "E2E skipped" warning before trusting the check mark.
 
 Two things to follow when adding a spec:
 

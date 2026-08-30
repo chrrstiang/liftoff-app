@@ -8,18 +8,46 @@ import {
   Text,
 } from "@/components/ui";
 import { fetchAthleteProfile } from "@/lib/api/athlete";
+import { createConversation } from "@/lib/api/conversations";
+import { describeApiError } from "@/lib/api/client";
 import { useTheme } from "@/theme/useTheme";
 import { AthleteProfileView } from "@/types";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { UserX } from "lucide-react-native";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Alert, View } from "react-native";
 
 /* Display of athlete profile from roster tab*/
 export default function AthleteDetails() {
   const { athleteId } = useLocalSearchParams<{ athleteId: string }>();
   const router = useRouter();
   const { colors } = useTheme();
+  const queryClient = useQueryClient();
+
+  /** Opens the thread with this athlete, creating it if it does not exist.
+   *
+   * ⚠️ **This is the flow that had no entry point at all.** `POST /conversations`
+   * did not exist in any form, and nothing in the app wrote a `conversations` or
+   * `conversation_members` row — so the Messages tab was permanently empty for
+   * every user and there was no way to start a first conversation. A coach could
+   * see their roster and program for them but never message them.
+   *
+   * The endpoint is idempotent, so this is safe to tap repeatedly: an existing
+   * thread is returned rather than a duplicate created. No optimistic update —
+   * navigating to a conversation id that does not exist yet would 404 the thread
+   * screen, and there is nothing to show until the server has assigned the id.
+   */
+  const openConversation = useMutation({
+    mutationFn: () => createConversation(athleteId),
+    onSuccess: ({ conversation_id }) => {
+      // The inbox now has a thread it did not have before.
+      void queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      router.push(`/conversations/${conversation_id}`);
+    },
+    onError: (error) => {
+      Alert.alert("Error", describeApiError(error, "Could not open the conversation."));
+    },
+  });
 
   // fetching athlete profile
   const {
@@ -96,11 +124,20 @@ export default function AthleteDetails() {
         </Section>
       ) : null}
 
-      <View className="px-6 pb-10 pt-10">
+      {/* Only one `primary` Button per screen, so Message is secondary. */}
+      <View className="gap-3 px-6 pb-10 pt-10">
         <Button
           label="Manage program"
           block
           onPress={() => router.push(`/program/${athleteData?.athlete_id}`)}
+        />
+        <Button
+          label={openConversation.isPending ? "Opening" : "Message"}
+          variant="secondary"
+          block
+          loading={openConversation.isPending}
+          disabled={openConversation.isPending || !athleteData?.athlete_id}
+          onPress={() => openConversation.mutate()}
         />
       </View>
     </Screen>

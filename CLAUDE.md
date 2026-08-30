@@ -19,25 +19,35 @@ liftoff-app/
 
 Supabase (hosted Postgres) is the database *and* the auth provider for both halves.
 
-## The data path: the backend is almost bypassed
+## The data path: everything goes through the API
 
-The most important thing to know, because the file layout actively misleads you: **a NestJS API sits in this repo and the client calls it exactly once.**
+**Supabase is auth and file storage. All data lives in RDS Postgres behind the NestJS API.** This was not true until recently, and older notes elsewhere may still describe the client reading Supabase tables directly — they are out of date.
 
-- **Everything goes straight to Supabase** with the anon key — reads *and* writes. `frontend/lib/api/*` holds seven modules (`athlete`, `conversations`, `exercises`, `notifications`, `roster`, `storage`, `workouts`) making **13 direct `insert`/`update` calls**. Auth is direct too: `supabase.auth.signInWithPassword` / `signUp` / `signOut`.
-- **The one backend call** is an inline `fetch` in `frontend/app/(app)/create-profile.tsx`: `POST /users/profile`. Profile creation is the only flow that breaks if the API is down.
-- **Auth token flow (for that one call):** Supabase session JWT → `Authorization: Bearer <token>` → `JwtAuthGuard` (`backend/src/common/validation/guards/auth-guard.ts`) → `supabase.auth.getUser(token)` → `request.user`.
+- **The client calls the API for everything.** All seven `frontend/lib/api/*` modules (`athlete`, `conversations`, `exercises`, `notifications`, `roster`, `storage`, `workouts`) go through `frontend/lib/api/client.ts`. The app does not work with the backend stopped.
+- **Supabase keeps exactly two jobs:** the identity provider (`signUp` / `signInWithPassword` / `signOut` / `getSession`), and the two image buckets in `lib/api/storage.ts`. Only Postgres moved; the buckets are independent and staying for now.
+- **Auth token flow:** Supabase session JWT → `Authorization: Bearer <token>` → `JwtAuthGuard` (`backend/src/common/validation/guards/auth-guard.ts`) → `supabase.auth.getUser(token)` → `request.user`.
+- **Realtime is gone**, replaced by polling — see `frontend/lib/api/polling.ts`.
 
-⚠️ **This makes RLS the entire authorization layer for almost the whole app.** Those 13 writes execute with the anon key, so nothing client-side prevents inserting a `coach_athlete` row for someone else's athlete or updating another user's set. Policies in the hosted project are the only control, and since the schema isn't in this repo there's no way to review them from here. Check the Supabase dashboard before trusting any write path.
+⚠️ **There is no RLS in RDS. The API is the entire trust boundary.** Nothing in the database will stop a query reading or writing another user's rows, so every query must scope itself — `eq(users.id, user.id)` or a walk up the ownership chain — and the correctness of that is entirely application code. Getting one wrong is a data breach, not a bug. The ownership rules per resource are in `docs/MIGRATION-PROGRESS.md`; `backend/src/programming/service/programming-access.ts` is the worked example.
 
-When adding a feature, decide deliberately which path it takes — and note the two have opposite risk profiles: the direct path is RLS-constrained, while the backend holds a service-role key that bypasses RLS entirely.
+Two rules that fall out of this and are easy to get wrong:
 
-## The database schema is not in this repo
+- **Never take an actor id from the request body.** The caller comes from the verified token. `coach_id` on workout creation used to come from the client, which meant any user could attribute a workout to any coach.
+- **Prefer 404 over 403** when a caller has no claim on a resource. A 403 confirms the id names something real, which with enumerable ids leaks who is training or talking to whom.
 
-There are no migrations, no `.sql` files, and no Supabase CLI directory. The schema exists **only in the hosted Supabase project**, which means:
+## The database schema
 
-- There is no way to stand up a local database. Backend e2e tests hit the real remote project.
-- `docs/DB-SCHEMA.md` is a **reconstruction from application code**, not a source of truth.
-- **Never assume a column exists.** Confirm against `backend/src/users/entities/`, the DTOs, and existing `.select()` calls — or ask.
+The schema is **in the repo now**, as Drizzle:
+
+- `backend/src/db/schema.ts` — all 18 tables, hand-written rather than `drizzle-kit pull`ed, deliberately dropping the Supabase-isms (`users.id DEFAULT auth.uid()`, the trigger-populated email).
+- `backend/src/db/migrations/` — `0000` tables, `0001` the five views as plain SQL (Drizzle does not model views).
+- `backend/src/db/seed-reference-data.sql` — federations, divisions, weight classes.
+
+```bash
+cd backend && npm run db:up && npm run db:migrate && npm run db:seed && npm run db:verify
+```
+
+That gives you a **local Postgres on port 55440** — the local database story this project never had. `docs/DB-SCHEMA.md` is still useful prose but `schema.ts` is the source of truth.
 
 ## Conventions differ per package
 

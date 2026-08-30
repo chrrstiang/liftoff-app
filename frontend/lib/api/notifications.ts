@@ -1,38 +1,28 @@
-import { supabase } from "../supabase";
+import { api } from "@/lib/api/client";
+import type { CoachRequest } from "@/types";
 
-export async function fetchAthleteRequests(athleteId: string) {
-  console.log("athleteId: ", athleteId);
-  const { data, error } = await supabase
-    .from("user_coach_requests_view")
-    .select("*")
-    .eq("athlete_id", athleteId)
-    .eq("status", "pending")
-    .order("created_at", { ascending: false });
-
-  if (error) throw error;
-
-  return data;
+/** Coach invitations addressed to the caller.
+ *
+ * The `athleteId` parameter is gone: the API scopes this to the token holder, so
+ * an athlete can only ever see their own invitations. Previously the filter was
+ * client-supplied, which meant it was advisory — the anon key could read anyone's.
+ */
+export async function fetchAthleteRequests() {
+  return api.get<CoachRequest[]>("/coach-requests");
 }
 
-export async function respondToRequest(requestId: string, status: string) {
-  const { data: request, error: requestError } = await supabase
-    .from("coach_requests")
-    .update({ status })
-    .eq("id", requestId)
-    .select("coach_id, athlete_id")
-    .single();
-
-  if (requestError) throw requestError;
-
-  if (request && status === "accepted") {
-    const { error: relationshipError } = await supabase
-      .from("coach_athlete_relationships")
-      .insert({
-        athlete_id: request.athlete_id,
-        coach_id: request.coach_id,
-        status: "active",
-      });
-
-    if (relationshipError) throw relationshipError;
-  }
+/** Accepts or declines an invitation.
+ *
+ * ⚠️ **The relationship row is no longer created here.** The client used to
+ * update `coach_requests` and then insert into `coach_athlete_relationships`
+ * itself, taking the coach and athlete ids from the response — two unguarded
+ * writes where the second could name any pair at all. The API now derives the
+ * relationship from the stored request inside a transaction, so a partial accept
+ * (status updated, relationship missing) is no longer reachable either.
+ */
+export async function respondToRequest(
+  requestId: string,
+  status: "accepted" | "rejected",
+) {
+  await api.patch(`/coach-requests/${requestId}`, { status });
 }

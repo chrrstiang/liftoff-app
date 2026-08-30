@@ -28,7 +28,7 @@ export default function HomePage() {
   // fetching requests of athlete
   const { data: requests } = useQuery<CoachRequest[]>({
     queryKey: ["requests", user?.id],
-    queryFn: () => fetchAthleteRequests(user!.id),
+    queryFn: fetchAthleteRequests,
   });
 
   // workout to display on card

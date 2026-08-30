@@ -15,6 +15,7 @@ import {
   createWorkout,
   fetchAthleteWorkouts,
   fetchTemplateWorkouts,
+  type CreateWorkoutBody,
 } from "@/lib/api/workouts";
 import { useTheme } from "@/theme/useTheme";
 import {
@@ -160,7 +161,7 @@ function WorkoutModal({
   const { data: templateWorkouts = [], isLoading: templatesLoading } = useQuery(
     {
       queryKey: ["templateWorkouts", user?.id],
-      queryFn: () => (user?.id ? fetchTemplateWorkouts(user.id) : []),
+      queryFn: fetchTemplateWorkouts,
       enabled: !!user?.id,
     },
   );
@@ -490,18 +491,10 @@ export default function ProgramPage() {
 
   // mutation handling for workout creation
   const createWorkoutMutation = useMutation({
-    mutationFn: (body: {
-      name: string;
-      date: string;
-      athlete_id: string | null;
-      coach_id: string;
-      exercises: {
-        id: string;
-        name: string;
-        order: number;
-        sets: ExerciseFormSet[];
-      }[];
-    }) => createWorkout(body),
+    // `coach_id` is gone from this shape. It used to be read off the signed-in
+    // user and sent, which meant the *client* decided who a workout was
+    // attributed to; the API takes it from the token and rejects the field.
+    mutationFn: (body: CreateWorkoutBody) => createWorkout(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workouts", athleteId] });
       setShowWorkoutModal(false);
@@ -555,7 +548,6 @@ export default function ProgramPage() {
       name,
       date,
       athlete_id: athleteId,
-      coach_id: user.id,
       exercises,
     });
   };

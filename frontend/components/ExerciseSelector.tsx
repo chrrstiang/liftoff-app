@@ -34,7 +34,7 @@ export default function ExerciseSelector({
 
   const { data: templates = [] } = useQuery({
     queryKey: ["templateExercises", user?.id],
-    queryFn: () => (user?.id ? fetchExerciseTemplates(user.id) : []),
+    queryFn: fetchExerciseTemplates,
     enabled: !!user?.id,
   });
 

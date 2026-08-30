@@ -1,9 +1,9 @@
 import { api } from "@/lib/api/client";
-import type { RosterAthlete } from "@/types";
+import type { AthleteProfileView } from "@/types";
 
 /** The calling coach's roster. `coachId` is gone — the API scopes it to the token. */
 export async function fetchRoster() {
-  return api.get<RosterAthlete[]>("/coach-requests/roster");
+  return api.get<AthleteProfileView[]>("/coach-requests/roster");
 }
 
 /** Invites an athlete.

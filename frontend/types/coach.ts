@@ -1,6 +1,10 @@
 /** Coach-side shapes: the roster view and the invite flow. */
 
-/** A row from `coach_athletes_view` — the coach's roster. */
+/** A row of the coach's roster, from `GET /coach-requests/roster`.
+ *
+ * Named for the `coach_athletes_view` it used to come from. That view still
+ * exists in RDS, but the endpoint reproduces its join with the caller's id bound
+ * server-side rather than passed by the client. */
 export type AthleteProfileView = {
   coach_id: string;
   athlete_id: string;

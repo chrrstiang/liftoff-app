@@ -100,6 +100,23 @@ Revision 6 was registered and **no task ever ran it**; every later revision roll
 
 Two caveats on reproducing this: ECS retains stopped tasks for roughly an hour, so `describe-tasks` is useless after the fact — the durable evidence is CloudWatch log-stream creation times against `registeredAt`. And each stream spans only ~10 seconds because Nest logs its route table at boot and nothing per-request; that is not a crash loop.
 
+## ⚠️ The repo is inside iCloud Drive, and it breaks the toolchain
+
+`~/Desktop` is synced to iCloud (`~/Library/Mobile Documents/com~apple~CloudDocs/Desktop`), and the checkout lives at `~/Desktop/Projects/liftoff-app`. iCloud evicts file contents and leaves dataless placeholders that block or cancel on read — against a tree containing `.git` and `node_modules`, that is hundreds of thousands of candidates.
+
+Everything below was diagnosed as a separate mystery before the common cause turned up. If any of it recurs, check the folder location **first**:
+
+| Symptom | Actual cause |
+|---|---|
+| `git push` / `git fetch` hang forever with no output | reads of `.git` pack files cancelled — surfaced once as `mmap failed: Operation canceled` |
+| `expo start` dies with `ECANCELED: operation canceled, read` | a `node_modules` file evicted mid-read |
+| `git show HEAD~1:file` times out but `git rev-parse HEAD` is instant | one reads a loose object from disk, the other reads a tiny ref |
+| `tsc --noEmit` never finishes; elapsed time advances ~18s over 20 minutes of wall clock | blocked on file reads, not CPU-starved |
+| Xcode's git indexer stuck >70 minutes on `git log -n 1000` | scanning an iCloud-backed working tree |
+| Repeated stale `.git/index.lock` | git processes killed mid-operation |
+
+**The fix is to move the repo off `~/Desktop`** (e.g. `~/Projects`), or disable Desktop & Documents sync. Until then, `git push` does not work from this machine — the flip branch and its fix were both created through the **GitHub REST API** (blobs → tree → commit → ref, based on `origin/main`, which also serves as the rebase). That workaround is in the session history; it is not something to institutionalise.
+
 ## The API surface is complete
 
 Every one of the seven `lib/api/*` modules now has endpoints to call. Merged as #24:

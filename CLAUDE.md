@@ -71,7 +71,7 @@ From `.github/workflows/ci.yml` — Node 20. These must pass:
 
 Feature-branch pushes skip e2e, so e2e breakage first surfaces at PR time. Run `/ci-check` to reproduce the gates locally.
 
-⚠️ **A green `backend-e2e` job doesn't mean e2e passed.** The job checks for the `SUPABASE_PROJECT_URL` / `SUPABASE_SECRET_KEY` secrets and skips its remaining steps with a workflow warning if either is missing — without that gate every spec fails identically at `SupabaseService` construction and the job is permanently red. Look for the "E2E skipped" warning before trusting the check.
+⚠️ **A green `backend-e2e` job doesn't mean e2e passed.** The job checks for the `SUPABASE_PROJECT_URL` / `SUPABASE_SECRET_KEY` secrets and skips its remaining steps with a workflow warning if either is missing — without that gate every spec fails identically at `SupabaseService` construction and the job is permanently red. It then probes `$SUPABASE_PROJECT_URL/auth/v1/health` and skips the same way if nothing answers — the secrets stay set when a free-tier project pauses, and the run used to die instead with an opaque `TypeError: fetch failed` in the sweeper. Look for the "E2E skipped" warning before trusting the check.
 
 **Nothing in CI can catch a dead Tailwind class**, which is how the frontend shipped for months with light mode entirely unimplemented. See the verification section in `frontend/CLAUDE.md`.
 

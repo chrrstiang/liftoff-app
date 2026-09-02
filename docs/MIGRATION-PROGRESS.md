@@ -97,11 +97,24 @@ Two smaller things the same run found:
   branching. Now keyed on `is_athlete` rather than `is_coach`, because the two are not
   exclusive in the schema — someone who coaches *and* lifts should still read the
   athlete copy.
-- **PKCE silently degrades.** Metro logs `WebCrypto API is not supported. Code challenge
-  method will default to use plain instead of sha256` on every launch. `lib/supabase.ts`
-  asks for `flowType: "pkce"`; without WebCrypto the challenge is not hashed. Unconfirmed
-  whether this also happens in a release build rather than only Expo Go — worth checking
-  before it matters.
+- **PKCE silently degrades — inert today, a trap the moment anyone adds a link-based
+  login.** Metro logs `WebCrypto API is not supported. Code challenge method will default
+  to use plain instead of sha256` on every launch, and `lib/supabase.ts` does ask for
+  `flowType: "pkce"`.
+
+  **It does not currently matter.** A code challenge only protects the
+  authorization-code flow, and this app never runs one: the only auth calls are
+  `signUp`, `signInWithPassword`, `signOut`, `getSession` and `onAuthStateChange`.
+  There is no `signInWithOAuth`, `signInWithOtp`, `exchangeCodeForSession`,
+  `resetPasswordForEmail` or `verifyOtp` anywhere in the app, magic-link auth was
+  removed, and signup returns a session directly because confirmations are off. A
+  password grant has no code to intercept.
+
+  **It starts mattering the day someone adds "forgot password" or Google sign-in**,
+  and it will do so silently — the flow will work, just with a `plain` challenge,
+  which gives away exactly the protection PKCE exists to provide. Whoever adds that
+  flow needs a WebCrypto polyfill in the same change. That means a new dependency,
+  so it is a decision rather than a cleanup.
 
 ### The ownership rules now have assertions
 
@@ -248,6 +261,35 @@ Applied 2026-08-20 via a one-off Fargate task in the VPC: **18 tables, 5 views, 
 **The split works.** Supabase for auth, RDS for data, through the deployed service.
 
 One leftover: a single test `users` row in RDS (`0e599b99-5170-4991-b2c6-41d8f14c979d`). Harmless in an otherwise empty database; RDS is not reachable from a laptop, and spinning a Fargate task to delete one row is not worth it.
+
+### Test data still in production, and why it is being left there
+
+The 2026-08-31 verification run created four accounts. Auth users and RDS rows both
+exist for each, which is a *consistent* state — so **delete them together or not at
+all.** Removing the auth half alone would manufacture exactly the orphan problem the
+sweeper exists to prevent, and RDS still is not reachable from a laptop.
+
+| Account | id |
+|---|---|
+| `liftoff-verify-coach-20260830@example.com` | `25fe8d97-305e-402e-9a06-a6a60350303f` |
+| `liftoff-verify-athlete-20260830@example.com` | `efc8d4a9-6b02-43de-8af6-d09b229307eb` |
+| `liftoff-verify-outsider-20260830@example.com` | `c636b0fd-d80f-4c30-92ec-6eee3eb917a0` |
+| `liftoff-verify-coach2-20260830@example.com` | `6ed57235-7d2c-4782-b060-a5c8b6d13fbf` |
+
+They also own: one accepted coach request and its relationship, one conversation with
+one message, one exercise, two workouts (one template, one assigned), and one logged
+set. Clear them alongside `0e599b99…` next time a Fargate task is running for another
+reason.
+
+**Two things worth knowing that this inventory settled:**
+
+- **There are still zero real users.** All four auth users are the verification
+  accounts. That is what makes the outstanding authorization review a soft block
+  rather than an emergency — but it also means it must happen *before* the first real
+  signup, not after.
+- **The e2e sweeper is genuinely working.** Zero `e2e-` fixtures remain after a full
+  local suite plus a CI run, which is the first direct evidence of that since the
+  60-orphan leak.
 
 
 ## Follow-ups worth doing

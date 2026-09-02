@@ -13,8 +13,8 @@ Living status for the move off Supabase Postgres to RDS behind the API. Update i
 | Week 2 — endpoint port (3 existing) | ✅ merged |
 | Week 3 — deploy | ✅ done — and the rollout check is now honest (third attempt, see below) |
 | Week 4 — new endpoints | ✅ **all built and merged** — coach invites, messaging, programming |
-| Week 4 — frontend flip | 🔄 committed and pushed; **unverified** — see below |
-| Week 5 — feature | ⛔ blocked (needs a product decision) |
+| Week 4 — frontend flip | ✅ **verified in a simulator on 2026-08-31** — and it took one blocking bug with it, see below |
+| Week 5 — feature | ⚠️ the recommended scope shipped in #26; what remains is a product decision, not a blocker |
 
 ## Live infrastructure
 
@@ -64,6 +64,81 @@ The two rollback rows are the ones that matter: under the old compensating-delet
 
 I do not know the precise mechanism by which orphans broke the trigger, and I am not going to claim one. The empirical result stands.
 
+## The flip is verified, and it was hiding a bug that locked out every returning user
+
+Run on 2026-08-31 against two iPhone simulators and the **deployed** API, not a local one.
+
+**`AuthContext`'s `onAuthStateChange` callback deadlocked on app restart.** The callback
+was `async` and awaited `loadProfile()`, which reaches `supabase.auth.getSession()` in
+`lib/api/client.ts` to read the bearer token. supabase-js dispatches that callback while
+holding its own internal lock, and `getSession()` waits for the same lock — so the
+callback never reached its final `setIsLoading(false)` and the gate in `app/_layout.tsx`
+spun forever.
+
+It fired on `INITIAL_SESSION`, which is emitted from inside the lock while restoring a
+persisted session. **So it hit every launch after the first, for every user**, while
+signing up or signing in *fresh* worked perfectly — which is exactly why it survived
+development and every review. The fix defers the load to a macrotask so the lock
+releases first.
+
+Proved by controlled experiment rather than inference: same build, same Metro, same API,
+the only variable being whether a session was stored. Stored → spinner for 45 minutes.
+Storage cleared → login screen in seconds.
+
+**Nothing in CI could have caught this.** It is not a type error, not a lint error, and
+no mocked spec exercises the real supabase-js lock. It needs a running app that has been
+opened twice. That is the same class of gap as the dead Tailwind classes: the honest
+conclusion is that this project needs a "cold start with a restored session" check
+before any release, and there is currently no automation for it.
+
+Two smaller things the same run found:
+
+- **`home.tsx` told coaches to wait for their coach.** One hardcoded empty state, no role
+  branching. Now keyed on `is_athlete` rather than `is_coach`, because the two are not
+  exclusive in the schema — someone who coaches *and* lifts should still read the
+  athlete copy.
+- **PKCE silently degrades — inert today, a trap the moment anyone adds a link-based
+  login.** Metro logs `WebCrypto API is not supported. Code challenge method will default
+  to use plain instead of sha256` on every launch, and `lib/supabase.ts` does ask for
+  `flowType: "pkce"`.
+
+  **It does not currently matter.** A code challenge only protects the
+  authorization-code flow, and this app never runs one: the only auth calls are
+  `signUp`, `signInWithPassword`, `signOut`, `getSession` and `onAuthStateChange`.
+  There is no `signInWithOAuth`, `signInWithOtp`, `exchangeCodeForSession`,
+  `resetPasswordForEmail` or `verifyOtp` anywhere in the app, magic-link auth was
+  removed, and signup returns a session directly because confirmations are off. A
+  password grant has no code to intercept.
+
+  **It starts mattering the day someone adds "forgot password" or Google sign-in**,
+  and it will do so silently — the flow will work, just with a `plain` challenge,
+  which gives away exactly the protection PKCE exists to provide. Whoever adds that
+  flow needs a WebCrypto polyfill in the same change. That means a new dependency,
+  so it is a decision rather than a cleanup.
+
+### The ownership rules now have assertions
+
+`test/coaching/coaching-messaging.e2e-spec.ts` covers both slices. Before writing it, the
+same rules were exercised by hand against the deployed API with four real accounts, which
+is where these came from — every negative case returns **404, not 403**, so a caller
+cannot confirm that an id names anything real:
+
+| Attempt | Result |
+|---|---|
+| non-coach sends an invite | 403 |
+| coach accepts their *own* invite | 404 |
+| outsider responds to someone else's invite | 404 |
+| outsider reads / posts / marks-read a thread they are not in | 404 |
+| unrelated coach assigns to another coach's athlete | 403 "not on your roster" |
+| outsider reads an athlete's workouts | 404 |
+| outsider logs a set on someone else's workout | 404 |
+| `coach_id` in the workout body | 400 |
+| malformed uuid | 400, not 500 |
+
+Also confirmed in production: the **template list works** — it returns the template and
+not the assigned workout, with `is_template` correctly derived — and `POST /conversations`
+is **idempotent**, returning the existing id with "Conversation already exists."
+
 ## The deploy check has been wrong three times. Read this before editing it.
 
 Each fix decayed into the next failure, and the pattern is identical every time: the signal was something that *happened to* differ between the old container and the new one when it was written, and then stopped differing.
@@ -100,11 +175,20 @@ Revision 6 was registered and **no task ever ran it**; every later revision roll
 
 Two caveats on reproducing this: ECS retains stopped tasks for roughly an hour, so `describe-tasks` is useless after the fact — the durable evidence is CloudWatch log-stream creation times against `registeredAt`. And each stream spans only ~10 seconds because Nest logs its route table at boot and nothing per-request; that is not a crash loop.
 
-## ⚠️ The repo is inside iCloud Drive, and it breaks the toolchain
+## ~~The repo is inside iCloud Drive~~ — FIXED, but keep the symptom table
 
-`~/Desktop` is synced to iCloud (`~/Library/Mobile Documents/com~apple~CloudDocs/Desktop`), and the checkout lives at `~/Desktop/Projects/liftoff-app`. iCloud evicts file contents and leaves dataless placeholders that block or cancel on read — against a tree containing `.git` and `node_modules`, that is hundreds of thousands of candidates.
+**The checkout now lives at `~/Projects/liftoff-app` and every symptom below is gone.**
+For scale: `npm install` in `frontend/` finishes in 13 seconds there, and `tsc --noEmit`
+completes at all — under iCloud it advanced 18 seconds of elapsed time over 20 minutes of
+wall clock and never finished. `git push` works normally, so the GitHub REST API
+workaround described at the end of this section is history.
 
-Everything below was diagnosed as a separate mystery before the common cause turned up. If any of it recurs, check the folder location **first**:
+The table is kept because each symptom was diagnosed as its own mystery before the common
+cause turned up. If any of it recurs, check the folder location **first**.
+
+`~/Desktop` is synced to iCloud (`~/Library/Mobile Documents/com~apple~CloudDocs/Desktop`), and the checkout used to live at `~/Desktop/Projects/liftoff-app`. iCloud evicts file contents and leaves dataless placeholders that block or cancel on read — against a tree containing `.git` and `node_modules`, that is hundreds of thousands of candidates.
+
+The symptoms were:
 
 | Symptom | Actual cause |
 |---|---|
@@ -115,7 +199,7 @@ Everything below was diagnosed as a separate mystery before the common cause tur
 | Xcode's git indexer stuck >70 minutes on `git log -n 1000` | scanning an iCloud-backed working tree |
 | Repeated stale `.git/index.lock` | git processes killed mid-operation |
 
-**The fix is to move the repo off `~/Desktop`** (e.g. `~/Projects`), or disable Desktop & Documents sync. Until then, `git push` does not work from this machine — the flip branch and its fix were both created through the **GitHub REST API** (blobs → tree → commit → ref, based on `origin/main`, which also serves as the rebase). That workaround is in the session history; it is not something to institutionalise.
+The fix was to move the repo off `~/Desktop`; disabling Desktop & Documents sync would also have worked. While it was broken `git push` did not work from this machine at all, and the flip branch and its fix were both created through the **GitHub REST API** (blobs → tree → commit → ref, based on `origin/main`, which also served as the rebase). That workaround is in the session history and should stay there — it is not something to institutionalise, and it is no longer needed.
 
 ## The API surface is complete
 
@@ -150,7 +234,7 @@ One thing worth knowing before someone "fixes" it: **`GET /users/me` returning 4
 | **Week-5 feature** | Product decision, not a technical one. Recommendation: finish the coach↔athlete loop (conversation-creation UI, template list) rather than start something new. |
 | **Authorization review** | Not a hard block (no users yet), but with no RLS the API is the entire trust boundary and a wrong ownership check is a breach. Wants human eyes before real signups. |
 
-**No longer blocked:** the frontend flip. Xcode and the iPhone 17 simulators are installed, and the endpoints it needs to target now exist.
+**No longer blocked, and now done:** the frontend flip was verified in a simulator on 2026-08-31. See the section above for what that found.
 
 ## Fixed along the way
 
@@ -178,13 +262,66 @@ Applied 2026-08-20 via a one-off Fargate task in the VPC: **18 tables, 5 views, 
 
 One leftover: a single test `users` row in RDS (`0e599b99-5170-4991-b2c6-41d8f14c979d`). Harmless in an otherwise empty database; RDS is not reachable from a laptop, and spinning a Fargate task to delete one row is not worth it.
 
+### Test data still in production, and why it is being left there
+
+The 2026-08-31 verification run created four accounts. Auth users and RDS rows both
+exist for each, which is a *consistent* state — so **delete them together or not at
+all.** Removing the auth half alone would manufacture exactly the orphan problem the
+sweeper exists to prevent, and RDS still is not reachable from a laptop.
+
+| Account | id |
+|---|---|
+| `liftoff-verify-coach-20260830@example.com` | `25fe8d97-305e-402e-9a06-a6a60350303f` |
+| `liftoff-verify-athlete-20260830@example.com` | `efc8d4a9-6b02-43de-8af6-d09b229307eb` |
+| `liftoff-verify-outsider-20260830@example.com` | `c636b0fd-d80f-4c30-92ec-6eee3eb917a0` |
+| `liftoff-verify-coach2-20260830@example.com` | `6ed57235-7d2c-4782-b060-a5c8b6d13fbf` |
+
+They also own: one accepted coach request and its relationship, one conversation with
+one message, one exercise, two workouts (one template, one assigned), and one logged
+set. Clear them alongside `0e599b99…` next time a Fargate task is running for another
+reason.
+
+**Two things worth knowing that this inventory settled:**
+
+- **There are still zero real users.** All four auth users are the verification
+  accounts. That is what makes the outstanding authorization review a soft block
+  rather than an emergency — but it also means it must happen *before* the first real
+  signup, not after.
+- **The e2e sweeper is genuinely working.** Zero `e2e-` fixtures remain after a full
+  local suite plus a CI run, which is the first direct evidence of that since the
+  60-orphan leak.
+
 
 ## Follow-ups worth doing
 
 - **Commit the integration checks.** The `createUserProfile` assertions above were run by hand against `docker compose` Postgres. CI now has a database, so they can become a committed suite. The programming slice does this properly — `test/programming/programming.e2e-spec.ts` is committed and runs in CI.
-- **`JwtAuthGuard` → local JWKS.** Still a network round trip to Supabase on every request.
-- **Coach invites and messaging have no committed tests.** Their 32 ownership rules were verified by hand against the live API and were never turned into specs, unlike programming's. That verification is not repeatable and does not run in CI.
-- **`DIRECT_USER_REFERENCES` in `test/helpers/fixtures.ts` is dead.** The real cleanup list is the `statements` array below it. A dead const that looks authoritative is worse than none — someone will add a table to it and assume it took effect.
+- ~~**`JwtAuthGuard` → local JWKS.**~~ **Done in #27** — it verifies HS256 locally when `SUPABASE_JWT_SECRET` is set. The project's JWKS endpoint returns `{"keys":[]}`, so the tokens are symmetric and node's `crypto` is enough; no new dependency. It still falls back to a remote `getUser()` when the secret is absent, so **check that the deployed task definition actually sets it** — without it every authenticated request is still coupled to Supabase's uptime.
+- ~~**Coach invites and messaging have no committed tests.**~~ **Done** — `test/coaching/coaching-messaging.e2e-spec.ts`. Note it deliberately shares one file, and three auth users, across both slices: Supabase signup is rate-limited per hour and cumulative across CI runs, and it is the only dependency still on the shared project.
+- **The frontend has no automated check for a cold start with a restored session.** That is the exact shape of the deadlock above, and lint plus type-check cannot see it. Until something covers it, open the app twice by hand before releasing.
+- **`DIRECT_USER_REFERENCES` in `test/helpers/fixtures.ts` is dead.** The real cleanup list is the `statements` array below it. A dead const that looks authoritative is worse than none — someone will add a table to it and assume it took effect. `backend/CLAUDE.md` still tells you to add new tables to it, which is wrong for the same reason.
+
+### The sweeper could not clean up conversations, and said nothing
+
+Found while landing the coaching spec. `conversations` has **no user column to key
+off** — deliberately, so that `POST /conversations` owns membership rather than the
+client — so the user-keyed sweep could never reach the row. Every messaging fixture
+orphaned one. Exactly the shape of the Supabase `public.users` leak above: a table
+nothing was responsible for.
+
+It now sweeps conversations with no members *and* no messages, which is unreachable
+by anyone whatever created it. Both guards matter — a surviving message means a
+participant outside the sweep, and that conversation is still real data.
+
+Two things this exposed about the harness, worth remembering:
+
+- **`db.query(text, [userIds])` was unconditional**, so a statement that does not
+  reference `$1` fails with `bind message supplies 1 parameters, but prepared
+  statement requires 0`. It now binds only when the text uses it.
+- **That failure is invisible.** Sweep errors are collected into `problems` and
+  logged rather than failing the run — correct, since a teardown error should not
+  mask a real test result, but it means a broken cleanup statement looks exactly
+  like a working one. The leak was only caught by counting rows in the database
+  afterwards. Do that when adding a fixture, rather than trusting a green run.
 
 ## Testing the endpoints: what proves what
 
@@ -216,6 +353,7 @@ With RLS gone, these are application code and are the actual deliverable of each
 ## Notes worth keeping
 
 - `users.id` no longer defaults to `auth.uid()`, and the Supabase trigger that created `public.users` rows at signup does not come with us. **The API owns profile-row creation on first login.**
-- `JwtAuthGuard` still calls Supabase Auth on every request. Once auth is the only remote hop, swap it for local JWKS verification.
+- ~~`JwtAuthGuard` still calls Supabase Auth on every request.~~ Local HS256 verification landed in #27; the remote call is now only the fallback when `SUPABASE_JWT_SECRET` is unset.
+- **Never await a Supabase auth method inside `onAuthStateChange`.** The callback runs while the client holds its own lock, so `getSession()` inside it deadlocks. Defer to a macrotask. See the flip-verification section for what this cost.
 - ~~`is_template` has no default, which is why the template list is always empty.~~ **Decided:** a workout is a template exactly when `athlete_id is null`, and `POST /workouts` writes the column rather than accepting it. `listTemplates` also filters on `athlete_id is null` so rows predating the fix still appear.
 - `user_conversations_view` emits one row per (conversation, member); callers must filter by `user_id`.

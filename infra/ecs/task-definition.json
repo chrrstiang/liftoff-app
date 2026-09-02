@@ -67,6 +67,10 @@
         {
           "name": "SUPABASE_SECRET_KEY",
           "valueFrom": "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_SECRET_KEY"
+        },
+        {
+          "name": "SUPABASE_JWT_SECRET",
+          "valueFrom": "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_JWT_SECRET"
         }
       ],
       "logConfiguration": {

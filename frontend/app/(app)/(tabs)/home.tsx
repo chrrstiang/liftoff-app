@@ -19,6 +19,12 @@ export default function HomePage() {
 
   const [showNotifications, setShowNotifications] = useState(false);
 
+  /** A coach who does not also train has no assigned workouts of their own, so the
+   * athlete-facing empty state told them to wait for their own coach. Keyed on
+   * `is_athlete` rather than `is_coach` because the two are not exclusive in the
+   * schema — someone who coaches *and* lifts should still read the athlete copy. */
+  const isCoachOnly = !!profile?.is_coach && !profile?.is_athlete;
+
   // fetching workouts of athlete
   const { data: workouts } = useQuery({
     queryKey: ["workouts", user?.id],
@@ -107,7 +113,11 @@ export default function HomePage() {
           <EmptyState
             icon={CalendarDays}
             title="Nothing scheduled"
-            body="When your coach assigns a workout, it shows up here."
+            body={
+              isCoachOnly ?
+                "Workouts you assign show up on your athlete's home screen. Open Roster to program for someone."
+              : "When your coach assigns a workout, it shows up here."
+            }
           />
         </View>
       )}

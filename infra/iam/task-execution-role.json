@@ -10,7 +10,15 @@
     "",
     "Attach the AWS managed policy AmazonECSTaskExecutionRolePolicy as well; it",
     "covers ECR pull and CloudWatch Logs. This inline policy adds only the secret",
-    "reads, scoped to the two parameters this service actually needs.",
+    "reads, scoped to the three parameters this service actually needs.",
+    "",
+    "The parameters are listed individually rather than as /liftoff/prod/*. That is",
+    "deliberate -- a wildcard would silently grant every future parameter under the",
+    "prefix -- but it means ADDING A SECRET TO THE TASK DEFINITION IS NOT ENOUGH.",
+    "Miss this file and the task cannot start, surfacing as the",
+    "'ResourceInitializationError: unable to pull secrets' below rather than as an",
+    "IAM error. Order is: create the parameter, grant it here, then reference it in",
+    "ecs/task-definition.json.",
     "",
     "The kms:Decrypt statement is required because the parameters are SecureString.",
     "Even with the default aws/ssm key, the caller needs Decrypt -- omitting it is",
@@ -30,7 +38,8 @@
       ],
       "Resource": [
         "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_PROJECT_URL",
-        "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_SECRET_KEY"
+        "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_SECRET_KEY",
+        "arn:aws:ssm:us-east-2:582908772109:parameter/liftoff/prod/SUPABASE_JWT_SECRET"
       ]
     },
     {

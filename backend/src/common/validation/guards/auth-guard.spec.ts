@@ -53,10 +53,7 @@ describe('JwtAuthGuard', () => {
   };
 
   /** An unexpired token carrying the standard claims, plus any overrides. */
-  const validToken = (
-    overrides: Record<string, unknown> = {},
-    options: SignOptions = {},
-  ): string =>
+  const validToken = (overrides: Record<string, unknown> = {}, options: SignOptions = {}): string =>
     sign({ ...baseClaims, exp: Math.floor(Date.now() / 1000) + 3600, ...overrides }, options);
 
   /** Compiles a guard with the given environment. */

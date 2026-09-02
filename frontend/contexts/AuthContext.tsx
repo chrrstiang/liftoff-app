@@ -116,7 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setIsLoading(true);
 
       setSession(session);
@@ -124,14 +124,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(session?.user || null);
 
       if (session?.user) {
-        // One call, not two. These were separate reads of the same row, so the
-        // second could observe a different state than the first — and both had to
-        // finish before the gate could decide anything.
-        await loadProfile();
-      } else {
-        setProfile(null);
-        setIsProfileComplete(false);
+        // ⚠️ **Never await a Supabase auth call inside this callback.** It is
+        // dispatched while the auth client holds its internal lock, and
+        // `loadProfile` reaches `supabase.auth.getSession()` (client.ts) to read
+        // the bearer token — which waits for that same lock. The callback then
+        // never reaches `setIsLoading(false)`, so the gate in app/_layout.tsx
+        // spins forever.
+        //
+        // This deadlocked on *every returning user*: `INITIAL_SESSION` is emitted
+        // from inside the lock while restoring a persisted session, so the app
+        // hung on the splash spinner on every launch after the first. Signing up
+        // or signing in fresh was unaffected, which is why it survived
+        // development — you only hit it by reopening the app.
+        //
+        // Deferring to a macrotask lets the lock release first. The load is still
+        // one call, not two: separate reads of the same row could observe
+        // different states, and both had to finish before the gate could decide.
+        setTimeout(() => {
+          void loadProfile().finally(() => setIsLoading(false));
+        }, 0);
+        return;
       }
+
+      setProfile(null);
+      setIsProfileComplete(false);
       setIsLoading(false);
     });
 

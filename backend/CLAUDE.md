@@ -139,7 +139,12 @@ Anything off-allowlist throws `BadRequestException`. `PUBLIC_PROFILE_QUERY` is t
 - **`maxWorkers: 1`** in `test/jest-e2e.json`. Spec files used to run in parallel processes mutating live data; at ~20 specs that also trips Supabase's auth signup rate limit, which presents as flaky red CI that looks like a code bug.
 - **Look reference data up at runtime** via `findReferenceData`. `users.e2e-spec.ts` hardcoded federation/division/weight-class UUIDs, which pinned CI to specific production rows — reference data could never be reseeded, and CI could never be fixed by deleting rows real users point at.
 
-Adding a table to a spec means adding it to `DIRECT_USER_REFERENCES` in `fixtures.ts`, or its rows leak.
+Adding a table to a spec means adding a `delete` to the **`statements` array** in `sweepForUserIds` (`fixtures.ts`), or its rows leak. ⚠️ **Not `DIRECT_USER_REFERENCES`** — that const sits directly above `statements`, looks authoritative, and is dead. Adding a table to it does nothing.
+
+Two traps in that array, both learned the hard way:
+
+- **A statement that does not reference `$1` must not be bound one.** The runner passes `[userIds]` only when the text uses it; binding a parameter the statement ignores fails with `bind message supplies 1 parameters, but prepared statement requires 0`.
+- **Sweep failures do not fail the run.** They are collected into `problems` and logged, so that a teardown error cannot mask a real test result. The consequence is that a broken cleanup statement looks exactly like a working one. **After adding a fixture, count the rows in the database** rather than trusting a green run — that is the only way the orphaned `conversations` leak was found.
 
 ⚠️ **A green `backend-e2e` job does not mean e2e passed.** The job checks for the `SUPABASE_PROJECT_URL` / `SUPABASE_SECRET_KEY` repository secrets first and skips its remaining steps if either is absent, emitting a workflow warning. Without that gate every spec fails identically at `SupabaseService` construction and the job is permanently red, which is worse than no signal. A second gate then probes `$SUPABASE_PROJECT_URL/auth/v1/health` and skips the same way if nothing answers at all — present secrets do not mean a reachable project, and a paused one used to sail past the presence check and die in the sweeper with an opaque `TypeError: fetch failed`. Open the run and look for the "E2E skipped" warning before trusting the check mark.
 

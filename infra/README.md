@@ -42,9 +42,35 @@ aws ssm put-parameter --profile liftoff --region us-east-2 \
 aws ssm put-parameter --profile liftoff --region us-east-2 \
   --name /liftoff/prod/SUPABASE_SECRET_KEY --type SecureString \
   --value "<service-role key>"
+
+aws ssm put-parameter --profile liftoff --region us-east-2 \
+  --name /liftoff/prod/SUPABASE_JWT_SECRET --type SecureString \
+  --value "<JWT secret: dashboard -> Settings -> API -> JWT Secret>"
 ```
 
 Prefix the command with a space so the secret stays out of shell history. Supabase keeps only auth after the port, but the key is still the service-role key — treat it accordingly.
+
+⚠️ **Adding a runtime secret touches three places, in this order.** The execution
+role lists parameters individually rather than as `/liftoff/prod/*`, so the task
+definition alone is not enough:
+
+1. `aws ssm put-parameter` — the parameter must exist first.
+2. `iam/task-execution-role.json` — add the ARN to `ReadRuntimeSecrets`, and apply
+   it to the live role with `aws iam put-role-policy`.
+3. `ecs/task-definition.json` — add the `secrets` entry.
+
+Do (3) before (1) and (2) and the task cannot start: it surfaces as
+`ResourceInitializationError: unable to pull secrets`, which reads like a missing
+parameter rather than a missing grant. Because `ecs/task-definition.json` is in
+the deploy workflow's trigger paths, merging that change is what launches the
+deploy — so it must land last.
+
+`SUPABASE_JWT_SECRET` is the worked example: #27 shipped local JWT verification,
+but nothing added the parameter, so the guard logged `SUPABASE_JWT_SECRET is not
+set — falling back to a remote supabase.auth.getUser()` on every boot for three
+days. The capability was live in the image and inert in production. **Verify a
+secret landed by reading the container's own startup log, not the task
+definition.**
 
 ### 2. IAM roles
 

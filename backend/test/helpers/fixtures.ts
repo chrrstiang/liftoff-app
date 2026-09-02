@@ -305,6 +305,20 @@ async function sweepForUserIds(supabase: SupabaseClient, userIds: string[]): Pro
     ['workouts', 'delete from workouts where athlete_id = any($1) or coach_id = any($1)'],
     ['messages', 'delete from messages where user_id = any($1)'],
     ['conversation_members', 'delete from conversation_members where user_id = any($1)'],
+    // `conversations` has no user column to key off — deliberately, so that
+    // POST /conversations owns membership rather than the client. That makes the
+    // row unreachable by the sweep above, and every messaging fixture orphaned one.
+    //
+    // A conversation with no members and no messages is unreachable by anyone, so
+    // deleting it is safe whatever created it. Both guards matter: a surviving
+    // message means a participant outside this sweep, and that conversation is
+    // still real data.
+    [
+      'conversations',
+      `delete from conversations c
+       where not exists (select 1 from conversation_members m where m.conversation_id = c.id)
+         and not exists (select 1 from messages msg where msg.conversation_id = c.id)`,
+    ],
     [
       'coach_requests',
       'delete from coach_requests where athlete_id = any($1) or coach_id = any($1)',
@@ -329,7 +343,13 @@ async function sweepForUserIds(supabase: SupabaseClient, userIds: string[]): Pro
 
   for (const [table, text] of statements) {
     try {
-      await db.query(text, [userIds]);
+      // Not every statement is user-keyed — the conversations sweep matches on
+      // orphanhood, because that table has no user column to match on. Binding a
+      // parameter a statement never references is a hard error from node-postgres
+      // ("bind message supplies 1 parameters, but prepared statement requires 0"),
+      // and it lands in `problems` rather than failing the run, so it is easy to
+      // miss. Only bind when the text actually uses it.
+      await db.query(text, text.includes('$1') ? [userIds] : []);
     } catch (error) {
       problems.push(`${table}: ${(error as Error).message}`);
     }

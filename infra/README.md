@@ -48,6 +48,8 @@ aws ssm put-parameter --profile liftoff --region us-east-2 \
   --value "<JWT secret: dashboard -> Settings -> API -> JWT Secret>"
 ```
 
+Prefix the command with a space so the secret stays out of shell history. Supabase keeps only auth after the port, but the key is still the service-role key — treat it accordingly.
+
 ⚠️ **Adding a runtime secret touches three places, in this order.** The execution
 role lists parameters individually rather than as `/liftoff/prod/*`, so the task
 definition alone is not enough:
@@ -69,8 +71,6 @@ set — falling back to a remote supabase.auth.getUser()` on every boot for thre
 days. The capability was live in the image and inert in production. **Verify a
 secret landed by reading the container's own startup log, not the task
 definition.**
-
-Prefix the command with a space so the secret stays out of shell history. Supabase keeps only auth after the port, but the key is still the service-role key — treat it accordingly.
 
 ### 2. IAM roles
 

@@ -436,4 +436,61 @@ describe('Coaching and messaging (e2e)', () => {
       });
     });
   });
+
+  /** Every rule above is stated in terms of *who the caller is*, which presumes the
+   * guard ran at all. Nothing in this file asserted that, so a route accidentally
+   * declared without `@UseGuards(JwtAuthGuard)` would have passed the whole suite —
+   * `req.user` would be undefined and each ownership check would compare against
+   * undefined rather than reject. That is not hypothetical: six routes shipped
+   * unguarded on `CoachController`. See docs/AUTHORIZATION.md.
+   *
+   * One reader and one writer per resource is enough to catch a missing guard; the
+   * per-route ownership rules are covered above. */
+  describe('authentication', () => {
+    const server = () => app.getHttpServer() as Server;
+
+    const unauthenticated: Array<[string, () => request.Test]> = [
+      ['GET /coach-requests', () => request(server()).get('/coach-requests')],
+      ['GET /coach-requests/roster', () => request(server()).get('/coach-requests/roster')],
+      [
+        'POST /coach-requests',
+        () => request(server()).post('/coach-requests').send({ athlete_id: athlete.userId }),
+      ],
+      ['GET /conversations', () => request(server()).get('/conversations')],
+      [
+        'POST /conversations',
+        () => request(server()).post('/conversations').send({ participant_id: athlete.userId }),
+      ],
+      [
+        'GET /conversations/:id/messages',
+        () => request(server()).get(`/conversations/${conversationId}/messages`),
+      ],
+      [
+        'POST /conversations/:id/messages',
+        () =>
+          request(server())
+            .post(`/conversations/${conversationId}/messages`)
+            .send({ content: 'unauthenticated' }),
+      ],
+    ];
+
+    test.each(unauthenticated)('%s 401s without a token', async (_name, call) => {
+      const res = await call().expect(401);
+      expect(res.body.message).toBe('No token provided');
+    });
+
+    it('401s with a malformed token rather than treating it as anonymous', async () => {
+      await request(server())
+        .get('/coach-requests')
+        .set('Authorization', 'Bearer not-a-real-token')
+        .expect(401);
+    });
+
+    it('did not write the unauthenticated message', async () => {
+      // A 401 that still persisted the row would pass the table above.
+      const res = await as(coach).get(`/conversations/${conversationId}/messages`).expect(200);
+      const contents = res.body.map((m: { content: string }) => m.content);
+      expect(contents).not.toContain('unauthenticated');
+    });
+  });
 });

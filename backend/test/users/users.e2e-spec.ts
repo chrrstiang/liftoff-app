@@ -323,4 +323,215 @@ describe('UsersController (e2e)', () => {
       expect(response.body.message).toContain('Federation is required to validate weight class');
     });
   });
+
+  /** Three auth users for both describes below, created once.
+   *
+   * ⚠️ Not one per test, deliberately. The header of this file explains why: auth is
+   * the only dependency still on the shared Supabase project, its signup limit is
+   * per-hour and cumulative across CI runs, and when tripped it reports "Database
+   * error creating new user" — which reads like a broken trigger, not throttling.
+   * Creating a user per test is what made this suite flaky in the first place, and
+   * the fix was to stop. Ten new signups here would have quietly undone it.
+   *
+   * - `newcomer` never gets a profile. That is the whole point of it.
+   * - `profiled` is the happy-path subject.
+   * - `other` is the second party for the isolation and uniqueness checks. */
+  let newcomer: TestUser;
+  let profiled: TestUser;
+  let other: TestUser;
+
+  /** Writes a complete profile for `user` and returns the username it used. */
+  const createProfileFor = async (user: TestUser) => {
+    await request(app.getHttpServer() as Server)
+      .post('/users/profile')
+      .set('Authorization', `Bearer ${user.token}`)
+      .send({
+        ...e2eProfileMarkers(),
+        username: user.username,
+        gender: reference.gender as Gender,
+        date_of_birth: '1992-03-04',
+        is_athlete: false,
+        is_coach: false,
+      })
+      .expect(201);
+
+    return user.username;
+  };
+
+  const me = (user: TestUser) =>
+    request(app.getHttpServer() as Server)
+      .get('/users/me')
+      .set('Authorization', `Bearer ${user.token}`);
+
+  /** ⚠️ The 404 below is **not** an error path — it is load-bearing product behaviour.
+   *
+   * Between signing up and completing the form there is no `users` row at all: the
+   * Supabase trigger that used to create one does not exist in RDS. The frontend
+   * auth gate reads this exact 404 as "route to create-profile". Nothing tested it
+   * before, so a well-meaning change to a 200-with-null would have looked like a
+   * cleanup and silently broken registration for every new user. */
+  describe('GET /users/me', () => {
+    beforeAll(async () => {
+      newcomer = await freshUser();
+      profiled = await freshUser();
+      other = await freshUser();
+
+      await createProfileFor(profiled);
+      await createProfileFor(other);
+    });
+
+    it('404s for an authenticated user who has not completed the form', async () => {
+      const res = await me(newcomer).expect(404);
+      expect(res.body.message).toBe('No profile exists for this user yet');
+    });
+
+    it('returns the caller’s own row, including their email', async () => {
+      const res = await me(profiled).expect(200);
+
+      expect(res.body).toMatchObject({
+        id: profiled.userId,
+        username: profiled.username,
+        email: profiled.email,
+        is_athlete: false,
+        is_coach: false,
+        is_profile_complete: true,
+      });
+    });
+
+    it('never returns another user’s row', async () => {
+      // No id is accepted from the request, so the only way to reach someone else's
+      // row would be the service dropping its eq(users.id, user.id) scope.
+      const res = await me(other).expect(200);
+
+      expect(res.body.id).toBe(other.userId);
+      expect(res.body.id).not.toBe(profiled.userId);
+      expect(res.body.email).not.toBe(profiled.email);
+    });
+
+    it('stays 404 after a PATCH, which must not conjure a row', async () => {
+      // `update ... where id = $1` against a missing row affects nothing and does
+      // not error, so this returns 200. What matters is that it did not create a
+      // half-built profile and flip the auth gate's signal.
+      await request(app.getHttpServer() as Server)
+        .patch('/users/profile')
+        .set('Authorization', `Bearer ${newcomer.token}`)
+        .send({ avatar_url: 'avatars/newcomer.jpg' })
+        .expect(200);
+
+      await me(newcomer).expect(404);
+    });
+
+    it('reports an incomplete profile rather than throwing', async () => {
+      // is_profile_complete is computed server-side precisely so that a transient
+      // failure cannot masquerade as "incomplete" and bounce the user mid-session.
+      // Runs last in this block: it nulls a column the assertions above read.
+      await request(app.getHttpServer() as Server)
+        .patch('/users/profile')
+        .set('Authorization', `Bearer ${other.token}`)
+        .send({ date_of_birth: null })
+        .expect(200);
+
+      const res = await me(other).expect(200);
+      expect(res.body.is_profile_complete).toBe(false);
+    });
+  });
+
+  describe('PATCH /users/profile', () => {
+    const patch = (user: TestUser) =>
+      request(app.getHttpServer() as Server)
+        .patch('/users/profile')
+        .set('Authorization', `Bearer ${user.token}`);
+
+    it('updates the caller’s own row', async () => {
+      const renamed = `${profiled.username.slice(0, 26)}_p`;
+
+      await patch(profiled).send({ username: renamed, avatar_url: 'avatars/x/1.jpg' }).expect(200);
+
+      const res = await me(profiled).expect(200);
+      expect(res.body).toMatchObject({ username: renamed, avatar_url: 'avatars/x/1.jpg' });
+    });
+
+    it('touches only the caller, not every users row', async () => {
+      // With no RLS, an unscoped `update users set ...` would succeed and rewrite
+      // the whole table. This is the assertion that would catch it.
+      await patch(profiled).send({ avatar_url: 'avatars/only-mine.jpg' }).expect(200);
+
+      const res = await me(other).expect(200);
+
+      expect(res.body.username).toBe(other.username);
+      expect(res.body.avatar_url).not.toBe('avatars/only-mine.jpg');
+    });
+
+    /** The exact request `frontend/lib/api/storage.ts` sends after uploading an
+     * avatar: that field and nothing else.
+     *
+     * This is a regression test. It returned **400** until the `name` field was
+     * removed from `UpdateUserDto` — `PartialType` had not relaxed it, so every
+     * PATCH omitting `name` failed. Avatar upload had been broken since it shipped,
+     * and it failed *after* the image was already in the bucket. Nothing caught it
+     * because this endpoint had no e2e coverage at all. */
+    it('accepts an avatar-only patch, the shape the client actually sends', async () => {
+      await patch(profiled).send({ avatar_url: 'avatars/solo/2.jpg' }).expect(200);
+
+      const res = await me(profiled).expect(200);
+      expect(res.body.avatar_url).toBe('avatars/solo/2.jpg');
+    });
+
+    it('accepts an empty patch as a no-op', async () => {
+      const res = await patch(sharedUser).send({}).expect(200);
+      expect(res.body.message).toBe('User profile updated successfully');
+    });
+
+    it('rejects an undeclared field rather than ignoring it', async () => {
+      // forbidNonWhitelisted is what stops a client writing a column the DTO does
+      // not name.
+      const res = await patch(sharedUser).send({ role: 'admin' }).expect(400);
+      expect(res.body.message).toContain('property role should not exist');
+    });
+
+    it('rejects a username already taken by someone else', async () => {
+      const res = await patch(sharedUser).send({ username: other.username }).expect(400);
+      expect(res.body.message).toContain('username must be unique');
+    });
+
+    /** Documents a rough edge rather than asserting desired behaviour.
+     *
+     * `@IsUnique('users','username')` matches **any** row, including the caller's
+     * own, so re-sending your current username is rejected as a collision with
+     * yourself. The client only ever sends changed fields, so nothing hits this
+     * today — but a settings screen that PATCHes the whole form would. Fixing it
+     * means excluding the caller's id from the uniqueness query, a change to the
+     * validator's signature; out of scope here, recorded so the next person finds
+     * it deliberately rather than as a surprise. */
+    it('also rejects the caller’s own current username, a known rough edge', async () => {
+      const res = await patch(other).send({ username: other.username }).expect(400);
+      expect(res.body.message).toContain('username must be unique');
+    });
+  });
+
+  describe('authentication', () => {
+    const server = () => app.getHttpServer() as Server;
+
+    it('401s on GET /users/me without a token', async () => {
+      const res = await request(server()).get('/users/me').expect(401);
+      expect(res.body.message).toBe('No token provided');
+    });
+
+    it('401s on GET /users/me with a malformed token', async () => {
+      await request(server())
+        .get('/users/me')
+        .set('Authorization', 'Bearer not-a-real-token')
+        .expect(401);
+    });
+
+    it('401s on POST /users/profile without a token', async () => {
+      // The id and email are taken from the verified token, so an unauthenticated
+      // POST has no subject to write at all.
+      await request(server()).post('/users/profile').send({}).expect(401);
+    });
+
+    it('401s on PATCH /users/profile without a token', async () => {
+      await request(server()).patch('/users/profile').send({}).expect(401);
+    });
+  });
 });

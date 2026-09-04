@@ -216,6 +216,80 @@ describe('Programming (e2e)', () => {
       const theirs = await as(stranger).get('/exercises').expect(200);
       expect(theirs.body.map((e: { id: string }) => e.id)).not.toContain(exerciseId);
     });
+
+    it('rejects a caller who is not a coach', async () => {
+      const res = await as(athlete)
+        .post('/exercises', { name: 'E2E Athlete Wrote This' })
+        .expect(403);
+      expect(res.body.message).toBe('Only a coach can create an exercise');
+    });
+  });
+
+  /** `assertCoach` and the `created_by` scope are the whole authorization for the
+   * exercise library, and neither had an assertion before. The interesting case is
+   * the second one below: the old client filtered *exercises* by `created_by` but
+   * never filtered the nested templates, so a template another coach authored
+   * against a shared exercise came back anyway. Both are scoped explicitly now,
+   * and this is what holds that. */
+  describe('GET /exercises/templates', () => {
+    /** Both templates hang off `exerciseId`, which belongs to `coach` — that shared
+     * exercise is precisely what made the old leak reachable. */
+    beforeAll(async () => {
+      const db = dataDb();
+
+      for (const [owner, name] of [
+        [coach, 'E2E Coach Template'],
+        [stranger, 'E2E Stranger Template'],
+      ] as Array<[TestUser, string]>) {
+        const { rows } = await db.query<{ id: string }>(
+          `insert into exercise_templates (created_by, name, exercise_id)
+           values ($1, $2, $3) returning id`,
+          [owner.userId, name, exerciseId],
+        );
+
+        await db.query(
+          `insert into exercise_default_set_templates
+             (exercise_template_id, set_number, prescribed_reps, prescribed_intensity)
+           values ($1, 1, 5, 'RPE 7')`,
+          [rows[0].id],
+        );
+      }
+    });
+
+    it('returns the caller’s own templates, nested under their exercise', async () => {
+      const res = await as(coach).get('/exercises/templates').expect(200);
+
+      const exercise = res.body.find((e: { id: string }) => e.id === exerciseId);
+      expect(exercise).toBeDefined();
+      expect(exercise.templates.map((t: { name: string }) => t.name)).toEqual([
+        'E2E Coach Template',
+      ]);
+      expect(exercise.templates[0].sets).toHaveLength(1);
+      expect(exercise.templates[0].sets[0]).toMatchObject({ set_number: 1, prescribed_reps: 5 });
+    });
+
+    it('does not leak another coach’s template on a shared exercise', async () => {
+      const res = await as(coach).get('/exercises/templates').expect(200);
+
+      const names = res.body.flatMap((e: { templates: Array<{ name: string }> }) =>
+        e.templates.map((t) => t.name),
+      );
+      expect(names).not.toContain('E2E Stranger Template');
+    });
+
+    it('scopes the list to the caller from the other side too', async () => {
+      const res = await as(stranger).get('/exercises/templates').expect(200);
+
+      const names = res.body.flatMap((e: { templates: Array<{ name: string }> }) =>
+        e.templates.map((t) => t.name),
+      );
+      expect(names).toEqual(['E2E Stranger Template']);
+    });
+
+    it('returns an empty list for a caller with no templates', async () => {
+      const res = await as(athlete).get('/exercises/templates').expect(200);
+      expect(res.body).toEqual([]);
+    });
   });
 
   describe('POST /workouts', () => {

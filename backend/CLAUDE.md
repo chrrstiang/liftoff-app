@@ -35,9 +35,9 @@ src/
   supabase/           supabase.module.ts, supabase.service.ts
   users/
     users.module.ts
-    controller/       users.controller.ts + athlete/ + coach/
-    service/          users.service.ts   + athlete/ + coach/
-    dto/              create-user.dto.ts, update-user.dto.ts + athlete/ + coach/
+    controller/       users.controller.ts + athlete/
+    service/          users.service.ts   + athlete/
+    dto/              create-user.dto.ts, update-user.dto.ts + athlete/
     entities/         UserData.ts, AthleteData.ts, CoachData.ts
   common/
     exceptions/       missing-id.ts, not-unique.ts
@@ -62,7 +62,7 @@ await this.db.update(users).set(patch).where(eq(users.id, user.id));
 
 ⚠️ **There is no RLS. The API is the entire trust boundary.** Nothing in the database will stop a query from reading or writing another user's rows. Every query must scope itself — `eq(users.id, user.id)` or a walk up the ownership chain — and the correctness of that is entirely on the code here. Getting one wrong is a data breach, not a bug.
 
-**Still on Supabase, deliberately:** `JwtAuthGuard` (it verifies tokens, which is auth) and `AthleteService` (the `?data=` compiler, not yet ported).
+**Still on Supabase, deliberately:** `JwtAuthGuard` only — it verifies tokens, which is auth. `AthleteService` is ported; the `?data=` compiler builds a Drizzle selection now and reassembles the same nested response shape, so the API contract is unchanged.
 
 Local database:
 
@@ -177,8 +177,8 @@ Loaded via `ConfigModule.forRoot({ isGlobal: true })`. `SupabaseService` throws 
 
 - **`npm run lint` is `eslint --fix` and rewrites your files.** Use `npx eslint "{src,apps,libs,test}/**/*.ts"` to check without mutating. Because CI runs the `--fix` form and discards the result, pure formatting violations *pass* CI and then reappear as local diff noise.
 - **Name e2e files `*.e2e-spec.ts`.** `testRegex` is now `\.e2e[-.]spec\.ts$` so both hyphen and dot forms are picked up, but the hyphen form is the convention. (Two specs were silently never running before the regex was widened.)
-- **`coach.controller.ts` / `coach.service.ts` are unimplemented Nest CLI scaffolding.** The service returns string literals like `` `This action returns all users` `` and the routes have no guards. Not a pattern to imitate, and not working features.
-- `VALID_TABLE_FIELDS.users` also allowlists `email` and `role`, neither of which the app ever writes. `role` in particular looks vestigial — superseded by `is_athlete` / `is_coach`. Both are opt-in via `?data=`; the default `PUBLIC_PROFILE_QUERY` deliberately omits them so it can't fail on a missing column. Verify against the live schema before relying on either.
+- **There is no coach controller or service, and that is deliberate.** `CoachController` / `CoachService` were unimplemented Nest CLI scaffolding returning string literals — but they were registered in `UsersModule`, so six routes were served with **no `@UseGuards` at all**, two of them mutations, confirmed reachable in production. Deleted rather than guarded: an unauthenticated placeholder is a trap for whoever implements the service later. Don't scaffold a controller you aren't ready to guard. See `docs/AUTHORIZATION.md`.
+- **`VALID_TABLE_FIELDS.users` exposes exactly four fields** — `first_name`, `last_name`, `username`, `gender`. `email` and `role` were once allowlisted and are now deliberately out: `email` is NOT NULL, so allowlisting it would always succeed and always leak another user's PII, and `role` was never a real column, so every `?data=users.role` was a guaranteed 500. `select.queries.spec.ts` pins all three allowlists **by contents** and is meant to fail if you widen one — that failure is the review prompt, not something to make pass.
 - File naming is genuinely inconsistent — `entities/` is PascalCase (`UserData.ts`) while everything else is kebab-case, and specs mix `users.controller.spec.ts` with `athlete-controller.spec.ts`. **Match the nearest sibling file** rather than inventing a house style or mass-renaming.
 - `PATCH /athlete/profile` does **not** exist, though `UpdateAthleteDto` (name-based `federation` / `division` / `weight_class`) is written and unused — it's the shape a future endpoint was meant to take. See `docs/ARCHITECTURE.md`.
 - `README.md` in this directory is unmodified NestJS boilerplate — ignore it.

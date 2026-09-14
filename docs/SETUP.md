@@ -53,9 +53,19 @@ cp .env.example .env     # then fill it in
 npm run start:dev        # nest start --watch → http://0.0.0.0:8000
 ```
 
-`.env.example` lists what is needed. The two that will stop you dead: `SUPABASE_PROJECT_URL` and `SUPABASE_SECRET_KEY` (the **service-role** key) — `SupabaseService` throws at construction if either is missing, so the app will not boot without them. That is deliberate: a fast, obvious failure.
+`.env.example` is the template. These are the variables actually read in code:
 
-Also worth setting `SUPABASE_JWT_SECRET`. With it, `JwtAuthGuard` verifies tokens locally with HMAC; without it, every authenticated request falls back to a network call to Supabase.
+| Variable | Needed | Notes |
+|---|---|---|
+| `SUPABASE_PROJECT_URL` | **yes** | `SupabaseService` throws at construction without it |
+| `SUPABASE_SECRET_KEY` | **yes** | the **service-role** key — same, the app will not boot |
+| `DATABASE_URL` | **yes** locally | or the `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE` set, which is what ECS uses since RDS manages the password in Secrets Manager |
+| `SUPABASE_JWT_SECRET` | recommended | with it, `JwtAuthGuard` verifies tokens locally with HMAC; without it every authenticated request falls back to a network call to Supabase |
+| `PORT` / `HOST` | no | default `8000` / `0.0.0.0` |
+
+The two Supabase variables failing loudly at construction is deliberate — a fast, obvious failure beats a server that boots and then 500s on every authenticated request.
+
+⚠️ **`SUPABASE_SECRET_KEY` is the service-role key.** Never log it, and never move it into anything prefixed `EXPO_PUBLIC_`.
 
 Other commands:
 
@@ -87,7 +97,15 @@ npm start                # expo start
 
 Then `npm run ios`, `npm run android`, or `npm run web`.
 
-`.env.example` lists the variables. One trap worth knowing in advance: **`EXPO_PUBLIC_API_URL` must be a LAN IP, not `localhost`, when running on a physical device** — `localhost` on the phone means the phone. The client throws a named `ApiConfigError` explaining this rather than failing obscurely.
+`.env.example` is the template. Three variables are read:
+
+| Variable | Notes |
+|---|---|
+| `EXPO_PUBLIC_API_URL` | where the backend is |
+| `EXPO_PUBLIC_SUPABASE_URL` | also used to build the public avatar base URL |
+| `EXPO_PUBLIC_SUPABASE_KEY` | the **anon** key, never the service-role one |
+
+One trap worth knowing in advance: **`EXPO_PUBLIC_API_URL` must be a LAN IP, not `localhost`, when running on a physical device** — `localhost` on the phone means the phone. The client throws a named `ApiConfigError` explaining this rather than failing obscurely.
 
 Anything prefixed `EXPO_PUBLIC_` is **inlined into the shipped bundle**. Never put the Supabase service-role key, or any other secret, behind that prefix.
 

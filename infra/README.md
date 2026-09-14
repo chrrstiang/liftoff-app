@@ -1,8 +1,8 @@
 # Deploying the API to ECS Fargate (Express Mode)
 
-Runbook for standing up `backend/` on AWS. **Nothing here has been applied** — these are drafts for review, and every step is one you run.
+Runbook for standing up `backend/` on AWS. **This infrastructure is live and serving** — it was applied in August 2026 and `.github/workflows/deploy.yml` ships to it on every push to `main`. Read this as the record of how it was built and how to rebuild or extend it, not as a proposal.
 
-Account `582908772109`, region `us-east-2` (matched to the Supabase project: `JwtAuthGuard` calls Supabase Auth on every request, so a cross-region hop would tax every call).
+Account `582908772109`, region `us-east-2`. The region was matched to the Supabase project because `JwtAuthGuard` called Supabase Auth on every request; it now verifies HS256 locally when `SUPABASE_JWT_SECRET` is set, so that coupling is mostly gone — but the fallback path still makes the pairing worth keeping.
 
 ## Why Express Mode
 

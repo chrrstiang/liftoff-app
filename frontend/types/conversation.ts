@@ -5,10 +5,10 @@
  * ⚠️ The view emits **one row per (conversation, member) pair**, not one per
  * conversation. `lib/api/conversations.ts` filters with `.eq("user_id", userId)`,
  * and that filter is load-bearing — without it the inbox renders a duplicate entry
- * per participant. Pinned by supabase/tests/rls_regression.sql.
+ * per participant. (The API filters by caller; the shape predates that and is unchanged.)
  *
  * `unread_count` counts messages strictly newer than `last_read_at` and excludes
- * your own. See docs/DB-SCHEMA.md for the exact expression.
+ * your own. The expression lives in `backend/src/messaging/service/conversations.service.ts`.
  */
 export type UserConversation = {
   conversation_id: string;

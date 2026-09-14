@@ -2,7 +2,7 @@
 
 A mobile app for the powerlifting community. Two halves: coach↔athlete tooling (coaches send programming and manage a roster; athletes log workouts and message their coach) and a social layer (share lifts, meet recaps, communities, leaderboards).
 
-**Status: pre-release, but further along than it looks.** Built and working: sign up / log in, profile creation, coach↔athlete relationships with invites and notifications, a coach roster, program and workout building from templates, set logging, and real-time messaging with image attachments. The social layer (feed, communities, leaderboards) does not exist. The `coaches` module in the backend is still unimplemented Nest scaffolding. Assume a feature does not exist until you've read the code.
+**Status: pre-release, but further along than it looks.** Built and working: sign up / log in, profile creation, coach↔athlete relationships with invites and notifications, a coach roster, program and workout building from templates, set logging, and messaging with image attachments (polling, not realtime). The social layer (feed, communities, leaderboards) does not exist — no tables, no endpoints, no screens. Assume a feature does not exist until you've read the code.
 
 ## Repo shape
 
@@ -12,23 +12,24 @@ Two **independent npm projects** side by side. There is no root `package.json`, 
 liftoff-app/
 ├── frontend/    Expo / React Native app   → see frontend/CLAUDE.md
 ├── backend/     NestJS REST API           → see backend/CLAUDE.md
-└── .github/workflows/ci.yml
+├── infra/       AWS deployment runbook   → see infra/README.md
+└── .github/workflows/   ci.yml, deploy.yml
 ```
 
 **`cd frontend` or `cd backend` before any npm command.** Nothing is runnable from the root. CI does this explicitly via `working-directory:`.
 
-Supabase (hosted Postgres) is the database *and* the auth provider for both halves.
+Local setup is in `docs/SETUP.md`.
 
 ## The data path: everything goes through the API
 
 **Supabase is auth and file storage. All data lives in RDS Postgres behind the NestJS API.** This was not true until recently, and older notes elsewhere may still describe the client reading Supabase tables directly — they are out of date.
 
 - **The client calls the API for everything.** All seven `frontend/lib/api/*` modules (`athlete`, `conversations`, `exercises`, `notifications`, `roster`, `storage`, `workouts`) go through `frontend/lib/api/client.ts`. The app does not work with the backend stopped.
-- **Supabase keeps exactly two jobs:** the identity provider (`signUp` / `signInWithPassword` / `signOut` / `getSession`), and the two image buckets in `lib/api/storage.ts`. Only Postgres moved; the buckets are independent and staying for now.
-- **Auth token flow:** Supabase session JWT → `Authorization: Bearer <token>` → `JwtAuthGuard` (`backend/src/common/validation/guards/auth-guard.ts`) → `supabase.auth.getUser(token)` → `request.user`.
+- **Supabase keeps three jobs:** the identity provider (`signUp` / `signInWithPassword` / `signOut` / `getSession`); the two image buckets (`lib/api/storage.ts`, plus `ChatBubble.tsx` resolving public URLs); and **reference-data reads on exactly one screen** — `create-profile.tsx` reads `federations` / `divisions` / `weight_classes` straight from Supabase with the anon key. That last one is a real exception to the bullet above. It is public reference data, so nothing user-owned is exposed, but know where it is before reasoning about the trust boundary. Don't extend the pattern.
+- **Auth token flow:** Supabase session JWT → `Authorization: Bearer <token>` → `JwtAuthGuard` (`backend/src/common/validation/guards/auth-guard.ts`) → verified **locally** with HS256 when `SUPABASE_JWT_SECRET` is set, falling back to `supabase.auth.getUser(token)` when it is not → `request.user`. Without the secret, every authenticated request is coupled to Supabase's uptime.
 - **Realtime is gone**, replaced by polling — see `frontend/lib/api/polling.ts`.
 
-⚠️ **There is no RLS in RDS. The API is the entire trust boundary.** Nothing in the database will stop a query reading or writing another user's rows, so every query must scope itself — `eq(users.id, user.id)` or a walk up the ownership chain — and the correctness of that is entirely application code. Getting one wrong is a data breach, not a bug. The ownership rules per resource are in `docs/MIGRATION-PROGRESS.md`; `backend/src/programming/service/programming-access.ts` is the worked example.
+⚠️ **There is no RLS in RDS. The API is the entire trust boundary.** Nothing in the database will stop a query reading or writing another user's rows, so every query must scope itself — `eq(users.id, user.id)` or a walk up the ownership chain — and the correctness of that is entirely application code. Getting one wrong is a data breach, not a bug. The ownership rules per resource are in `docs/AUTHORIZATION.md`, which cites the enforcing code and the test pinning each one; `backend/src/programming/service/programming-access.ts` is the worked example.
 
 Two rules that fall out of this and are easy to get wrong:
 
@@ -47,7 +48,7 @@ The schema is **in the repo now**, as Drizzle:
 cd backend && npm run db:up && npm run db:migrate && npm run db:seed && npm run db:verify
 ```
 
-That gives you a **local Postgres on port 55440** — the local database story this project never had. `docs/DB-SCHEMA.md` is still useful prose but `schema.ts` is the source of truth.
+That gives you a **local Postgres on port 55440** — the local database story this project never had. `schema.ts` is the source of truth; full setup is in `docs/SETUP.md`.
 
 ## Conventions differ per package
 
@@ -77,15 +78,19 @@ Feature-branch pushes skip e2e, so e2e breakage first surfaces at PR time. Run `
 
 ## Reference
 
-- `docs/ARCHITECTURE.md` — auth flow, request lifecycle, API surface, known gaps
-- `docs/DB-SCHEMA.md` — inferred schema
+- `docs/ARCHITECTURE.md` — the data path, auth flow, request lifecycle, API surface, known limitations and gaps
+- `docs/AUTHORIZATION.md` — who may reach what, per endpoint, with the code and test for each rule
+- `docs/SETUP.md` — running both halves locally
+- `infra/README.md` — deploying the API to ECS
+- `docs/REALTIME-MESSAGING-DESIGN.md` — design only, nothing built
+- `docs/archive/` — completed work kept for the traps it records, not current
 
-**Ignore `frontend/README.md` and `backend/README.md`.** Both are unmodified create-expo-app / NestJS boilerplate with no project-specific information — the frontend one still documents a `reset-project` script that has since been removed. The root `README.md` is an accurate product pitch but has no setup instructions.
+The schema's source of truth is `backend/src/db/schema.ts`, not prose. The root `README.md` is the product pitch; it points here for everything technical.
 
 ## Working norms
 
 - This is a solo student project in active development. Prefer finishing the flow at hand over broad refactors.
 - A few known limitations are **documented on purpose** rather than fixed — see "Known limitations" in `docs/ARCHITECTURE.md`. Don't silently change them as a side effect of unrelated work.
-- Don't add dependencies without asking. TanStack Query handles server state and `frontend/lib/api/*` is the closest thing to a client layer; there is still no ORM.
+- Don't add dependencies without asking. TanStack Query handles server state, `frontend/lib/api/*` is the client layer, and Drizzle is the ORM.
 - All API errors share one shape: `{ statusCode, message, timestamp, path, method }`. `message` is an array for validation failures, a string otherwise.
 - **`origin/cg_branch` was merged into `main` and is now dead.** It carried six months of feature work that never landed; don't branch from it or cherry-pick out of it.

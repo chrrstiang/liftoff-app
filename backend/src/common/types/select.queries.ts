@@ -11,7 +11,8 @@ export const VALID_TABLE_FIELDS = {
   // `role` was allowlisted but the column does not exist, so ?data=users.role was
   // a guaranteed 500. `email` does exist (NOT NULL) but is another user's PII on
   // what is otherwise a public profile endpoint, and nothing requests it. Both
-  // removed; see docs/DB-SCHEMA.md.
+  // removed. `select.queries.spec.ts` pins this list by contents, so re-adding
+  // either turns it red on purpose.
   users: ['first_name', 'last_name', 'username', 'gender'],
   federations: ['id', 'name', 'code'],
   divisions: ['id', 'federation_id', 'name', 'minimum_age', 'maximum_age'],

@@ -232,7 +232,7 @@ One thing worth knowing before someone "fixes" it: **`GET /users/me` returning 4
 | Item | Blocker |
 |---|---|
 | **Week-5 feature** | Product decision, not a technical one. Recommendation: finish the coach↔athlete loop (conversation-creation UI, template list) rather than start something new. |
-| **Authorization review** | Not a hard block (no users yet), but with no RLS the API is the entire trust boundary and a wrong ownership check is a breach. Wants human eyes before real signups. |
+| ~~**Authorization review**~~ | **Done 2026-09-04.** Swept every route against every spec; the map is `docs/AUTHORIZATION.md`. Seven holes found and closed, one of them a live bug. |
 
 **No longer blocked, and now done:** the frontend flip was verified in a simulator on 2026-08-31. See the section above for what that found.
 
@@ -292,11 +292,46 @@ reason.
   60-orphan leak.
 
 
+## The authorization review is done, and writing the tests found a shipped bug
+
+Completed 2026-09-04. `docs/AUTHORIZATION.md` is now the authoritative endpoint × caller
+map and the place to update when a route is added.
+
+**The headline was `CoachController`.** Six routes with no `@UseGuards` anywhere in the
+file, registered in `UsersModule` and confirmed serving in production —
+`GET /coach/athletes` returned 200 with no token while `/users/me` correctly 401'd. No
+data was exposed, because `CoachService` was scaffolding returning string literals, but
+two of the six were mutations and whoever implemented that service would have inherited an
+endpoint checking nothing. Deleted rather than guarded; nothing called it.
+
+**Reading the code found the coverage holes. Only writing the tests found the bug.**
+`PATCH /users/profile` rejected *every* realistic request with a 400, because
+`UpdateUserDto` declared a `name` field that `PartialType` never relaxed — and `name` was
+not even a column. The visible effect: avatar upload has been broken since `42128c7`,
+failing after the image was already in the bucket. The mocked controller spec was passing
+a `name` field, so it had encoded the broken shape as correct.
+
+Two things worth carrying forward:
+
+- **The docs were wrong in both directions**, which cost most of the audit. This file
+  described the review as an open block when most of it was already done, and
+  `backend/CLAUDE.md` called the coach scaffolding harmless and claimed the profile
+  allowlist still exposed `email`. Prefer reading the code over any summary of it,
+  including this one.
+- **An allowlist asserted by example is not asserted.** The six `?data=` rejection tests
+  all named fields already absent, so re-adding `email` would have passed CI.
+  `select.queries.spec.ts` now pins the contents and is *meant* to fail on a widening.
+
+e2e went 103 → 134 tests. Fixture tables counted back to zero rows afterwards rather than
+trusting the green run — which is how the conversations leak was found, and still the only
+way to know.
+
 ## Follow-ups worth doing
 
 - **Commit the integration checks.** The `createUserProfile` assertions above were run by hand against `docker compose` Postgres. CI now has a database, so they can become a committed suite. The programming slice does this properly — `test/programming/programming.e2e-spec.ts` is committed and runs in CI.
 - ~~**`JwtAuthGuard` → local JWKS.**~~ **Done in #27** — it verifies HS256 locally when `SUPABASE_JWT_SECRET` is set. The project's JWKS endpoint returns `{"keys":[]}`, so the tokens are symmetric and node's `crypto` is enough; no new dependency. It still falls back to a remote `getUser()` when the secret is absent, so **check that the deployed task definition actually sets it** — without it every authenticated request is still coupled to Supabase's uptime.
 - ~~**Coach invites and messaging have no committed tests.**~~ **Done** — `test/coaching/coaching-messaging.e2e-spec.ts`. Note it deliberately shares one file, and three auth users, across both slices: Supabase signup is rate-limited per hour and cumulative across CI runs, and it is the only dependency still on the shared project.
+- **`docs/ARCHITECTURE.md` §7 "Known gaps" is stale.** It still lists no local database, no deploy workflow, no API client layer, and coach features unbuilt. All four are wrong now. §6.6 (`PATCH /athlete/profile` specced but never built) is still accurate and still the design record.
 - **The frontend has no automated check for a cold start with a restored session.** That is the exact shape of the deadlock above, and lint plus type-check cannot see it. Until something covers it, open the app twice by hand before releasing.
 - **`DIRECT_USER_REFERENCES` in `test/helpers/fixtures.ts` is dead.** The real cleanup list is the `statements` array below it. A dead const that looks authoritative is worse than none — someone will add a table to it and assume it took effect. `backend/CLAUDE.md` still tells you to add new tables to it, which is wrong for the same reason.
 

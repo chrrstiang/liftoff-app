@@ -176,6 +176,10 @@ describe('Athlete profile (GET) (e2e)', () => {
       ['non-existent nested column', '?data=users.favorite_color', 'users.favorite_color'],
       ['mistyped table prefix', '?data=user.username', 'user.username'],
       ['nested column with no prefix', '?data=username', 'username'],
+      // email is a real NOT NULL column, so this is the one rejection here that
+      // would start returning another user's PII rather than 500ing if the
+      // allowlist were widened. select.queries.spec.ts pins the list itself.
+      ['another user’s email', '?data=users.email', 'users.email'],
     ];
 
     test.each(cases)('%s is rejected', async (_name, queryParam, invalidQuery) => {

@@ -88,9 +88,13 @@ describe('UserController', () => {
 
   describe('updateProfile', () => {
     it('should call usersService.updateProfile with correct parameters', async () => {
+      // `name` used to be here. It was never a column, and requiring it broke every
+      // PATCH — see the comment on UpdateUserDto. first_name/last_name are the real
+      // fields, inherited from CreateUserDto.
       const updateUserDto: UpdateUserDto = {
         username: 'newusername',
-        name: 'New Name',
+        first_name: 'New',
+        last_name: 'Name',
       };
 
       await controller.updateProfile(updateUserDto, mockRequest as RequestWithUser);

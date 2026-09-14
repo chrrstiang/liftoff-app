@@ -121,9 +121,27 @@ describe('JwtAuthGuard', () => {
 
     it('rejects a token whose signature has been tampered with', async () => {
       const token = validToken();
-      // Flip one character of the signature, keeping the length identical so the
-      // timing-safe compare — not the length guard — is what rejects it.
-      const tampered = token.slice(0, -1) + (token.endsWith('A') ? 'B' : 'A');
+      const [header, payload, signature] = token.split('.');
+
+      // Flip a bit in the signature's first byte, keeping the encoded length
+      // identical, so the timing-safe compare — not the length guard — is what
+      // rejects it.
+      //
+      // ⚠️ Flip a *byte*, not a character. This used to swap the last character
+      // for 'A' (or 'B' when it was already 'A'), which failed 6.2% of runs. A
+      // 32-byte HMAC is 43 base64url characters, so the final character carries
+      // only 4 significant bits and 2 padding bits: the reachable final
+      // characters are `048AEIMQUYcgkosw`, and 'A' and 'B' differ *only* in
+      // those padding bits. Whenever the real signature ended in 'A', the
+      // "tampered" token decoded to byte-identical bytes, verified fine, and the
+      // test failed — having quietly stopped testing forgery at all.
+      const bytes = Buffer.from(signature, 'base64url');
+      bytes[0] ^= 0x01;
+      const tampered = `${header}.${payload}.${bytes.toString('base64url')}`;
+
+      expect(tampered).toHaveLength(token.length);
+      expect(tampered).not.toBe(token);
+
       const { context } = contextFor(`Bearer ${tampered}`);
 
       await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);

@@ -109,8 +109,8 @@ auth users across two describes rather than creating one per test — ten would 
 undone that fix.
 
 `GET /users/me` is worth singling out: its 404 is load-bearing. Per
-`docs/MIGRATION-PROGRESS.md`, that 404 is the signal the auth gate uses to route a
-half-registered user to create-profile, and nothing tests it.
+`docs/ARCHITECTURE.md` §2, that 404 is the signal the auth gate uses to route a
+half-registered user to create-profile, and nothing tested it.
 
 ---
 
@@ -300,7 +300,7 @@ Recorded because the docs undersold it, and re-deriving it cost most of the audi
   400s.
 
 The docs undersold the state in both directions, which is the argument for keeping this
-file next to the code rather than in prose: `MIGRATION-PROGRESS.md` still described the
-authorization review as an open block after most of it was already done, while
-`backend/CLAUDE.md` described the coach scaffolding as harmless and the profile allowlist
-as still exposing `email`. Both have been corrected.
+file next to the code rather than in prose: `MIGRATION-PROGRESS.md` (now at
+`docs/archive/`) still described the authorization review as an open block after most of it
+was already done, while `backend/CLAUDE.md` described the coach scaffolding as harmless and
+the profile allowlist as still exposing `email`. Both have been corrected.

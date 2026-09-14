@@ -32,7 +32,7 @@ import {
  * That verification was not repeatable and did not run in CI, which for the one
  * part of the system that *is* the trust boundary — there is no RLS in RDS — is
  * the gap that matters most. Every rule in the ownership table in
- * docs/MIGRATION-PROGRESS.md for `coach_requests`,
+ * docs/AUTHORIZATION.md for `coach_requests`,
  * `coach_athlete_relationships`, `conversations` and `messages` has a case here.
  *
  * **Both slices share one file because auth users are the scarce resource.**

@@ -17,7 +17,7 @@ import { CreateUserDto, Gender } from '../dto/create-user.dto';
  * What is verified here instead: that the writes happen inside a transaction at
  * all, and that validation short-circuits *before* one is opened. Real rollback
  * behaviour belongs in an integration test against the local Postgres
- * (`npm run db:up`), which is tracked in docs/MIGRATION-PROGRESS.md.
+ * (`npm run db:up`; see docs/SETUP.md).
  */
 
 interface MockTx {

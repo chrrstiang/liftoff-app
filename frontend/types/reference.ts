@@ -5,7 +5,7 @@
  * ⚠️ `id` is a **uuid**, so `string`. These were previously declared `number` in
  * create-profile.tsx, which typechecked only because Supabase's `data` is untyped
  * — the values were always uuid strings at runtime. Verified against the live
- * schema; see docs/DB-SCHEMA.md.
+ * schema; see `backend/src/db/schema.ts`.
  */
 
 export interface Federation {

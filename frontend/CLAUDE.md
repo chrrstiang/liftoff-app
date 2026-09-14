@@ -107,14 +107,17 @@ No Redux, Zustand or Jotai. Screen state is plain `useState`.
 
 ## Talking to the backend
 
-**Everything goes through the API now.** All seven `lib/api/*` modules (`athlete`, `conversations`, `exercises`, `notifications`, `roster`, `storage`, `workouts`) call `lib/api/client.ts`. The app does not work with the backend stopped — that is the intended state, not a regression.
+**Every user-owned read and write goes through the API.** All seven `lib/api/*` resource modules (`athlete`, `conversations`, `exercises`, `notifications`, `roster`, `storage`, `workouts`) call `lib/api/client.ts`. The app does not work with the backend stopped — that is the intended state, not a regression.
 
-**Supabase is still used for exactly two things, and both are correct:**
+**Supabase is still used for three things:**
 
 1. **Auth** — `signUp` / `signInWithPassword` / `signOut` / `onAuthStateChange` in `contexts/AuthContext.tsx`, and `getSession()` inside the API client to attach the bearer token. Supabase is the identity provider.
-2. **Storage** — the two image buckets in `lib/api/storage.ts`. Only *Postgres* moved to RDS; the buckets are independent. Moving them means the backend minting signed upload URLs and the client PUTting directly (never proxying binary through Fargate), which is its own piece of work.
+2. **Storage** — the two image buckets. Only *Postgres* moved to RDS; the buckets are independent. Moving them means the backend minting signed upload URLs and the client PUTting directly (never proxying binary through Fargate), which is its own piece of work.
+3. **Reference-data reads on one screen** — `app/(app)/create-profile.tsx` reads `federations`, `divisions` and `weight_classes` **straight from Supabase with the anon key**, in three chained effects. This is the one surviving direct table read.
 
-`lib/api/storage.ts` is therefore the one module that talks to both: bucket uploads to Supabase, and `updateUserAvatar` — which writes a *table* — through the API.
+⚠️ **That third one is a genuine exception to the sentence above**, and it was undocumented long enough to mislead. It is public reference data — three federations, sixteen divisions, the weight classes — so nothing user-owned is exposed, and moving it behind the API is a small piece of work nobody has needed yet. Know it is there before reasoning about the trust boundary, and **don't extend the pattern** to anything user-owned.
+
+Two modules talk to both sides, not one: `lib/api/storage.ts` (bucket uploads to Supabase, `updateUserAvatar` through the API) and `components/ChatBubble.tsx`, which calls `supabase.storage.from("conversations")` directly to resolve a public URL.
 
 ⚠️ **Both buckets are world-readable by URL.** Pre-existing and unchanged; an avatar path is effectively public.
 
@@ -177,7 +180,6 @@ Three traps:
 - **`DateTimePicker` is a native view and cannot be themed.** `themeVariant` takes only `"dark" | "light"`, and it's a config plugin, so replacing it needs a native rebuild. It's the one control that won't match the palette; it's wrapped in `Sheet` so at least the chrome does.
 - **Native module versions must match what Expo Go ships.** `react-native-svg` was undeclared (pulled in transitively by `lucide-react-native`) and resolved three minors ahead of Expo Go's build, which bundled fine and then errored on open. `expo install --check` can't see a package the manifest doesn't list. Run `npx expo install --fix` when anything native misbehaves.
 - `assets/images/` is still create-expo-app artwork. There is no logo asset, so the wordmark is set in Fraunces type.
-- `README.md` in this directory is unmodified boilerplate — ignore it.
 
 ## Known issues
 

@@ -1,4 +1,24 @@
-# Migration progress
+# Migration progress — ARCHIVED
+
+> **This is a historical record of a completed migration. Do not treat it as current.**
+>
+> The move off Supabase Postgres to RDS behind the API finished, was deployed, and was
+> verified in a simulator against the live API. This file is kept unedited because its
+> value is the traps it records — the launch deadlock, the two fixture leaks nothing swept,
+> the deploy check being wrong three times, and why mocked specs could not catch any of it.
+>
+> **For anything current, read these instead:**
+>
+> | For | Read |
+> |---|---|
+> | How the system fits together | `docs/ARCHITECTURE.md` |
+> | Who may reach what, per endpoint | `docs/AUTHORIZATION.md` |
+> | Running it locally | `docs/SETUP.md` |
+> | Deploying it | `infra/README.md` |
+>
+> The per-resource ownership rules near the end of this file were superseded by
+> `docs/AUTHORIZATION.md`, which cites the enforcing code and the test pinning each rule.
+> Its open follow-ups moved to `docs/ARCHITECTURE.md` §7. Archived 2026-09-13.
 
 Living status for the move off Supabase Postgres to RDS behind the API. Update it as work lands — it is the handoff between sessions.
 

@@ -72,6 +72,24 @@ jobs:
     needs: backend-ci
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
 
+    # Serialize e2e across every run in the repo. The suite writes to ONE shared
+    # live Supabase project, and `globalTeardown` sweeps every `e2e-` prefixed user
+    # with `minAgeMinutes: 0` -- matching on the prefix project-wide, NOT scoped to
+    # its own run id. The helper says why that was safe: `test:e2e` is
+    # `--runInBand`, "so there is no concurrent suite whose fixtures could be
+    # destroyed mid-run". Concurrent *jobs* break that assumption -- the first run
+    # to finish deletes the other's in-flight fixtures, and the victim fails with
+    # auth errors that do not reproduce.
+    #
+    # Without this, opening several PRs at once is enough to trigger it, which is
+    # exactly what a parallel branch workflow does.
+    #
+    # `cancel-in-progress: false` is deliberate: a cancelled run never reaches
+    # teardown, so its users leak into the project real users are in.
+    concurrency:
+      group: backend-e2e
+      cancel-in-progress: false
+
     # Data lives in Postgres now, so e2e needs a real one. This is what finally
     # makes the suite hermetic for data: only the AUTH half still touches the
     # shared Supabase project, because that is where auth genuinely lives.

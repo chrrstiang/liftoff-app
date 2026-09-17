@@ -5,13 +5,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt } from 'drizzle-orm';
 import { DRIZZLE, type Database } from 'src/db/db.module';
 import { athletes, coaches, exercises, sets, workoutExercises, workouts } from 'src/db/schema';
 import type { CreateWorkoutDto } from '../dto/create-workout.dto';
 import type { AddWorkoutExerciseDto } from '../dto/add-workout-exercise.dto';
 import type { UpdateSetDto } from '../dto/update-set.dto';
+import { resolveHistoryWindow, type HistoryQueryDto } from '../dto/history-query.dto';
 import {
+  assertReadableAthlete,
+  historyVisibilityFilter,
   isActiveCoachOf,
   isPerformer,
   loadProgrammableWorkout,
@@ -121,12 +124,16 @@ export class WorkoutsService {
    * Readable by the athlete themselves and by any coach with an active
    * relationship. Templates are excluded — they belong to a coach's library, not
    * to anyone's calendar, and `athlete_id` is null on them anyway.
+   *
+   * ⚠️ Note this does **not** apply `historyVisibilityFilter`, so a coach sees the
+   * name and date of every workout assigned to their athlete including another
+   * coach's. That is pre-existing behaviour, left alone deliberately rather than
+   * changed as a side effect of adding history — but it means the two reads
+   * disagree about co-coach visibility. See `docs/AUTHORIZATION.md`.
    */
   async listAthleteWorkouts(athleteId: string, callerId: string) {
-    if (athleteId !== callerId && !(await isActiveCoachOf(this.db, callerId, athleteId))) {
-      // 404, not 403: a 403 here confirms which user ids are athletes.
-      throw new NotFoundException(`Athlete with ID ${athleteId} could not be found`);
-    }
+    // 404, not 403: a 403 here confirms which user ids are athletes.
+    await assertReadableAthlete(this.db, athleteId, callerId);
 
     return this.db
       .select({
@@ -137,6 +144,224 @@ export class WorkoutsService {
       .from(workouts)
       .where(eq(workouts.athleteId, athleteId))
       .orderBy(asc(workouts.date));
+  }
+
+  /** An athlete's **past** workouts, newest first, one page at a time.
+   *
+   * A route of its own rather than a mode of `GET /workouts`. That one returns
+   * every assigned workout in ascending date order and both of its callers consume
+   * the whole array to work out what comes next, so wrapping it in a paginated
+   * envelope would silently truncate that to the oldest 20 workouts. The two reads
+   * also disagree on everything that matters — direction, bound, and whether a
+   * summary of what was logged is wanted — so they are two queries wearing one
+   * name at best.
+   *
+   * Authorization is two things, and both are needed. `assertReadableAthlete` is
+   * the gate — `athlete_id` comes from the query string, so a caller with no claim
+   * on it gets a 404 before a row is read. `historyVisibilityFilter` is the row
+   * scope, and it is **narrower than the gate**: an athlete with two coaches is a
+   * supported case, and a coach sees only the sessions they wrote. Read the note on
+   * that function before widening either.
+   */
+  async listWorkoutHistory(query: HistoryQueryDto, callerId: string) {
+    const athleteId = query.athlete_id;
+    await assertReadableAthlete(this.db, athleteId, callerId);
+
+    const { before, limit, offset } = resolveHistoryWindow(query);
+
+    // `limit + 1` rather than a second `count(*)`: the only question the client
+    // asks is whether another page exists, and one extra row answers it.
+    //
+    // The sort is fully deterministic — date, then created_at, then id. Two
+    // workouts on the same day are common (a coach programming a morning and an
+    // evening session), and with an ambiguous sort, offset pagination can show the
+    // same workout on two pages and skip a third.
+    const rows = await this.db
+      .select({
+        id: workouts.id,
+        name: workouts.name,
+        date: workouts.date,
+        notes: workouts.notes,
+      })
+      .from(workouts)
+      .where(and(historyVisibilityFilter(athleteId, callerId), lt(workouts.date, before)))
+      .orderBy(desc(workouts.date), desc(workouts.createdAt), desc(workouts.id))
+      .limit(limit + 1)
+      .offset(offset);
+
+    const page = rows.slice(0, limit);
+
+    return {
+      workouts: page.length ? await this.withSetTotals(page) : [],
+      limit,
+      offset,
+      has_more: rows.length > limit,
+    };
+  }
+
+  /** Every set an athlete has logged for one exercise, grouped by session and
+   * newest session first. The "what did I squat last week" query.
+   *
+   * Paginated over **sessions**, not sets. Capping a flat list of sets would cut
+   * the oldest session in half and render as a session where three sets were
+   * performed instead of five, which is worse than not showing it.
+   *
+   * An exercise id that does not exist, or belongs to another coach's library,
+   * comes back as an empty list rather than a 404. Every row returned is reached
+   * through `historyVisibilityFilter`, so a foreign id cannot match anything — and
+   * "you have never done this" and "no such exercise" being indistinguishable is
+   * the desired answer, not a gap.
+   *
+   * Scoped by the same gate-plus-filter pair as `listWorkoutHistory`, so a coach
+   * sees this athlete's progression only through the sessions they themselves
+   * programmed. See `historyVisibilityFilter`.
+   */
+  async listExerciseHistory(exerciseId: string, query: HistoryQueryDto, callerId: string) {
+    const athleteId = query.athlete_id;
+    await assertReadableAthlete(this.db, athleteId, callerId);
+
+    const { before, limit, offset } = resolveHistoryWindow(query);
+
+    // `group by` is doing the work of `distinct` here: an exercise can appear
+    // twice in one workout (two workout_exercises rows for a top set and back-off
+    // sets), which would otherwise return that session twice and corrupt the page
+    // boundaries. Both ordering columns are grouped, so the sort is legal.
+    const sessionRows = await this.db
+      .select({
+        id: workouts.id,
+        name: workouts.name,
+        date: workouts.date,
+      })
+      .from(workouts)
+      .innerJoin(workoutExercises, eq(workoutExercises.workoutId, workouts.id))
+      .where(
+        and(
+          historyVisibilityFilter(athleteId, callerId),
+          eq(workoutExercises.exerciseId, exerciseId),
+          lt(workouts.date, before),
+        ),
+      )
+      .groupBy(workouts.id, workouts.name, workouts.date)
+      .orderBy(desc(workouts.date), desc(workouts.id))
+      .limit(limit + 1)
+      .offset(offset);
+
+    const page = sessionRows.slice(0, limit);
+    const hasMore = sessionRows.length > limit;
+
+    if (!page.length) {
+      return { sessions: [], limit, offset, has_more: false };
+    }
+
+    // Scoped by the ids the authorized query above returned, and filtered by the
+    // same `exercise_id` — without that second clause this would return every set
+    // of every exercise in those sessions.
+    const setRows = await this.db
+      .select({
+        id: sets.id,
+        workout_id: workoutExercises.workoutId,
+        set_number: sets.setNumber,
+        prescribed_reps: sets.prescribedReps,
+        prescribed_intensity: sets.prescribedIntensity,
+        suggested_load_min: sets.suggestedLoadMin,
+        suggested_load_max: sets.suggestedLoadMax,
+        actual_load: sets.actualLoad,
+        actual_intensity: sets.actualIntensity,
+        is_completed: sets.isCompleted,
+      })
+      .from(sets)
+      .innerJoin(workoutExercises, eq(workoutExercises.id, sets.workoutExerciseId))
+      .where(
+        and(
+          inArray(
+            workoutExercises.workoutId,
+            page.map((session) => session.id),
+          ),
+          eq(workoutExercises.exerciseId, exerciseId),
+        ),
+      )
+      .orderBy(asc(workoutExercises.order), asc(sets.setNumber));
+
+    const setsByWorkout = new Map<string, typeof setRows>();
+    for (const set of setRows) {
+      const bucket = setsByWorkout.get(set.workout_id);
+      if (bucket) bucket.push(set);
+      else setsByWorkout.set(set.workout_id, [set]);
+    }
+
+    return {
+      sessions: page.map((session) => ({
+        workout_id: session.id,
+        workout_name: session.name,
+        date: session.date,
+        sets: setsByWorkout.get(session.id) ?? [],
+      })),
+      limit,
+      offset,
+      has_more: hasMore,
+    };
+  }
+
+  /** Annotates a page of workouts with how much was in them and how much got done.
+   *
+   * Counted in JavaScript from one flat read rather than with
+   * `count(...) filter (where ...)` in SQL. The page is capped at
+   * `MAX_HISTORY_LIMIT` workouts, so the row count is bounded and small, and the
+   * aggregation is then something a unit spec can actually assert — a mocked
+   * Drizzle cannot tell a correct aggregate expression from a malformed one.
+   *
+   * The join is a `leftJoin` so a workout whose exercises have no sets still
+   * reports its exercise count instead of vanishing from the summary.
+   */
+  private async withSetTotals<T extends { id: string }>(page: T[]) {
+    const rows = await this.db
+      .select({
+        workout_id: workoutExercises.workoutId,
+        workout_exercise_id: workoutExercises.id,
+        set_id: sets.id,
+        is_completed: sets.isCompleted,
+      })
+      .from(workoutExercises)
+      .leftJoin(sets, eq(sets.workoutExerciseId, workoutExercises.id))
+      .where(
+        inArray(
+          workoutExercises.workoutId,
+          page.map((workout) => workout.id),
+        ),
+      );
+
+    const totals = new Map<
+      string,
+      { exercises: Set<string>; setCount: number; completedCount: number }
+    >();
+
+    for (const row of rows) {
+      let entry = totals.get(row.workout_id);
+      if (!entry) {
+        entry = { exercises: new Set<string>(), setCount: 0, completedCount: 0 };
+        totals.set(row.workout_id, entry);
+      }
+
+      entry.exercises.add(row.workout_exercise_id);
+
+      // Null on the set side means the left join found no sets, not a set with no
+      // id — counting it would report a phantom set on an empty exercise.
+      if (row.set_id) {
+        entry.setCount += 1;
+        if (row.is_completed) entry.completedCount += 1;
+      }
+    }
+
+    return page.map((workout) => {
+      const entry = totals.get(workout.id);
+
+      return {
+        ...workout,
+        exercise_count: entry ? entry.exercises.size : 0,
+        set_count: entry ? entry.setCount : 0,
+        completed_set_count: entry ? entry.completedCount : 0,
+      };
+    });
   }
 
   /** The calling coach's template library, with prescriptions but no logged values.

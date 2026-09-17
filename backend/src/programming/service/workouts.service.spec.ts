@@ -4,6 +4,7 @@ import { DRIZZLE } from 'src/db/db.module';
 import { makeTestDb, type TestDb } from 'src/db/testing/db-mock';
 import { WorkoutsService } from './workouts.service';
 import type { CreateWorkoutDto } from '../dto/create-workout.dto';
+import { MAX_HISTORY_LIMIT, type HistoryQueryDto } from '../dto/history-query.dto';
 
 /** WorkoutsService — the authorization rules and the payload invariants.
  *
@@ -438,6 +439,219 @@ describe('WorkoutsService', () => {
       await expect(service.listAthleteWorkouts(ATHLETE, STRANGER)).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('listWorkoutHistory', () => {
+    const query = (overrides: Partial<HistoryQueryDto> = {}): HistoryQueryDto => ({
+      athlete_id: ATHLETE,
+      before: '2026-09-17',
+      ...overrides,
+    });
+
+    /** Two exercises, three sets, two of them logged — and the second exercise
+     * carries no sets at all, which is what the left join produces as a null
+     * `set_id`. */
+    const oneWorkout = () => ({
+      workouts: [[{ id: WORKOUT, name: 'Squat day', date: '2026-09-10', notes: null }]],
+      workout_exercises: [
+        [
+          { workout_id: WORKOUT, workout_exercise_id: 'we-1', set_id: 's-1', is_completed: true },
+          { workout_id: WORKOUT, workout_exercise_id: 'we-1', set_id: 's-2', is_completed: true },
+          { workout_id: WORKOUT, workout_exercise_id: 'we-1', set_id: 's-3', is_completed: false },
+          { workout_id: WORKOUT, workout_exercise_id: 'we-2', set_id: null, is_completed: null },
+        ],
+      ],
+    });
+
+    it('lets the athlete read their own history', async () => {
+      await build(oneWorkout());
+
+      const result = await service.listWorkoutHistory(query(), ATHLETE);
+
+      expect(result.workouts).toHaveLength(1);
+      expect(result.has_more).toBe(false);
+    });
+
+    /** The *gate*, not the row filter. This proves an active coach gets past
+     * `assertReadableAthlete`; it says nothing about which of the athlete's
+     * workouts come back, because the mock ignores `where`. The narrow co-coach
+     * scope is pinned in `programming-access.spec.ts`. */
+    it('lets an active coach past the gate on their athlete’s history', async () => {
+      await build({ coach_athlete_relationships: [[{ id: 'rel-1' }]], ...oneWorkout() });
+
+      const result = await service.listWorkoutHistory(query(), COACH);
+
+      expect(result.workouts).toHaveLength(1);
+    });
+
+    /** The rule that replaces RLS on this route. A 404 rather than a 403, so the
+     * status code cannot be used to confirm that an id belongs to an athlete. */
+    it('404s for a caller with no claim on the athlete', async () => {
+      await build({ coach_athlete_relationships: [[]], ...oneWorkout() });
+
+      await expect(service.listWorkoutHistory(query(), STRANGER)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    /** A coach with a *pending* invite is not a coach yet. Sending an invite must
+     * not be enough to read someone's training log. */
+    it('404s for a coach whose relationship is not active', async () => {
+      // isActiveCoachOf filters on status in SQL, so a pending row is simply no row.
+      await build({ coach_athlete_relationships: [[]], ...oneWorkout() });
+
+      await expect(service.listWorkoutHistory(query(), COACH)).rejects.toThrow(NotFoundException);
+    });
+
+    it('summarises how much was in each workout and how much got done', async () => {
+      await build(oneWorkout());
+
+      const [workout] = (await service.listWorkoutHistory(query(), ATHLETE)).workouts;
+
+      expect(workout).toMatchObject({
+        id: WORKOUT,
+        name: 'Squat day',
+        date: '2026-09-10',
+        exercise_count: 2,
+        set_count: 3,
+        completed_set_count: 2,
+      });
+    });
+
+    /** The extra row is how `has_more` is answered, and it must not be served as
+     * part of the page. */
+    it('reads one row past the limit and reports it as another page', async () => {
+      await build({
+        workouts: [
+          [
+            { id: WORKOUT, name: 'Newer', date: '2026-09-10', notes: null },
+            { id: 'older', name: 'Older', date: '2026-09-03', notes: null },
+          ],
+        ],
+        workout_exercises: [[]],
+      });
+
+      const result = await service.listWorkoutHistory(query({ limit: 1 }), ATHLETE);
+
+      expect(result.workouts).toHaveLength(1);
+      expect(result.workouts[0].name).toBe('Newer');
+      expect(result.has_more).toBe(true);
+      expect(result.limit).toBe(1);
+    });
+
+    it('echoes the page window back, clamped', async () => {
+      await build(oneWorkout());
+
+      const result = await service.listWorkoutHistory(query({ limit: 5000, offset: 20 }), ATHLETE);
+
+      expect(result).toMatchObject({ limit: MAX_HISTORY_LIMIT, offset: 20 });
+    });
+
+    it('returns an empty page rather than failing when there is no history', async () => {
+      await build({ workouts: [[]] });
+
+      const result = await service.listWorkoutHistory(query(), ATHLETE);
+
+      expect(result).toEqual({ workouts: [], limit: 20, offset: 0, has_more: false });
+    });
+  });
+
+  describe('listExerciseHistory', () => {
+    const query = (overrides: Partial<HistoryQueryDto> = {}): HistoryQueryDto => ({
+      athlete_id: ATHLETE,
+      before: '2026-09-17',
+      ...overrides,
+    });
+
+    const twoSessions = () => ({
+      workouts: [
+        [
+          { id: WORKOUT, name: 'Squat day', date: '2026-09-10' },
+          { id: 'older-workout', name: 'Squat day', date: '2026-09-03' },
+        ],
+      ],
+      sets: [
+        [
+          { id: SET, workout_id: WORKOUT, set_number: 1, actual_load: 200, is_completed: true },
+          { id: 's-2', workout_id: WORKOUT, set_number: 2, actual_load: 205, is_completed: true },
+          {
+            id: 's-3',
+            workout_id: 'older-workout',
+            set_number: 1,
+            actual_load: 190,
+            is_completed: true,
+          },
+        ],
+      ],
+    });
+
+    it('groups an athlete’s sets under the session they were performed in', async () => {
+      await build(twoSessions());
+
+      const result = await service.listExerciseHistory(EXERCISE, query(), ATHLETE);
+
+      expect(result.sessions).toHaveLength(2);
+      expect(result.sessions[0]).toMatchObject({
+        workout_id: WORKOUT,
+        workout_name: 'Squat day',
+        date: '2026-09-10',
+      });
+      expect(result.sessions[0].sets).toHaveLength(2);
+      expect(result.sessions[1].sets).toHaveLength(1);
+      expect(result.has_more).toBe(false);
+    });
+
+    /** Again the gate only — see the note on the same case above. */
+    it('lets an active coach past the gate on their athlete’s progression', async () => {
+      await build({ coach_athlete_relationships: [[{ id: 'rel-1' }]], ...twoSessions() });
+
+      await expect(service.listExerciseHistory(EXERCISE, query(), COACH)).resolves.toMatchObject({
+        has_more: false,
+      });
+    });
+
+    it('404s for a caller with no claim on the athlete', async () => {
+      await build({ coach_athlete_relationships: [[]], ...twoSessions() });
+
+      await expect(service.listExerciseHistory(EXERCISE, query(), STRANGER)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    /** Pagination is over sessions, so the boundary row is a session and dropping
+     * it must not drop half of the one before it. */
+    it('pages over sessions and reports another page', async () => {
+      await build(twoSessions());
+
+      const result = await service.listExerciseHistory(EXERCISE, query({ limit: 1 }), ATHLETE);
+
+      expect(result.sessions).toHaveLength(1);
+      expect(result.sessions[0].workout_id).toBe(WORKOUT);
+      expect(result.sessions[0].sets).toHaveLength(2);
+      expect(result.has_more).toBe(true);
+    });
+
+    /** An exercise the athlete has never trained — or one from another coach's
+     * library — is an empty list, not a 404. The two are meant to be
+     * indistinguishable. */
+    it('returns no sessions for an exercise with no history', async () => {
+      await build({ workouts: [[]], sets: [[{ id: SET }]] });
+
+      const result = await service.listExerciseHistory(EXERCISE, query(), ATHLETE);
+
+      expect(result).toEqual({ sessions: [], limit: 20, offset: 0, has_more: false });
+    });
+
+    it('tolerates a session whose sets came back empty', async () => {
+      await build({
+        workouts: [[{ id: WORKOUT, name: 'Squat day', date: '2026-09-10' }]],
+        sets: [[]],
+      });
+
+      const result = await service.listExerciseHistory(EXERCISE, query(), ATHLETE);
+
+      expect(result.sessions[0].sets).toEqual([]);
     });
   });
 

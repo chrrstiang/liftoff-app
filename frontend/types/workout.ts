@@ -32,9 +32,51 @@ export interface Workout {
   name: string;
   date: string;
   notes: string | null;
-  athlete_id?: string;
+  /** Null on a template — nobody is assigned it. Anything keyed on the performing
+   * athlete (exercise history, for one) has to handle that rather than assume. */
+  athlete_id?: string | null;
   created_at: string;
   workout_exercises: WorkoutExercise[];
+}
+
+/** One past workout as it appears in the history list.
+ *
+ * The three counts come from the API rather than being derived here: the list
+ * endpoint does not send the nested exercises and sets, precisely so that a page
+ * of twenty sessions is not a page of several hundred rows. */
+export interface WorkoutHistoryEntry {
+  id: string;
+  name: string;
+  date: string;
+  notes: string | null;
+  exercise_count: number;
+  set_count: number;
+  completed_set_count: number;
+}
+
+/** A page of history. `has_more` is the server's answer, not a length comparison —
+ * the last page is full as often as not. */
+export interface WorkoutHistoryPage {
+  workouts: WorkoutHistoryEntry[];
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+/** Everything logged for one exercise in one session. */
+export interface ExerciseHistorySession {
+  workout_id: string;
+  workout_name: string;
+  date: string;
+  sets: Set[];
+}
+
+/** Paged over **sessions**, not sets, so the oldest session on a page is whole. */
+export interface ExerciseHistoryPage {
+  sessions: ExerciseHistorySession[];
+  limit: number;
+  offset: number;
+  has_more: boolean;
 }
 
 export interface SetTemplate {

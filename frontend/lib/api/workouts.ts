@@ -1,5 +1,13 @@
 import { api } from "@/lib/api/client";
-import type { ExerciseFormSet, Set, Workout, WorkoutTemplate } from "@/types";
+import type {
+  ExerciseFormSet,
+  ExerciseHistoryPage,
+  Set,
+  Workout,
+  WorkoutHistoryPage,
+  WorkoutTemplate,
+} from "@/types";
+import { format, startOfToday } from "date-fns";
 
 /** Workouts, sets and the programming flow.
  *
@@ -17,6 +25,63 @@ export async function fetchWorkoutById(workoutId: string) {
 export async function fetchAthleteWorkouts(athleteId: string) {
   return api.get<{ id: string; name: string; date: string }[]>(
     `/workouts?athlete_id=${athleteId}`,
+  );
+}
+
+/** The page window both history routes take.
+ *
+ * `before` is exclusive and defaults to **local** today. That default lives here
+ * rather than on the server on purpose: "past" is a question about the lifter's
+ * calendar, and the API's own idea of today is UTC, which files an evening session
+ * on the wrong day for anyone west of Greenwich. Every caller therefore gets the
+ * device's answer without having to remember to send one.
+ */
+export interface HistoryWindow {
+  athleteId: string;
+  before?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** Built by hand rather than with `URLSearchParams`, whose React Native polyfill
+ * does not implement all of the web API. */
+function historyQuery({ athleteId, before, limit, offset }: HistoryWindow) {
+  const parts = [
+    `athlete_id=${encodeURIComponent(athleteId)}`,
+    `before=${before ?? format(startOfToday(), "yyyy-MM-dd")}`,
+  ];
+
+  if (limit !== undefined) parts.push(`limit=${limit}`);
+  if (offset !== undefined) parts.push(`offset=${offset}`);
+
+  return parts.join("&");
+}
+
+/** One page of an athlete's past workouts, newest first.
+ *
+ * Separate from `fetchAthleteWorkouts`, which returns every assigned workout in
+ * ascending order and is what home reads to find the *next* session. Until this
+ * existed, nothing read a workout back after its date had passed — everything a
+ * lifter had logged became unreachable the following day.
+ *
+ * `athleteId` names someone else when a coach calls it; the API authorizes it
+ * against the token and 404s a caller with no claim.
+ */
+export async function fetchWorkoutHistory(window: HistoryWindow) {
+  return api.get<WorkoutHistoryPage>(`/workouts/history?${historyQuery(window)}`);
+}
+
+/** Every set an athlete has logged for one exercise, grouped by session.
+ *
+ * An exercise the athlete has never trained comes back with no sessions rather
+ * than an error, so a caller does not need to know what is in the library.
+ */
+export async function fetchExerciseHistory(
+  exerciseId: string,
+  window: HistoryWindow,
+) {
+  return api.get<ExerciseHistoryPage>(
+    `/exercises/${exerciseId}/history?${historyQuery(window)}`,
   );
 }
 

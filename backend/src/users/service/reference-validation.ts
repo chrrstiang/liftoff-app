@@ -47,9 +47,16 @@ async function runReferenceLookup<T>(run: () => Promise<T[]>, candidates: string
 
 /** Asserts the federation exists.
  *
- * Only worth calling where a federation can be set *without* a division or weight
- * class alongside it — otherwise the two checks below already prove it, since a
- * division or weight class is only found when it belongs to this federation.
+ * `updateOwnProfile` calls this on every patch that leaves a federation set, even
+ * though the two checks below would usually prove it as a side effect — a division
+ * or weight class is only found when it belongs to this federation. The redundancy
+ * is one `select 1` and it buys the case that is otherwise unguarded: a patch that
+ * sets a federation while clearing the other two, or on a row that has neither.
+ * Leaving it to the foreign key there would surface a bogus id as a masked 500
+ * rather than "Federation not found".
+ *
+ * `createUserProfile` does not call it, deliberately — that path is unchanged, and
+ * widening its validation is not this endpoint's business.
  *
  * @param db The Drizzle handle.
  * @param federationId The federation to check.

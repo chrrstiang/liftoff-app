@@ -25,6 +25,54 @@ export interface Profile {
   years_of_experience?: number;
 }
 
+/** The `PATCH /users/profile` request body — the editable `users` columns.
+ *
+ * Mirrors `UpdateUserDto`, which is `PartialType(CreateUserDto)` plus
+ * `avatar_url`. Every field is optional there and every field is optional here,
+ * and that is load-bearing in a way the create shape is not:
+ *
+ * ⚠️ **Send only the fields that actually changed.** `@IsUnique('users',
+ * 'username')` on the backend matches the caller's *own* row, so re-sending the
+ * username you already have is rejected as a collision with yourself. That is a
+ * recorded known limitation (`docs/ARCHITECTURE.md` §7) rather than a bug to fix
+ * in passing, and "the client only sends changed fields" is the reason nothing
+ * hits it. `edit-profile.tsx` diffs against the loaded profile for exactly this
+ * reason — a screen that PATCHed the whole form would 400 on every save.
+ *
+ * `avatar_url` is absent because `lib/api/storage.ts` owns that one field, and it
+ * is a storage path rather than anything the user types.
+ */
+export interface ProfilePatch {
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  gender?: string;
+}
+
+/** The caller's own reference-data selections on the `athletes` row.
+ *
+ * Read via `GET /athlete/profile/:id?data=federation_id,division_id,weight_class_id`
+ * — those three are on `VALID_ATHLETES_COLUMNS_QUERIES`, so no allowlist change
+ * was needed to fetch them.
+ */
+export interface AthleteCompeting {
+  federation_id: string | null;
+  division_id: string | null;
+  weight_class_id: string | null;
+}
+
+/** The `PATCH /athlete/profile` request body.
+ *
+ * `null` clears a column and an absent key leaves it alone — the distinction
+ * matters because changing gender invalidates a weight class, and the client needs
+ * to be able to say "I no longer have one".
+ */
+export interface AthleteCompetingPatch {
+  federation_id?: string | null;
+  division_id?: string | null;
+  weight_class_id?: string | null;
+}
+
 /** A row from `user_profiles_enriched_view`.
  *
  * ⚠️ The identity column is `athlete_id`. There is **no `id`** — which is why the

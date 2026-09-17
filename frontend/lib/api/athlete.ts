@@ -1,5 +1,10 @@
 import { api } from "@/lib/api/client";
-import type { AthleteProfileView, UserProfileEnriched } from "@/types";
+import type {
+  AthleteCompeting,
+  AthleteCompetingPatch,
+  AthleteProfileView,
+  UserProfileEnriched,
+} from "@/types";
 
 /** One athlete's profile, in the flat shape the roster and program screens render.
  *
@@ -39,6 +44,43 @@ export async function fetchAthleteProfile(
     division_name: profile.divisions?.name ?? null,
     weight_class_name: profile.weight_classes?.name ?? null,
   };
+}
+
+/** An athlete's reference-data *ids*, for seeding the edit form.
+ *
+ * `fetchAthleteProfile` above returns the resolved *names* (`federation_code`,
+ * `weight_class_name`) because that is what a read-only screen renders. An edit
+ * form needs the ids instead, so the pickers can mark the current row as selected
+ * and so the PATCH can send back something unambiguous — a weight-class name is
+ * not unique across federations and genders.
+ *
+ * The `?data=` list is deliberately narrow: those three columns and nothing else.
+ * All three are already on `VALID_ATHLETES_COLUMNS_QUERIES`, so this needed no
+ * widening of the allowlist that governs what this endpoint exposes.
+ */
+export async function fetchAthleteCompeting(
+  athleteId: string,
+): Promise<AthleteCompeting> {
+  return api.get<AthleteCompeting>(
+    `/athlete/profile/${athleteId}?data=federation_id,division_id,weight_class_id`,
+  );
+}
+
+/** Updates the caller's own competing details.
+ *
+ * ⚠️ **No id argument.** `PATCH /athlete/profile` takes none — not in the path and
+ * not in the body — because a user may only update their own row, and the caller
+ * comes from the verified token. Same rule as `updateUserProfile` and
+ * `updateUserAvatar`.
+ *
+ * The API validates the three columns against each other on the **merged** row, so
+ * a patch that changes federation must carry the matching division and weight
+ * class (or clear them with `null`) or it is a 400.
+ */
+export async function updateAthleteProfile(
+  patch: AthleteCompetingPatch,
+): Promise<void> {
+  await api.patch("/athlete/profile", patch);
 }
 
 /** Athlete search for the invite flow.

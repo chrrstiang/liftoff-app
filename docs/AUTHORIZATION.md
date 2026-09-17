@@ -8,6 +8,10 @@ Audited 2026-09-04 by reading every controller and service against every spec. E
 cites the code that enforces the rule and the assertion that pins it. A row with no
 assertion is a hole, and is marked as one.
 
+**One endpoint postdates the audit:** `PATCH /athlete/profile`, added with the
+profile-editing screen. It is in the `athlete` matrix below with its unit assertions
+and an explicit note that it has no e2e coverage yet.
+
 **All seven holes the audit found are closed** (2026-09-04). The e2e suite went from
 103 tests to 134. Closing them turned up one live bug — avatar upload had been broken
 since it shipped — which is recorded as Finding 4. The findings below are kept as the
@@ -173,6 +177,19 @@ PATCH against a user with no row must not conjure one (`users:411`).
 |---|---|---|---|---|
 | `GET /athlete/profile/:id` | public to any authenticated caller; fields capped by allowlist | `select.queries.ts:15` | `athlete-retrieve:171` (7 rejected shapes, incl. `users.email` at `:182`) + `select.queries.spec.ts` pins the allowlist itself | `athlete-retrieve:208,213` |
 | `GET /athlete/search` | excludes caller and already-invited | `athlete.service.ts:239` | `programming:552,560` | `programming:660,666` |
+| `PATCH /athlete/profile` | `eq(athletes.id, user.id)` on both the read and the write | `athlete.service.ts` → `updateOwnProfile` | **unit only** — `athlete.service.spec.ts` "scopes the read and the write to the id from the token" and "cannot be redirected by an id smuggled into the body"; **no e2e yet** | **none yet** |
+
+`PATCH /athlete/profile` is the one row here whose assertions are unit rather than
+e2e, and by the standard the rest of this file sets that is a partial hole. It is
+recorded rather than hidden. Two things narrow it: the route takes **no id at all**
+— not in the path, not on `UpdateAthleteDto` — so there is no id to tamper with and
+the cross-user surface is only whether the service keeps its scope, which is what
+the two unit assertions compare against a freshly built `eq(athletes.id, CALLER)`;
+and `@UseGuards(JwtAuthGuard)` is on the route, which is the thing Finding 1 shows
+goes wrong when it is missing. What is still missing is the anon case and an
+outsider case against a real database, and `users.e2e-spec.ts` is the model to
+follow — `users:454` for the "touches only the caller" shape and `users:533` for
+the 401.
 
 **Athlete profiles are intentionally public to authenticated users** — `first_name`,
 `last_name`, `username`, `gender`, plus reference data. That decision is already made and
@@ -280,10 +297,15 @@ suite. Finding 1 is what that looks like when it actually happens.
 
 **`@IsUnique('users','username')` matches the caller's own row**, so re-sending your
 current username is rejected as a collision with yourself. Pinned at `users:506` as a
-known rough edge rather than a desired behaviour. Nothing hits it today because the client
-only sends changed fields, but a settings screen that PATCHes the whole form would. The
-fix means excluding the caller's id from the uniqueness query, which changes the
-validator's signature.
+known rough edge rather than a desired behaviour. The fix means excluding the caller's
+id from the uniqueness query, which changes the validator's signature.
+
+The settings screen this entry anticipated now exists (`app/(app)/edit-profile.tsx`),
+so "nothing hits it because the client only sends changed fields" has stopped being
+luck and become a constraint the client has to keep. It diffs every field against the
+loaded profile and sends only what changed; that is documented on `ProfilePatch` and
+`lib/api/users.ts` so a later refactor to "just PATCH the whole form" is recognisable
+as the 400 it would be.
 
 ## What this audit found to be already correct
 

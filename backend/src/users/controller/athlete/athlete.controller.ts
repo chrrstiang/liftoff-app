@@ -1,8 +1,19 @@
-import { Controller, Get, HttpCode, Query, Req, UseGuards, Param } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { AthleteService } from '../../service/athlete/athlete.service';
 import { JwtAuthGuard } from 'src/common/validation/guards/auth-guard';
 import { AthleteExistsGuard } from 'src/common/validation/guards/athlete-exists-guard';
 import type { RequestWithUser } from 'src/common/types/request.interface';
+import { UpdateAthleteDto } from '../../dto/athlete/update-athlete.dto';
 
 @Controller('athlete')
 export class AthleteController {
@@ -21,6 +32,28 @@ export class AthleteController {
   @HttpCode(200)
   async search(@Req() req: RequestWithUser, @Query('q') q?: string) {
     return this.athleteService.searchAthletes(q ?? '', req.user.id);
+  }
+
+  /** Updates the caller's own competing details: federation, division, weight class.
+   *
+   * ⚠️ **No id, anywhere.** Not in the path, not in `UpdateAthleteDto`. A user may
+   * only ever update their own row, and the caller comes from the verified token —
+   * accepting an id would mean the endpoint had to decide whether to honour it,
+   * which is a decision no correct answer makes necessary.
+   *
+   * Declared **above** `profile/:id` and below `search`, but the ordering is not
+   * load-bearing here: `PATCH profile` and `GET profile/:id` differ in both method
+   * and shape. It sits next to the route it mirrors so the pair reads together.
+   *
+   * @param dto The columns to change. `null` clears one, absent leaves it alone.
+   * @returns An object containing a success message.
+   */
+  @Patch('profile')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  async updateOwnProfile(@Body() dto: UpdateAthleteDto, @Req() req: RequestWithUser) {
+    await this.athleteService.updateOwnProfile(dto, req.user);
+    return { message: 'Athlete profile updated successfully' };
   }
 
   /** Retrieves the public profile of the current athlete user. A public athlete profile can

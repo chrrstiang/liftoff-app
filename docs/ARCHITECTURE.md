@@ -143,9 +143,14 @@ Every route except `GET /` and `GET /health` carries a per-route `@UseGuards(Jwt
 | athletes | `GET /athlete/profile/:id`, `GET /athlete/search?q=` |
 | coaching | `GET`/`POST /coach-requests`, `PATCH /coach-requests/:id`, `GET /coach-requests/roster` |
 | messaging | `GET`/`POST /conversations`, `GET`/`POST /conversations/:id/messages`, `POST /conversations/:id/read` |
-| workouts | `GET /workouts?athlete_id=`, `GET /workouts/templates`, `GET /workouts/:id`, `POST /workouts`, `POST /workouts/:id/exercises`, `DELETE /workouts/:id` |
+| workouts | `GET /workouts?athlete_id=`, `GET /workouts/templates`, `GET /workouts/history?athlete_id=`, `GET /workouts/:id`, `POST /workouts`, `POST /workouts/:id/exercises`, `DELETE /workouts/:id` |
 | sets | `PATCH /sets/:id` |
-| exercises | `GET`/`POST /exercises`, `GET /exercises/templates` |
+| exercises | `GET`/`POST /exercises`, `GET /exercises/templates`, `GET /exercises/:id/history?athlete_id=` |
+
+The two `history` routes are the only paginated reads in the API: `?before=` is an
+exclusive `YYYY-MM-DD` bound the client fills with its **local** today, `?limit=`
+caps at 50, and the response is an envelope carrying `has_more` rather than a bare
+array. Everything else returns the whole list.
 
 All seven `frontend/lib/api/*` resource modules have endpoints to call, and the app does not function with the backend stopped.
 

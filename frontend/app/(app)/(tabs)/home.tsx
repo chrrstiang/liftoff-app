@@ -122,6 +122,23 @@ export default function HomePage() {
         </View>
       )}
 
+      {/* The way back to everything already logged. Home filters to
+          `date >= today`, so without this every completed workout was unreachable
+          the day after it happened. Secondary, because "Log workout" above is the
+          one primary action on this screen. A coach who does not also lift has no
+          assigned workouts of their own, so there is nothing for them to look back
+          at — they reach an athlete's history from the roster instead. */}
+      {!isCoachOnly ? (
+        <View className="px-6 pt-8">
+          <Button
+            label="View past workouts"
+            variant="secondary"
+            block
+            onPress={() => router.push(`/history/${user!.id}`)}
+          />
+        </View>
+      ) : null}
+
       <NotificationModal
         visible={showNotifications}
         onClose={() => setShowNotifications(false)}

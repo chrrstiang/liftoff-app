@@ -575,15 +575,26 @@ export default function ProgramPage() {
 
       <WeeklyWorkoutCard athleteId={athleteId} />
 
-      {!isOwnProgram ? (
-        <View className="px-6 pb-10 pt-8">
+      <View className="gap-3 px-6 pb-10 pt-8">
+        {!isOwnProgram ? (
           <Button
             label="Add new workout"
             block
             onPress={() => setShowWorkoutModal(true)}
           />
-        </View>
-      ) : null}
+        ) : null}
+
+        {/* The coach's route into an athlete's completed sessions, and an
+            athlete's into their own. The list above only shows what is still
+            scheduled, so without this a coach could program for someone without
+            ever seeing what they had actually lifted. */}
+        <Button
+          label="View past workouts"
+          variant="secondary"
+          block
+          onPress={() => router.push(`/history/${athleteId}`)}
+        />
+      </View>
 
       <WorkoutModal
         visible={showWorkoutModal}

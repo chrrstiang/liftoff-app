@@ -17,14 +17,16 @@ import type { RequestWithUser } from 'src/common/types/request.interface';
 import { WorkoutsService } from '../service/workouts.service';
 import { CreateWorkoutDto } from '../dto/create-workout.dto';
 import { AddWorkoutExerciseDto } from '../dto/add-workout-exercise.dto';
+import { HistoryQueryDto } from '../dto/history-query.dto';
 
 /** Workouts and their exercises.
  *
- * ⚠️ **Route order matters here.** `@Get('templates')` must stay above
- * `@Get(':id')`: Nest matches in declaration order, so with them swapped
- * `/workouts/templates` binds `id = "templates"` and fails in ParseUUIDPipe with a
- * 400 about a malformed uuid — which reads like a client bug rather than a routing
- * one.
+ * ⚠️ **Route order matters here.** `@Get('templates')` and `@Get('history')` must
+ * stay above `@Get(':id')`: Nest matches in declaration order, so with them
+ * swapped `/workouts/templates` binds `id = "templates"` and fails in
+ * ParseUUIDPipe with a 400 about a malformed uuid — which reads like a client bug
+ * rather than a routing one. Every literal route added here has the same
+ * constraint.
  */
 @Controller('workouts')
 export class WorkoutsController {
@@ -36,6 +38,23 @@ export class WorkoutsController {
   @UseGuards(JwtAuthGuard)
   async templates(@Req() req: RequestWithUser) {
     return this.workoutsService.listTemplates(req.user.id);
+  }
+
+  /** An athlete's past workouts, newest first.
+   *
+   * ⚠️ A literal route, so it must stay above `@Get(':id')` — see the note on this
+   * class.
+   *
+   * @param query `athlete_id`, plus the optional `before` / `limit` / `offset`
+   *   page window.
+   * @returns `{ workouts, limit, offset, has_more }`, each workout carrying its
+   *   exercise and set totals.
+   */
+  @Get('history')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async history(@Query() query: HistoryQueryDto, @Req() req: RequestWithUser) {
+    return this.workoutsService.listWorkoutHistory(query, req.user.id);
   }
 
   /** An athlete's assigned workouts. `athlete_id` is required and authorized

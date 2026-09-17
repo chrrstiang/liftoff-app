@@ -167,12 +167,17 @@ describe('Programming (e2e)', () => {
         .set('Authorization', `Bearer ${user.token}`),
   });
 
-  /** Builds a workout for the athlete and returns its id plus its first set id. */
-  async function createAssignedWorkout(name = 'E2E squat day') {
+  /** Builds a workout for the athlete and returns its id plus its first set id.
+   *
+   * `date` is a parameter because the history routes are the first thing here that
+   * cares: every other workout in this file is dated 2026-08-20, and a page ordered
+   * by date cannot be asserted against a pile of rows that all share one.
+   */
+  async function createAssignedWorkout(name = 'E2E squat day', date = '2026-08-20') {
     const res = await as(coach)
       .post('/workouts', {
         name,
-        date: '2026-08-20',
+        date,
         athlete_id: athlete.userId,
         exercises: [
           {
@@ -445,6 +450,246 @@ describe('Programming (e2e)', () => {
     });
   });
 
+  /** The read path that makes a completed workout findable the day after.
+   *
+   * Everything in this block is dated well before the rest of the file, and every
+   * request pins `before` to 2026-07-16, so the page under assertion contains only
+   * the two workouts created here. Without that the assertions would be at the
+   * mercy of whatever else in this suite happens to have built a workout.
+   */
+  describe('GET /workouts/history', () => {
+    let olderId: string;
+    let newerId: string;
+
+    const BEFORE = '2026-07-16';
+
+    beforeAll(async () => {
+      olderId = (await createAssignedWorkout('E2E history older', '2026-07-01')).workoutId;
+
+      const newer = await createAssignedWorkout('E2E history newer', '2026-07-15');
+      newerId = newer.workoutId;
+
+      // One of the newer workout's two sets logged, so the completion totals have
+      // something to distinguish.
+      await as(athlete)
+        .patch(`/sets/${newer.setId}`, { actual_load: 150, is_completed: true })
+        .expect(200);
+    });
+
+    it('returns the athlete’s past workouts, newest first', async () => {
+      const res = await as(athlete)
+        .get(`/workouts/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
+        .expect(200);
+
+      expect(res.body.workouts.map((w: { id: string }) => w.id)).toEqual([newerId, olderId]);
+      expect(res.body.workouts.map((w: { name: string }) => w.name)).toEqual([
+        'E2E history newer',
+        'E2E history older',
+      ]);
+      expect(res.body).toMatchObject({ limit: 20, offset: 0, has_more: false });
+    });
+
+    /** The counts are aggregated in JavaScript over a joined read; this is the
+     * assertion that the join produces one row per set rather than a cross product. */
+    it('summarises each workout’s exercises and how many sets were completed', async () => {
+      const res = await as(athlete)
+        .get(`/workouts/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
+        .expect(200);
+
+      const newer = res.body.workouts.find((w: { id: string }) => w.id === newerId);
+      expect(newer).toMatchObject({ exercise_count: 1, set_count: 2, completed_set_count: 1 });
+
+      const older = res.body.workouts.find((w: { id: string }) => w.id === olderId);
+      expect(older).toMatchObject({ exercise_count: 1, set_count: 2, completed_set_count: 0 });
+    });
+
+    it('lets their coach read it', async () => {
+      const res = await as(coach)
+        .get(`/workouts/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
+        .expect(200);
+
+      expect(res.body.workouts).toHaveLength(2);
+    });
+
+    /** 404 rather than 403: the status code must not confirm that this id belongs
+     * to an athlete who trains with somebody. */
+    it('404s for an unrelated user', async () => {
+      await as(stranger).get(`/workouts/history?athlete_id=${athlete.userId}`).expect(404);
+    });
+
+    it('400s when athlete_id is missing rather than listing everything', async () => {
+      await as(coach).get('/workouts/history').expect(400);
+    });
+
+    it('400s on a malformed athlete_id rather than 500ing', async () => {
+      await as(coach).get('/workouts/history?athlete_id=nope').expect(400);
+    });
+
+    /** `before` is exclusive, which is what makes "today" a usable value: today's
+     * session belongs on the home screen, not in history. */
+    it('excludes a workout dated on the before bound', async () => {
+      const res = await as(athlete)
+        .get(`/workouts/history?athlete_id=${athlete.userId}&before=2026-07-15`)
+        .expect(200);
+
+      const ids = res.body.workouts.map((w: { id: string }) => w.id);
+      expect(ids).toContain(olderId);
+      expect(ids).not.toContain(newerId);
+    });
+
+    it('pages, and says when there is another page', async () => {
+      const first = await as(athlete)
+        .get(`/workouts/history?athlete_id=${athlete.userId}&before=${BEFORE}&limit=1`)
+        .expect(200);
+
+      expect(first.body.workouts).toHaveLength(1);
+      expect(first.body.workouts[0].id).toBe(newerId);
+      expect(first.body.has_more).toBe(true);
+
+      const second = await as(athlete)
+        .get(`/workouts/history?athlete_id=${athlete.userId}&before=${BEFORE}&limit=1&offset=1`)
+        .expect(200);
+
+      expect(second.body.workouts[0].id).toBe(olderId);
+      expect(second.body.has_more).toBe(false);
+    });
+
+    it('400s on a limit past the cap instead of serving it', async () => {
+      await as(athlete)
+        .get(`/workouts/history?athlete_id=${athlete.userId}&limit=5000`)
+        .expect(400);
+    });
+
+    /** forbidNonWhitelisted applies to the query string, so a misspelt parameter
+     * fails loudly instead of silently serving the default page. */
+    it('400s on an unknown query parameter', async () => {
+      await as(athlete).get(`/workouts/history?athlete_id=${athlete.userId}&limt=5`).expect(400);
+    });
+
+    it('400s on an impossible date rather than letting Postgres reject it', async () => {
+      await as(athlete)
+        .get(`/workouts/history?athlete_id=${athlete.userId}&before=2026-02-31`)
+        .expect(400);
+    });
+
+    /** A literal segment under the same prefix as `/workouts/:id`. Declared above
+     * it, or this is a 400 about a malformed uuid. */
+    it('routes /workouts/history ahead of /workouts/:id', async () => {
+      const res = await as(athlete).get(`/workouts/history?athlete_id=${athlete.userId}`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.workouts)).toBe(true);
+    });
+
+    it('excludes templates, which belong to no athlete', async () => {
+      const res = await as(athlete)
+        .get(`/workouts/history?athlete_id=${athlete.userId}`)
+        .expect(200);
+
+      expect(res.body.workouts.map((w: { name: string }) => w.name)).not.toContain(
+        'E2E Template A',
+      );
+    });
+  });
+
+  /** Progression on one lift — the "what did I squat last week" read. */
+  describe('GET /exercises/:exerciseId/history', () => {
+    const BEFORE = '2026-06-16';
+
+    let firstId: string;
+    let secondId: string;
+
+    beforeAll(async () => {
+      firstId = (await createAssignedWorkout('E2E progression 1', '2026-06-01')).workoutId;
+
+      const second = await createAssignedWorkout('E2E progression 2', '2026-06-15');
+      secondId = second.workoutId;
+
+      await as(athlete)
+        .patch(`/sets/${second.setId}`, {
+          actual_load: 160,
+          actual_intensity: 8,
+          is_completed: true,
+        })
+        .expect(200);
+    });
+
+    it('groups the athlete’s sets under the session they were performed in', async () => {
+      const res = await as(athlete)
+        .get(`/exercises/${exerciseId}/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
+        .expect(200);
+
+      expect(res.body.sessions.map((s: { workout_id: string }) => s.workout_id)).toEqual([
+        secondId,
+        firstId,
+      ]);
+
+      const [newest] = res.body.sessions;
+      expect(newest).toMatchObject({ workout_name: 'E2E progression 2', date: '2026-06-15' });
+      expect(newest.sets.map((s: { set_number: number }) => s.set_number)).toEqual([1, 2]);
+      expect(newest.sets[0]).toMatchObject({
+        actual_load: 160,
+        actual_intensity: 8,
+        is_completed: true,
+        prescribed_reps: 5,
+        prescribed_intensity: 'RPE 7',
+      });
+      expect(res.body).toMatchObject({ limit: 20, offset: 0, has_more: false });
+    });
+
+    it('lets their coach read it', async () => {
+      const res = await as(coach)
+        .get(`/exercises/${exerciseId}/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
+        .expect(200);
+
+      expect(res.body.sessions).toHaveLength(2);
+    });
+
+    it('404s for an unrelated user', async () => {
+      await as(stranger)
+        .get(`/exercises/${exerciseId}/history?athlete_id=${athlete.userId}`)
+        .expect(404);
+    });
+
+    /** Pagination is over sessions, so the oldest session on a page must arrive
+     * whole rather than with its last sets cut off. */
+    it('pages over sessions, not sets', async () => {
+      const res = await as(athlete)
+        .get(
+          `/exercises/${exerciseId}/history?athlete_id=${athlete.userId}&before=${BEFORE}&limit=1`,
+        )
+        .expect(200);
+
+      expect(res.body.sessions).toHaveLength(1);
+      expect(res.body.sessions[0].sets).toHaveLength(2);
+      expect(res.body.has_more).toBe(true);
+    });
+
+    /** An exercise from another coach's library is empty rather than a 404 — "you
+     * have never done this" and "no such exercise" are meant to read the same. */
+    it('returns no sessions for an exercise this athlete has never trained', async () => {
+      const theirs = await as(stranger)
+        .post('/exercises', { name: 'E2E Never Trained' })
+        .expect(201);
+
+      const res = await as(athlete)
+        .get(`/exercises/${theirs.body.id}/history?athlete_id=${athlete.userId}`)
+        .expect(200);
+
+      expect(res.body.sessions).toEqual([]);
+    });
+
+    it('400s on a malformed exercise id rather than 500ing', async () => {
+      await as(athlete)
+        .get(`/exercises/not-a-uuid/history?athlete_id=${athlete.userId}`)
+        .expect(400);
+    });
+
+    it('400s when athlete_id is missing', async () => {
+      await as(athlete).get(`/exercises/${exerciseId}/history`).expect(400);
+    });
+  });
+
   describe('GET /workouts/:id', () => {
     it('returns exercises and sets nested and ordered', async () => {
       const { workoutId } = await createAssignedWorkout('E2E ordering');
@@ -656,6 +901,109 @@ describe('Programming (e2e)', () => {
     });
   });
 
+  /** History when an athlete has **two** coaches.
+   *
+   * ⚠️ **This block mutates the shared fixture** — it makes `stranger` an active
+   * coach of `athlete`, which every negative case in this file relies on *not*
+   * being true. It is therefore declared last, after every describe that asserts
+   * `stranger` gets a 404, and it deletes the relationship again in `afterAll`.
+   * **Do not add a describe below this one** without reading that.
+   *
+   * What it pins is the deliberately narrow rule in `historyVisibilityFilter`: a
+   * coach reads only the sessions they authored, so coach A cannot see what coach B
+   * programmed for their shared athlete. That is a pending product decision rather
+   * than a settled one — if it is widened, these expectations change on purpose.
+   */
+  describe('history with two coaches', () => {
+    /** Earlier than every other workout in this file, so a `before` bound of
+     * 2026-05-02 isolates it. */
+    const BEFORE = '2026-05-02';
+
+    let theirExerciseId: string;
+    let theirWorkoutId: string;
+
+    beforeAll(async () => {
+      await dataDb().query(
+        `insert into coach_athlete_relationships (athlete_id, coach_id, status)
+         values ($1, $2, 'active')`,
+        [athlete.userId, stranger.userId],
+      );
+
+      const exercise = await as(stranger)
+        .post('/exercises', { name: 'E2E Second Coach Squat' })
+        .expect(201);
+      theirExerciseId = exercise.body.id;
+
+      const created = await as(stranger)
+        .post('/workouts', {
+          name: 'E2E second coach session',
+          date: '2026-05-01',
+          athlete_id: athlete.userId,
+          exercises: [
+            {
+              exercise_id: theirExerciseId,
+              order: 0,
+              sets: [{ set_number: 1, prescribed_reps: 3 }],
+            },
+          ],
+        })
+        .expect(201);
+      theirWorkoutId = created.body.id;
+    });
+
+    afterAll(async () => {
+      await dataDb().query(
+        'delete from coach_athlete_relationships where athlete_id = $1 and coach_id = $2',
+        [athlete.userId, stranger.userId],
+      );
+    });
+
+    it('shows the authoring coach their own session', async () => {
+      const res = await as(stranger)
+        .get(`/workouts/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
+        .expect(200);
+
+      expect(res.body.workouts.map((w: { id: string }) => w.id)).toEqual([theirWorkoutId]);
+    });
+
+    /** The assertion the narrow rule exists for. Not a 404 — the other coach is a
+     * legitimate reader of this athlete, so the request succeeds and the row is
+     * simply not in it. */
+    it('does not show one coach the session the other coach wrote', async () => {
+      const res = await as(coach)
+        .get(`/workouts/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
+        .expect(200);
+
+      expect(res.body.workouts.map((w: { id: string }) => w.id)).not.toContain(theirWorkoutId);
+      expect(res.body.workouts).toEqual([]);
+    });
+
+    it('shows the athlete everything assigned to them, whoever wrote it', async () => {
+      const res = await as(athlete)
+        .get(`/workouts/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
+        .expect(200);
+
+      expect(res.body.workouts.map((w: { id: string }) => w.id)).toContain(theirWorkoutId);
+    });
+
+    it('scopes exercise history the same way', async () => {
+      const theirs = await as(stranger)
+        .get(`/exercises/${theirExerciseId}/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
+        .expect(200);
+      expect(theirs.body.sessions).toHaveLength(1);
+
+      const others = await as(coach)
+        .get(`/exercises/${theirExerciseId}/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
+        .expect(200);
+      expect(others.body.sessions).toEqual([]);
+
+      const own = await as(athlete)
+        .get(`/exercises/${theirExerciseId}/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
+        .expect(200);
+      expect(own.body.sessions).toHaveLength(1);
+    });
+  });
+
   describe('authentication', () => {
     it('401s without a token', async () => {
       await request(app.getHttpServer() as Server)
@@ -669,5 +1017,18 @@ describe('Programming (e2e)', () => {
         .set('Authorization', 'Bearer not-a-real-token')
         .expect(401);
     });
+
+    /** Every rule on the history routes is stated in terms of who the caller is,
+     * which presumes the guard ran at all. A route declared without
+     * `@UseGuards(JwtAuthGuard)` leaves `req.user` undefined and every ownership
+     * check comparing against `undefined` — and would pass all of the above. */
+    it.each(['/workouts/history', '/exercises/00000000-0000-4000-8000-000000000000/history'])(
+      '401s on %s without a token',
+      async (path) => {
+        await request(app.getHttpServer() as Server)
+          .get(`${path}?athlete_id=00000000-0000-4000-8000-000000000000`)
+          .expect(401);
+      },
+    );
   });
 });

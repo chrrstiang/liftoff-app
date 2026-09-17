@@ -1,7 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { User } from '@supabase/supabase-js';
+import { eq } from 'drizzle-orm';
 import { AthleteService } from './athlete.service';
 import { DRIZZLE } from 'src/db/db.module';
+import { athletes } from 'src/db/schema';
 
 /** Tests for the `?data=` sparse-fieldset compiler.
  *
@@ -113,5 +116,204 @@ describe('AthleteService - retrieveProfileDetails', () => {
 
   it('returns null when the athlete has no row', async () => {
     await expect(service.retrieveProfileDetails('missing')).resolves.toBeNull();
+  });
+});
+
+/** Tests for `PATCH /athlete/profile`.
+ *
+ * The assertions that matter here are the two scoping ones. With no RLS behind
+ * this service, `eq(athletes.id, user.id)` on the read and on the write is the
+ * whole authorization — so both `where` clauses are compared against a freshly
+ * built `eq(athletes.id, CALLER)`, not just counted. An unscoped
+ * `update athletes set ...` would pass a call-count assertion and rewrite every
+ * athlete row in the database.
+ */
+describe('AthleteService - updateOwnProfile', () => {
+  const CALLER = '11111111-1111-1111-1111-111111111111';
+  const OTHER = '22222222-2222-2222-2222-222222222222';
+  const FED = '33333333-3333-3333-3333-333333333333';
+  const DIV = '44444444-4444-4444-4444-444444444444';
+  const WC = '55555555-5555-5555-5555-555555555555';
+
+  const caller = { id: CALLER, email: 'caller@example.invalid' } as User;
+
+  /** One athlete row as the merge step reads it. */
+  const currentRow = (over: Record<string, unknown> = {}) => ({
+    federationId: FED,
+    divisionId: DIV,
+    weightClassId: WC,
+    gender: 'Male',
+    ...over,
+  });
+
+  let service: AthleteService;
+  /** Queued results, one per `select ... limit`. Shifted in call order. */
+  let selectResults: unknown[][];
+  /** The `where` argument of every select, in call order. */
+  let selectWheres: unknown[];
+  let updateCalls: Array<{ table: unknown; patch: Record<string, unknown>; where: unknown }>;
+
+  beforeEach(async () => {
+    selectResults = [];
+    selectWheres = [];
+    updateCalls = [];
+
+    /** The subset of the Drizzle builder `updateOwnProfile` walks. Declared as a
+     * type so the self-referential `from: () => chain` is not inferred as `any`,
+     * which ESLint reports as an unsafe return. */
+    interface SelectChain {
+      from: () => SelectChain;
+      innerJoin: () => SelectChain;
+      leftJoin: () => SelectChain;
+      where: (condition: unknown) => SelectChain;
+      limit: () => Promise<unknown[]>;
+    }
+
+    const db = {
+      select: jest.fn().mockImplementation(() => {
+        const chain: SelectChain = {
+          from: jest.fn(() => chain),
+          innerJoin: jest.fn(() => chain),
+          leftJoin: jest.fn(() => chain),
+          where: jest.fn((condition: unknown) => {
+            selectWheres.push(condition);
+            return chain;
+          }),
+          limit: jest.fn(() => Promise.resolve(selectResults.shift() ?? [])),
+        };
+        return chain;
+      }),
+      update: jest.fn().mockImplementation((table: unknown) => ({
+        set: jest.fn((patch: Record<string, unknown>) => ({
+          where: jest.fn((condition: unknown) => {
+            updateCalls.push({ table, patch, where: condition });
+            return Promise.resolve(undefined);
+          }),
+        })),
+      })),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [AthleteService, { provide: DRIZZLE, useValue: db }],
+    }).compile();
+
+    service = module.get<AthleteService>(AthleteService);
+  });
+
+  /** Every reference-data lookup after the row read reports a hit. */
+  const allLookupsSucceed = (rows = currentRow()) => {
+    selectResults = [[rows], [{ one: 1 }], [{ one: 1 }], [{ one: 1 }]];
+  };
+
+  it('scopes the read and the write to the id from the token', async () => {
+    allLookupsSucceed();
+
+    await service.updateOwnProfile({ federation_id: FED, division_id: DIV }, caller);
+
+    // The row read, and the update, both pinned to the caller's own id.
+    expect(selectWheres[0]).toEqual(eq(athletes.id, CALLER));
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0].table).toBe(athletes);
+    expect(updateCalls[0].where).toEqual(eq(athletes.id, CALLER));
+    // Belt and braces: it is not some other athlete's row that happens to pass.
+    expect(updateCalls[0].where).not.toEqual(eq(athletes.id, OTHER));
+  });
+
+  /** The ValidationPipe rejects an undeclared field with a 400 before the service
+   * is reached (`forbidNonWhitelisted`), so this is the second line of defence:
+   * even handed a body with someone else's id in it, nothing but the three
+   * declared columns reaches the `set`, and the target row does not move. */
+  it('cannot be redirected by an id smuggled into the body', async () => {
+    allLookupsSucceed();
+
+    await service.updateOwnProfile(
+      { id: OTHER, user_id: OTHER, federation_id: FED } as never,
+      caller,
+    );
+
+    expect(updateCalls[0].patch).toEqual({ federationId: FED });
+    expect(updateCalls[0].where).toEqual(eq(athletes.id, CALLER));
+  });
+
+  it('404s when the caller has no athletes row', async () => {
+    selectResults = [[]];
+
+    await expect(service.updateOwnProfile({ federation_id: FED }, caller)).rejects.toThrow(
+      NotFoundException,
+    );
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  /** An empty `set` is a Drizzle error, and there is nothing to authorize. */
+  it('does nothing when the patch is empty', async () => {
+    await service.updateOwnProfile({}, caller);
+
+    expect(selectWheres).toHaveLength(0);
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it('maps only the three declared columns', async () => {
+    allLookupsSucceed();
+
+    await service.updateOwnProfile(
+      { federation_id: FED, division_id: DIV, weight_class_id: WC },
+      caller,
+    );
+
+    expect(updateCalls[0].patch).toEqual({
+      federationId: FED,
+      divisionId: DIV,
+      weightClassId: WC,
+    });
+  });
+
+  it('clears a column when the field is explicitly null', async () => {
+    allLookupsSucceed();
+
+    await service.updateOwnProfile({ weight_class_id: null }, caller);
+
+    expect(updateCalls[0].patch).toEqual({ weightClassId: null });
+  });
+
+  /** The point of merging: a PATCH of one field is checked against what is
+   * already stored, so a division cannot be moved under a federation it does not
+   * belong to one request at a time. */
+  it('validates a division-only patch against the stored federation', async () => {
+    // row read, federation exists, division lookup misses
+    selectResults = [[currentRow()], [{ one: 1 }], []];
+
+    await expect(service.updateOwnProfile({ division_id: DIV }, caller)).rejects.toThrow(
+      'Division not found',
+    );
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it('rejects a division when neither the patch nor the row has a federation', async () => {
+    selectResults = [[currentRow({ federationId: null })]];
+
+    await expect(service.updateOwnProfile({ division_id: DIV }, caller)).rejects.toThrow(
+      'Federation is required to validate division',
+    );
+  });
+
+  /** Gender comes from the users row, never the request — a weight class is
+   * (federation, gender, name), so a client able to assert its own gender here
+   * could attach a men's class to a women's profile. */
+  it('rejects a weight class when the users row has no gender', async () => {
+    selectResults = [[currentRow({ gender: null })], [{ one: 1 }], [{ one: 1 }]];
+
+    await expect(service.updateOwnProfile({ weight_class_id: WC }, caller)).rejects.toThrow(
+      'Gender is required to validate weight class',
+    );
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it('rejects a federation that does not exist', async () => {
+    selectResults = [[currentRow()], []];
+
+    await expect(service.updateOwnProfile({ federation_id: FED }, caller)).rejects.toThrow(
+      'Federation not found',
+    );
+    expect(updateCalls).toHaveLength(0);
   });
 });

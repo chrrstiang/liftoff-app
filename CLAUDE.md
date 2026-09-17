@@ -2,7 +2,7 @@
 
 A mobile app for the powerlifting community. Two halves: coach↔athlete tooling (coaches send programming and manage a roster; athletes log workouts and message their coach) and a social layer (share lifts, meet recaps, communities, leaderboards).
 
-**Status: pre-release, but further along than it looks.** Built and working: sign up / log in, profile creation, coach↔athlete relationships with invites and notifications, a coach roster, program and workout building from templates, set logging, and messaging with image attachments (polling, not realtime). The social layer (feed, communities, leaderboards) does not exist — no tables, no endpoints, no screens. Assume a feature does not exist until you've read the code.
+**Status: pre-release, but further along than it looks.** Built and working: sign up / log in, profile creation and editing, coach↔athlete relationships with invites and notifications, a coach roster, program and workout building from templates, set logging, and messaging with image attachments (polling, not realtime). The social layer (feed, communities, leaderboards) does not exist — no tables, no endpoints, no screens. Assume a feature does not exist until you've read the code.
 
 ## Repo shape
 
@@ -24,8 +24,8 @@ Local setup is in `docs/SETUP.md`.
 
 **Supabase is auth and file storage. All data lives in RDS Postgres behind the NestJS API.** This was not true until recently, and older notes elsewhere may still describe the client reading Supabase tables directly — they are out of date.
 
-- **The client calls the API for everything.** All seven `frontend/lib/api/*` modules (`athlete`, `conversations`, `exercises`, `notifications`, `roster`, `storage`, `workouts`) go through `frontend/lib/api/client.ts`. The app does not work with the backend stopped.
-- **Supabase keeps three jobs:** the identity provider (`signUp` / `signInWithPassword` / `signOut` / `getSession`); the two image buckets (`lib/api/storage.ts`, plus `ChatBubble.tsx` resolving public URLs); and **reference-data reads on exactly one screen** — `create-profile.tsx` reads `federations` / `divisions` / `weight_classes` straight from Supabase with the anon key. That last one is a real exception to the bullet above. It is public reference data, so nothing user-owned is exposed, but know where it is before reasoning about the trust boundary. Don't extend the pattern.
+- **The client calls the API for everything.** All eight `frontend/lib/api/*` modules (`athlete`, `conversations`, `exercises`, `notifications`, `roster`, `storage`, `users`, `workouts`) go through `frontend/lib/api/client.ts`. The app does not work with the backend stopped.
+- **Supabase keeps three jobs:** the identity provider (`signUp` / `signInWithPassword` / `signOut` / `getSession`); the two image buckets (`lib/api/storage.ts`, plus `ChatBubble.tsx` resolving public URLs); and **reference-data reads** — `federations` / `divisions` / `weight_classes` are read straight from Supabase with the anon key, by `lib/reference.ts` (shared, used by `edit-profile.tsx`) and by `create-profile.tsx`'s own older copy. That last one is a real exception to the bullet above. It is public reference data, so nothing user-owned is exposed, but know where it is before reasoning about the trust boundary. Don't extend the pattern to anything user-owned.
 - **Auth token flow:** Supabase session JWT → `Authorization: Bearer <token>` → `JwtAuthGuard` (`backend/src/common/validation/guards/auth-guard.ts`) → verified **locally** with HS256 when `SUPABASE_JWT_SECRET` is set, falling back to `supabase.auth.getUser(token)` when it is not → `request.user`. Without the secret, every authenticated request is coupled to Supabase's uptime.
 - **Realtime is gone**, replaced by polling — see `frontend/lib/api/polling.ts`.
 

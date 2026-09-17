@@ -36,7 +36,7 @@ src/
   users/
     users.module.ts
     controller/       users.controller.ts + athlete/
-    service/          users.service.ts   + athlete/
+    service/          users.service.ts, reference-validation.ts + athlete/
     dto/              create-user.dto.ts, update-user.dto.ts + athlete/
     entities/         UserData.ts, AthleteData.ts, CoachData.ts
   common/
@@ -180,5 +180,6 @@ Loaded via `ConfigModule.forRoot({ isGlobal: true })`. `SupabaseService` throws 
 - **There is no coach controller or service, and that is deliberate.** `CoachController` / `CoachService` were unimplemented Nest CLI scaffolding returning string literals — but they were registered in `UsersModule`, so six routes were served with **no `@UseGuards` at all**, two of them mutations, confirmed reachable in production. Deleted rather than guarded: an unauthenticated placeholder is a trap for whoever implements the service later. Don't scaffold a controller you aren't ready to guard. See `docs/AUTHORIZATION.md`.
 - **`VALID_TABLE_FIELDS.users` exposes exactly four fields** — `first_name`, `last_name`, `username`, `gender`. `email` and `role` were once allowlisted and are now deliberately out: `email` is NOT NULL, so allowlisting it would always succeed and always leak another user's PII, and `role` was never a real column, so every `?data=users.role` was a guaranteed 500. `select.queries.spec.ts` pins all three allowlists **by contents** and is meant to fail if you widen one — that failure is the review prompt, not something to make pass.
 - File naming is genuinely inconsistent — `entities/` is PascalCase (`UserData.ts`) while everything else is kebab-case, and specs mix `users.controller.spec.ts` with `athlete-controller.spec.ts`. **Match the nearest sibling file** rather than inventing a house style or mass-renaming.
-- `PATCH /athlete/profile` does **not** exist, though `UpdateAthleteDto` (name-based `federation` / `division` / `weight_class`) is written and unused — it's the shape a future endpoint was meant to take. See `docs/ARCHITECTURE.md`.
+- **`PATCH /athlete/profile` exists now, and it is id-based — `UpdateAthleteDto` is no longer the name-based shape older notes describe.** It was written as `federation` / `division` / `weight_class` behind `@ValueExists(table, name)` and left unused as a design record. Building it showed names cannot be resolved: `weight_classes` is keyed by (federation, gender, name), so `@ValueExists('weight_classes','name')` proves *a* row has that name without saying which, and every federation has an "Open" division. The DTO takes the three `*_id` columns, which is what the client already holds. The comment on the DTO is the full record.
+- **Reference-data cross-validation lives in `service/reference-validation.ts`**, not in `UsersService`. It was three private methods there, reachable only from `createUserProfile`; `updateOwnProfile` on `AthleteService` needs the same rules against the *merged* athlete row, so they moved rather than being copied. The messages are unchanged, which is what keeps the existing `users.service.spec.ts` assertions meaningful. A division belonging to one federation and a weight class to one federation *and gender* are not expressible as foreign keys — that is why these exist at all.
 - `README.md` in this directory is unmodified NestJS boilerplate — ignore it.

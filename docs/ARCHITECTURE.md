@@ -18,9 +18,11 @@ The single most important thing to have right, because an older generation of no
 |---|---|
 | Identity provider — `signUp` / `signInWithPassword` / `signOut` / `getSession` | `frontend/contexts/AuthContext.tsx` |
 | Two image buckets — `avatars`, `conversations` | `frontend/lib/api/storage.ts`, `frontend/components/ChatBubble.tsx` |
-| Reference-data reads on one screen | `frontend/app/(app)/create-profile.tsx` |
+| Reference-data reads on two screens | `frontend/lib/reference.ts`, `frontend/app/(app)/create-profile.tsx` |
 
-That third one is a real exception, not an oversight to paper over. `create-profile.tsx` reads `federations`, `divisions` and `weight_classes` **directly from Supabase with the anon key** in three chained effects. Those tables are public reference data — three federations, sixteen divisions, the weight classes — so nothing user-owned is exposed. But it means "the client calls the API for everything" is not literally true, and anyone reasoning about the trust boundary should know where the exception is.
+That third one is a real exception, not an oversight to paper over. `federations`, `divisions` and `weight_classes` are read **directly from Supabase with the anon key**. Those tables are public reference data — three federations, sixteen divisions, the weight classes — so nothing user-owned is exposed. But it means "the client calls the API for everything" is not literally true, and anyone reasoning about the trust boundary should know where the exception is.
+
+It is in two places, and the split is temporary rather than principled. `lib/reference.ts` is the shared module, used by `edit-profile.tsx` behind TanStack Query; `create-profile.tsx` still has the original copy in three chained `useEffect`s, left alone because its recorded quirks (see `frontend/CLAUDE.md`) are not worth disturbing inside the signup flow. It should adopt the module next time anyone touches it.
 
 **Realtime is gone.** It was dropped with the migration and replaced by HTTP polling — `frontend/lib/api/polling.ts`, 5s in an open thread, 30s on the inbox. That file names its own replacement: a websocket or SSE endpoint, not a shorter interval. `docs/REALTIME-MESSAGING-DESIGN.md` is the design for that, unbuilt.
 
@@ -140,14 +142,14 @@ Every route except `GET /` and `GET /health` carries a per-route `@UseGuards(Jwt
 |---|---|
 | health | `GET /`, `GET /health` (unguarded; `/health` reports the built `GIT_SHA`) |
 | users | `GET /users/me`, `POST /users/profile`, `PATCH /users/profile` |
-| athletes | `GET /athlete/profile/:id`, `GET /athlete/search?q=` |
+| athletes | `GET /athlete/profile/:id`, `GET /athlete/search?q=`, `PATCH /athlete/profile` |
 | coaching | `GET`/`POST /coach-requests`, `PATCH /coach-requests/:id`, `GET /coach-requests/roster` |
 | messaging | `GET`/`POST /conversations`, `GET`/`POST /conversations/:id/messages`, `POST /conversations/:id/read` |
 | workouts | `GET /workouts?athlete_id=`, `GET /workouts/templates`, `GET /workouts/:id`, `POST /workouts`, `POST /workouts/:id/exercises`, `DELETE /workouts/:id` |
 | sets | `PATCH /sets/:id` |
 | exercises | `GET`/`POST /exercises`, `GET /exercises/templates` |
 
-All seven `frontend/lib/api/*` resource modules have endpoints to call, and the app does not function with the backend stopped.
+All eight `frontend/lib/api/*` resource modules have endpoints to call, and the app does not function with the backend stopped.
 
 ### Two rules that shape every endpoint
 
@@ -163,8 +165,8 @@ Deliberate, or unverified — not defects to fix on sight.
 1. **`validationExceptionFactory` is unregistered by choice.** See §3. Its mappings also reference properties no DTO has (`email`, `password`, `age`, `phone`) and state a 3–20 username length where the DTO says 3–30.
 2. **`athletes.team_id` is never written.** The `teams` table exists with exactly two columns (`id`, `created_at`) and no rows; it is carried only because `athletes.team_id` references it. Team features are unbuilt.
 3. **The five database views are unused.** Migration `0001` creates them, but no backend code queries any of them — the joins were rewritten in Drizzle (`coach-requests.service.ts` replaces `coach_athletes_view`, `conversations.service.ts` replaces `user_conversations_view`, `athlete.service.ts` replaces `user_profiles_enriched_view`). They are kept in the migration chain for parity, not because anything reads them.
-4. **`PATCH /athlete/profile` was specced but never built.** `UpdateAthleteDto` captures the intended request shape — name-based `federation` / `division` / `weight_class` rather than IDs, which would need resolving and cross-validating against gender and federation. It is the design record for whoever builds it.
-5. **`@IsUnique('users','username')` matches the caller's own row**, so re-sending your current username on `PATCH /users/profile` is rejected as a collision with yourself. Nothing hits this today because the client only sends changed fields, but a settings screen that PATCHed the whole form would. Pinned as a known rough edge in `users.e2e-spec.ts`.
+4. **`PATCH /athlete/profile` is id-based, not the name-based shape this list used to describe as intended.** It now exists, and building it settled the open question the old entry left. `UpdateAthleteDto` was `federation` / `division` / `weight_class` as names and codes, with "would need resolving and cross-validating" recorded as future work — but the resolving step cannot be done: `weight_classes` is keyed by (federation, gender, name), so "83" names two rows in one federation and more across federations, and every federation has an "Open" division. The DTO takes `federation_id` / `division_id` / `weight_class_id`, matching `CreateUserDto`, the `athletes` columns and the `?data=` vocabulary. The cross-validation the old entry asked for is in `backend/src/users/service/reference-validation.ts`, shared with `createUserProfile`, and it runs against the **merged** row so a one-field PATCH is checked against the two already stored. The full reasoning is on the DTO.
+5. **`@IsUnique('users','username')` matches the caller's own row**, so re-sending your current username on `PATCH /users/profile` is rejected as a collision with yourself. Pinned as a known rough edge in `users.e2e-spec.ts`. Nothing hits it because the client only sends changed fields — and now that a settings screen exists, that is a constraint the screen has to honour rather than a happy accident: `edit-profile.tsx` diffs each field against the loaded profile and `types/user.ts` records why. A future whole-form PATCH would 400 on every save.
 6. **The `supabase/` directory is vestigial.** It still holds `config.toml`, one migration, and `tests/rls_regression.sql` that no workflow runs. Harmless, but it describes a database the app no longer reads from.
 7. **`DIRECT_USER_REFERENCES` in `test/helpers/fixtures.ts` is dead.** The real cleanup list is the `statements` array below it. A dead const that looks authoritative is worse than none.
 
@@ -188,7 +190,7 @@ Not bugs — just not built.
 - **No video or file messages.** The `message_type` enum includes `'video'` and `'file'`; only `'text'` and `'image'` are produced or rendered.
 - **No push or email notifications**, and no roster-wide announcements. In-app notifications are pending coach invites only.
 - **No coach discovery** — athletes cannot search for or request a coach; invitations are coach-initiated. There is also no way to remove an athlete from a roster or cancel a sent invite.
-- **No profile editing beyond the avatar.** `PATCH /users/profile` works, but the only field the UI sends is `avatar_url`.
+- **Profile editing does not cover date of birth, roles, or the coach fields.** `app/(app)/edit-profile.tsx` edits `first_name`, `last_name`, `username`, `gender` and the athlete's federation / division / weight class. `date_of_birth`, `is_athlete`, `is_coach` and `coaches.biography` / `years_of_experience` are set once at signup and have no edit path — the two booleans in particular change which tabs exist and which satellite row must be created, which is more than a form field. `UpdateUserDto` already accepts the first three; there is no update DTO for `coaches` at all.
 - **No week/block/mesocycle model.** "Week 1" on the program screen is a hardcoded label.
 - **No password reset, email verification, account deletion, or OAuth.**
 - **Leftover test data in production.** Four `liftoff-verify-*` auth accounts and their RDS rows from the 2026-08-31 verification run, plus one stray `users` row. Consistent across both databases, so delete them together or not at all — removing the auth half alone would manufacture the orphan problem the e2e sweeper exists to prevent.

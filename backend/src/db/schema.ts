@@ -25,12 +25,14 @@ import {
   boolean,
   date,
   doublePrecision,
+  index,
   integer,
   pgEnum,
   pgTable,
   smallint,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -144,30 +146,58 @@ export const coaches = pgTable('coaches', {
 // Coach <-> athlete
 // ---------------------------------------------------------------------------
 
-export const coachRequests = pgTable('coach_requests', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }),
-  athleteId: uuid('athlete_id')
-    .notNull()
-    .references(() => athletes.id),
-  coachId: uuid('coach_id')
-    .notNull()
-    .references(() => coaches.id),
-  status: coachRequestStatusEnum('status').default('pending'),
-});
+export const coachRequests = pgTable(
+  'coach_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }),
+    athleteId: uuid('athlete_id')
+      .notNull()
+      .references(() => athletes.id),
+    coachId: uuid('coach_id')
+      .notNull()
+      .references(() => coaches.id),
+    status: coachRequestStatusEnum('status').default('pending'),
+  },
+  (table) => [
+    // Both directions are read: an athlete lists invitations addressed to them,
+    // a coach lists the ones they sent.
+    index('coach_requests_athlete_id_idx').on(table.athleteId),
+    index('coach_requests_coach_id_idx').on(table.coachId),
+  ],
+);
 
-export const coachAthleteRelationships = pgTable('coach_athlete_relationships', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  athleteId: uuid('athlete_id')
-    .notNull()
-    .references(() => athletes.id),
-  coachId: uuid('coach_id')
-    .notNull()
-    .references(() => coaches.id),
-  status: coachAthleteRelationshipStatusEnum('status').notNull().default('pending'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const coachAthleteRelationships = pgTable(
+  'coach_athlete_relationships',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    athleteId: uuid('athlete_id')
+      .notNull()
+      .references(() => athletes.id),
+    coachId: uuid('coach_id')
+      .notNull()
+      .references(() => coaches.id),
+    status: coachAthleteRelationshipStatusEnum('status').notNull().default('pending'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('coach_athlete_relationships_athlete_id_idx').on(table.athleteId),
+    index('coach_athlete_relationships_coach_id_idx').on(table.coachId),
+    /** Nothing prevented a duplicate pair before this, and with 3 coaches
+     * re-inviting across a 50-athlete roster it was a matter of time.
+     *
+     * Deliberately on the PAIR, not on athlete_id alone: this forbids the same
+     * coach being linked to the same athlete twice, while leaving open whether an
+     * athlete may have two *different* coaches. That question is still undecided
+     * (docs/ROADMAP.md, open question 2), and a unique on athlete_id alone would
+     * answer it by accident. */
+    uniqueIndex('coach_athlete_relationships_athlete_coach_uniq').on(
+      table.athleteId,
+      table.coachId,
+    ),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Messaging
@@ -184,30 +214,48 @@ export const conversations = pgTable('conversations', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 });
 
-export const conversationMembers = pgTable('conversation_members', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  conversationId: uuid('conversation_id')
-    .notNull()
-    .references(() => conversations.id),
-  userId: uuid('user_id')
-    .notNull()
-    .references(() => users.id),
-  lastReadAt: timestamp('last_read_at', { withTimezone: true }),
-});
+export const conversationMembers = pgTable(
+  'conversation_members',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversations.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    lastReadAt: timestamp('last_read_at', { withTimezone: true }),
+  },
+  (table) => [
+    // "my conversations" is keyed on the member, not the conversation.
+    index('conversation_members_user_id_idx').on(table.userId),
+    index('conversation_members_conversation_id_idx').on(table.conversationId),
+  ],
+);
 
-export const messages = pgTable('messages', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  conversationId: uuid('conversation_id')
-    .notNull()
-    .references(() => conversations.id),
-  userId: uuid('user_id').references(() => users.id),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  content: text('content').notNull(),
-  /** NOT NULL with no default — every insert must supply it. */
-  messageType: messageTypeEnum('message_type').notNull(),
-  mediaUrl: text('media_url'),
-});
+export const messages = pgTable(
+  'messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversations.id),
+    userId: uuid('user_id').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    content: text('content').notNull(),
+    /** NOT NULL with no default — every insert must supply it. */
+    messageType: messageTypeEnum('message_type').notNull(),
+    mediaUrl: text('media_url'),
+  },
+  (table) => [
+    /** Composite, and the column order matters: thread reads filter on
+     * conversation_id and sort by created_at (conversations.service.ts:179), so one
+     * index serves both and Postgres skips the sort entirely. No DESC here — a
+     * B-tree scans backwards just as cheaply. */
+    index('messages_conversation_id_created_at_idx').on(table.conversationId, table.createdAt),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Exercise library
@@ -216,37 +264,54 @@ export const messages = pgTable('messages', {
 // coaches row can author library content.
 // ---------------------------------------------------------------------------
 
-export const exercises = pgTable('exercises', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: text('name').notNull(),
-  createdBy: uuid('created_by')
-    .notNull()
-    .references(() => coaches.id),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const exercises = pgTable(
+  'exercises',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => coaches.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('exercises_created_by_idx').on(table.createdBy)],
+);
 
-export const exerciseTemplates = pgTable('exercise_templates', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  createdBy: uuid('created_by')
-    .notNull()
-    .references(() => coaches.id),
-  name: text('name'),
-  exerciseId: uuid('exercise_id')
-    .notNull()
-    .references(() => exercises.id),
-});
+export const exerciseTemplates = pgTable(
+  'exercise_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => coaches.id),
+    name: text('name'),
+    exerciseId: uuid('exercise_id')
+      .notNull()
+      .references(() => exercises.id),
+  },
+  (table) => [
+    index('exercise_templates_created_by_idx').on(table.createdBy),
+    index('exercise_templates_exercise_id_idx').on(table.exerciseId),
+  ],
+);
 
-export const exerciseDefaultSetTemplates = pgTable('exercise_default_set_templates', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  exerciseTemplateId: uuid('exercise_template_id')
-    .notNull()
-    .references(() => exerciseTemplates.id),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  setNumber: integer('set_number').notNull(),
-  prescribedReps: bigint('prescribed_reps', { mode: 'number' }).notNull(),
-  prescribedIntensity: text('prescribed_intensity'),
-});
+export const exerciseDefaultSetTemplates = pgTable(
+  'exercise_default_set_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    exerciseTemplateId: uuid('exercise_template_id')
+      .notNull()
+      .references(() => exerciseTemplates.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    setNumber: integer('set_number').notNull(),
+    prescribedReps: bigint('prescribed_reps', { mode: 'number' }).notNull(),
+    prescribedIntensity: text('prescribed_intensity'),
+  },
+  (table) => [
+    index('exercise_default_set_templates_exercise_template_id_idx').on(table.exerciseTemplateId),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Programming
@@ -259,50 +324,74 @@ export const exerciseDefaultSetTemplates = pgTable('exercise_default_set_templat
  * always empty — createWorkout never wrote the column, so it was NULL, and
  * `.eq('is_template', true)` never matches NULL. Decide the intended semantics
  * when POST /workouts is written. */
-export const workouts = pgTable('workouts', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  athleteId: uuid('athlete_id').references(() => athletes.id),
-  coachId: uuid('coach_id')
-    .notNull()
-    .references(() => coaches.id),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  date: date('date').notNull(),
-  name: text('name').notNull(),
-  notes: text('notes'),
-  isTemplate: boolean('is_template'),
-});
+export const workouts = pgTable(
+  'workouts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    athleteId: uuid('athlete_id').references(() => athletes.id),
+    coachId: uuid('coach_id')
+      .notNull()
+      .references(() => coaches.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    date: date('date').notNull(),
+    name: text('name').notNull(),
+    notes: text('notes'),
+    isTemplate: boolean('is_template'),
+  },
+  (table) => [
+    // An athlete's schedule sorts by date (workouts.service.ts:139); a coach's
+    // template list sorts by created_at (workouts.service.ts:160).
+    index('workouts_athlete_id_date_idx').on(table.athleteId, table.date),
+    index('workouts_coach_id_created_at_idx').on(table.coachId, table.createdAt),
+  ],
+);
 
 /** `order` is a reserved word in SQL. Drizzle quotes it from the column name
  * string, but any hand-written SQL touching it needs "order". */
-export const workoutExercises = pgTable('workout_exercises', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  workoutId: uuid('workout_id')
-    .notNull()
-    .references(() => workouts.id),
-  exerciseId: uuid('exercise_id')
-    .notNull()
-    .references(() => exercises.id),
-  order: integer('order'),
-  notes: text('notes'),
-  exerciseTemplateId: uuid('exercise_template_id').references(() => exerciseTemplates.id),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  displayName: text('display_name'),
-});
+export const workoutExercises = pgTable(
+  'workout_exercises',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workoutId: uuid('workout_id')
+      .notNull()
+      .references(() => workouts.id),
+    exerciseId: uuid('exercise_id')
+      .notNull()
+      .references(() => exercises.id),
+    order: integer('order'),
+    notes: text('notes'),
+    exerciseTemplateId: uuid('exercise_template_id').references(() => exerciseTemplates.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    displayName: text('display_name'),
+  },
+  (table) => [
+    // Sorted by "order" on every workout read (workouts.service.ts:71, 182, 386).
+    index('workout_exercises_workout_id_order_idx').on(table.workoutId, table.order),
+    index('workout_exercises_exercise_id_idx').on(table.exerciseId),
+  ],
+);
 
 /** Note the asymmetry carried over from the source schema: prescribed_intensity
  * is text but actual_intensity is a double. */
-export const sets = pgTable('sets', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  workoutExerciseId: uuid('workout_exercise_id')
-    .notNull()
-    .references(() => workoutExercises.id),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  setNumber: integer('set_number').notNull(),
-  prescribedReps: bigint('prescribed_reps', { mode: 'number' }).notNull(),
-  prescribedIntensity: text('prescribed_intensity'),
-  suggestedLoadMin: doublePrecision('suggested_load_min'),
-  suggestedLoadMax: doublePrecision('suggested_load_max'),
-  actualLoad: doublePrecision('actual_load'),
-  actualIntensity: doublePrecision('actual_intensity'),
-  isCompleted: boolean('is_completed'),
-});
+export const sets = pgTable(
+  'sets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workoutExerciseId: uuid('workout_exercise_id')
+      .notNull()
+      .references(() => workoutExercises.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    setNumber: integer('set_number').notNull(),
+    prescribedReps: bigint('prescribed_reps', { mode: 'number' }).notNull(),
+    prescribedIntensity: text('prescribed_intensity'),
+    suggestedLoadMin: doublePrecision('suggested_load_min'),
+    suggestedLoadMax: doublePrecision('suggested_load_max'),
+    actualLoad: doublePrecision('actual_load'),
+    actualIntensity: doublePrecision('actual_intensity'),
+    isCompleted: boolean('is_completed'),
+  },
+  (table) => [
+    // Sorted by set_number on every workout read (workouts.service.ts:94, 200).
+    index('sets_workout_exercise_id_set_number_idx').on(table.workoutExerciseId, table.setNumber),
+  ],
+);

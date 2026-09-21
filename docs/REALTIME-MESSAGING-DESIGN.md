@@ -15,14 +15,14 @@ For the flows this builds on see `ARCHITECTURE.md`. For who-may-reach-what see
 Supabase Realtime was dropped when data moved to RDS, and two screens that depended on it
 — the inbox and the open thread — were converted to polling:
 
-| Constant | Value | Screen |
-|---|---|---|
-| `THREAD_POLL_MS` | 5s | open thread |
-| `INBOX_POLL_MS` | 30s | conversation list |
+| Constant         | Value | Screen            |
+| ---------------- | ----- | ----------------- |
+| `THREAD_POLL_MS` | 5s    | open thread       |
+| `INBOX_POLL_MS`  | 30s   | conversation list |
 
-`polling.ts` already names its own replacement: *"the honest fix is a websocket or SSE
+`polling.ts` already names its own replacement: _"the honest fix is a websocket or SSE
 endpoint on the API — not a shorter interval, which just multiplies requests to chase a
-delay it can never close."* This document is that fix.
+delay it can never close."_ This document is that fix.
 
 The server side is `backend/src/messaging/` — one controller, one service, three tables.
 The client side is `frontend/lib/api/conversations.ts`, which already derives the caller
@@ -72,13 +72,13 @@ One write path, two read paths.
 
 ## 4. Infrastructure
 
-| Concern | What changes |
-|---|---|
-| **ALB** | Express Mode's load balancer already speaks WebSocket (HTTP/1.1 `Upgrade`); no change. Its idle timeout is 60s and Socket.IO pings well inside that, so heartbeats must stay enabled. |
-| **Stickiness** | Only needed if the HTTP long-polling fallback is allowed — the handshake must return to the same task. Forcing `transports: ['websocket']` removes the requirement. |
-| **Fan-out** | The real problem. See below. |
+| Concern               | What changes                                                                                                                                                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **ALB**               | Express Mode's load balancer already speaks WebSocket (HTTP/1.1 `Upgrade`); no change. Its idle timeout is 60s and Socket.IO pings well inside that, so heartbeats must stay enabled.                                    |
+| **Stickiness**        | Only needed if the HTTP long-polling fallback is allowed — the handshake must return to the same task. Forcing `transports: ['websocket']` removes the requirement.                                                      |
+| **Fan-out**           | The real problem. See below.                                                                                                                                                                                             |
 | **Graceful shutdown** | Scale-in kills live connections. `infra/ecs/task-definition.json` already sets `stopTimeout: 30`; use it to close sockets with a reason code on `SIGTERM` so clients reconnect at once instead of waiting out a timeout. |
-| **Capacity** | The task is 0.25 vCPU / 0.5 GB. Concurrent connections will hit a memory ceiling long before CPU matters. Emit connection count as a custom metric and alarm on it. |
+| **Capacity**          | The task is 0.25 vCPU / 0.5 GB. Concurrent connections will hit a memory ceiling long before CPU matters. Emit connection count as a custom metric and alarm on it.                                                      |
 
 ### Fan-out across tasks
 
@@ -106,12 +106,12 @@ The three existing tables are the right shape. `backend/src/db/schema.ts:179` (`
 
 ### `messages` — four new columns
 
-| Column | Purpose |
-|---|---|
-| `seq bigserial` | Monotonic ordering and cursor. **The important one.** `created_at` is unsafe for ordering and unsafe as a pagination cursor — clock skew, and ties at the same microsecond. Every "everything after X" query keys off `seq`. |
-| `edited_at timestamptz` | Null = never edited. The client renders "Edited" from its presence. |
-| `deleted_at timestamptz` | Tombstone for unsend. |
-| `client_id uuid` | Client-generated idempotency key, `UNIQUE (conversation_id, client_id)`. Makes send idempotent under retry and lets the client match a server echo to its own optimistic row. |
+| Column                   | Purpose                                                                                                                                                                                                                      |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `seq bigserial`          | Monotonic ordering and cursor. **The important one.** `created_at` is unsafe for ordering and unsafe as a pagination cursor — clock skew, and ties at the same microsecond. Every "everything after X" query keys off `seq`. |
+| `edited_at timestamptz`  | Null = never edited. The client renders "Edited" from its presence.                                                                                                                                                          |
+| `deleted_at timestamptz` | Tombstone for unsend.                                                                                                                                                                                                        |
+| `client_id uuid`         | Client-generated idempotency key, `UNIQUE (conversation_id, client_id)`. Makes send idempotent under retry and lets the client match a server echo to its own optimistic row.                                                |
 
 ### `conversation_members` — read receipts
 
@@ -126,11 +126,11 @@ conversations ship — see Open questions.
 
 **What that migration touches.** The watermark is not just a column — three places read it:
 
-| Site | Today |
-|---|---|
+| Site                                                         | Today                                                                       |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------- | ------------------------- |
 | `backend/src/messaging/service/conversations.service.ts:138` | unread count, `m.created_at > coalesce(last_read_at, 'epoch'::timestamptz)` |
-| `backend/src/messaging/service/conversations.service.ts:223` | `POST /conversations/:id/read` sets `lastReadAt: new Date()` |
-| `frontend/types/conversation.ts:19` | `last_read_at: string | null` on `UserConversation` |
+| `backend/src/messaging/service/conversations.service.ts:223` | `POST /conversations/:id/read` sets `lastReadAt: new Date()`                |
+| `frontend/types/conversation.ts:19`                          | `last_read_at: string                                                       | null`on`UserConversation` |
 
 That unread-count subquery is the argument for `seq` in miniature: it compares a message's
 `created_at` against a watermark timestamp, so two messages written in the same microsecond
@@ -231,27 +231,3 @@ YAGNI list, recorded so it does not get rebuilt by accident:
    policy before the table is large enough that adding one is a migration.
 4. **Does the ALB idle timeout need raising?** Default 60s is fine against Socket.IO's
    default ping interval, but both values should be pinned explicitly rather than inherited.
-
----
-
-## Appendix — describing this
-
-For a résumé or a portfolio write-up, lead with the reconciliation and the boundary decision
-rather than the technology:
-
-> Designed a real-time messaging system for a React Native / NestJS app on ECS Fargate,
-> replacing HTTP polling with Socket.IO while keeping all writes on the authenticated REST
-> path to avoid duplicating the application's sole authorization boundary. Added read
-> receipts and message edit/unsend via sequence-based watermarks and soft-delete tombstones,
-> with idempotent sends and reconnect-time gap replay giving at-least-once delivery with
-> client-side dedupe.
-
-Shorter:
-
-> Architected a WebSocket messaging layer (Socket.IO, NestJS, Postgres) replacing polling —
-> sequence-based cursors for ordering and read receipts, tombstoned edit/unsend, and
-> reconnect gap-replay for at-least-once delivery over unreliable mobile connections.
-
-**"Designed" and "architected" are the accurate verbs while this document is the only
-artifact.** They are defensible in an interview as long as the distinction is stated when
-asked. Swap in "built" once it runs.

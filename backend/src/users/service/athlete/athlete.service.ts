@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { User } from '@supabase/supabase-js';
 import { and, eq, ilike, ne, notInArray, or } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { DRIZZLE, type Database } from 'src/db/db.module';
@@ -16,6 +17,12 @@ import {
   VALID_FULL_TABLE_QUERIES,
   VALID_TABLE_FIELDS,
 } from 'src/common/types/select.queries';
+import { UpdateAthleteDto } from '../../dto/athlete/update-athlete.dto';
+import {
+  assertDivisionInFederation,
+  assertFederationExists,
+  assertWeightClassMatches,
+} from '../reference-validation';
 
 /** Maps the snake_case names the `?data=` API speaks to real Drizzle columns.
  *
@@ -125,6 +132,84 @@ export class AthleteService {
     if (rows.length === 0) return null;
 
     return this.nest(rows[0] as Record<string, unknown>, plan);
+  }
+
+  /** Updates the caller's own `athletes` row — federation, division, weight class.
+   *
+   * ⚠️ **The id comes from the verified token and nothing else.** There is no id
+   * parameter and no id field on the DTO, so there is no id to tamper with: the
+   * only reachable row is the caller's. With no RLS behind this, `eq(athletes.id,
+   * user.id)` on both the read and the write is the entire authorization, and the
+   * same reasoning is why `updateUserAvatar` on the client lost its `userId`
+   * argument.
+   *
+   * **A caller with no `athletes` row gets a 404**, and it is the caller's own row,
+   * so the 404-over-403 question does not arise — nothing is disclosed either way.
+   * Coaches who are not also athletes land here.
+   *
+   * **Validation runs against the merged row, not the request.** A PATCH carrying
+   * only `division_id` has to be checked against the federation already stored, or
+   * a client could move an athlete to a division belonging to a different
+   * federation one field at a time. The corollary is that changing federation
+   * alone is a 400 while a stale division is still on the row — the client sends
+   * the three together, which is what `edit-profile.tsx` does.
+   *
+   * No driver-error mapping here, deliberately: every id is proven to exist
+   * immediately above the write, and `athletes` has no other constraint this can
+   * violate. A failure at that point is a real server error and belongs in
+   * `GlobalExceptionFilter`, not dressed up as a 400.
+   *
+   * @param dto The columns to change. `null` clears one, absent leaves it alone.
+   * @param user The authenticated caller, from the verified JWT.
+   */
+  async updateOwnProfile(dto: UpdateAthleteDto, user: User): Promise<void> {
+    const patch: Record<string, unknown> = {};
+    if (dto.federation_id !== undefined) patch.federationId = dto.federation_id;
+    if (dto.division_id !== undefined) patch.divisionId = dto.division_id;
+    if (dto.weight_class_id !== undefined) patch.weightClassId = dto.weight_class_id;
+
+    // An empty PATCH would become `set {}`, which Drizzle rejects — and there is
+    // nothing to authorize or validate, so return before touching the database.
+    if (Object.keys(patch).length === 0) return;
+
+    const [current] = await this.db
+      .select({
+        federationId: athletes.federationId,
+        divisionId: athletes.divisionId,
+        weightClassId: athletes.weightClassId,
+        // Weight classes are gendered, and gender lives on `users`. Read it here
+        // rather than trusting a client-supplied value: a PATCH that also changed
+        // gender would otherwise be able to validate against the gender it wished
+        // it had.
+        gender: users.gender,
+      })
+      .from(athletes)
+      .innerJoin(users, eq(users.id, athletes.id))
+      .where(eq(athletes.id, user.id))
+      .limit(1);
+
+    if (!current) {
+      throw new NotFoundException('No athlete profile exists for this user');
+    }
+
+    const federationId = dto.federation_id !== undefined ? dto.federation_id : current.federationId;
+    const divisionId = dto.division_id !== undefined ? dto.division_id : current.divisionId;
+    const weightClassId =
+      dto.weight_class_id !== undefined ? dto.weight_class_id : current.weightClassId;
+
+    // Reads, and they must produce a clean 400 rather than a rejected write —
+    // same ordering rule as createUserProfile.
+    if (federationId) {
+      await assertFederationExists(this.db, federationId);
+    }
+    if (divisionId) {
+      await assertDivisionInFederation(this.db, divisionId, federationId);
+    }
+    if (weightClassId) {
+      await assertWeightClassMatches(this.db, weightClassId, federationId, current.gender);
+    }
+
+    await this.db.update(athletes).set(patch).where(eq(athletes.id, user.id));
   }
 
   /** Rebuilds the nested shape the endpoint has always returned, so the response

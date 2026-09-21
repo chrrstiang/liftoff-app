@@ -2,6 +2,7 @@ import { Avatar, Button, Screen, Section, SheetRow, Text } from "@/components/ui
 import { useAuth } from "@/contexts/AuthContext";
 import { updateUserAvatar, uploadAvatar } from "@/lib/api/storage";
 import { useTheme } from "@/theme/useTheme";
+import { router } from "expo-router";
 import { Camera } from "lucide-react-native";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
@@ -85,6 +86,15 @@ export default function ProfilePage() {
             @{profile.username}
           </Text>
         ) : null}
+
+        {/* Everything below this button used to be the whole screen: read-only
+            rows over an endpoint that had always accepted writes. */}
+        <Button
+          label="Edit profile"
+          variant="secondary"
+          onPress={() => router.push("/(app)/edit-profile")}
+          className="mt-6"
+        />
       </View>
 
       <Section label="Account" className="mt-10 px-6">

@@ -28,7 +28,7 @@ File-based via expo-router. Route files are lowercase; components and contexts a
 app/
   _layout.tsx                          root — fonts, splash, <Provider>, auth gate
   (auth)/                              login.tsx, signup.tsx
-  (app)/                               index.tsx, create-profile.tsx
+  (app)/                               index.tsx, create-profile.tsx, edit-profile.tsx
   (app)/(tabs)/                        home.tsx, profile.tsx
   (app)/(tabs)/conversations/          conversations.tsx      (Messages tab)
   (app)/(tabs)/program/[athleteId].tsx (Program tab, athletes)
@@ -107,13 +107,13 @@ No Redux, Zustand or Jotai. Screen state is plain `useState`.
 
 ## Talking to the backend
 
-**Every user-owned read and write goes through the API.** All seven `lib/api/*` resource modules (`athlete`, `conversations`, `exercises`, `notifications`, `roster`, `storage`, `workouts`) call `lib/api/client.ts`. The app does not work with the backend stopped — that is the intended state, not a regression.
+**Every user-owned read and write goes through the API.** All eight `lib/api/*` resource modules (`athlete`, `conversations`, `exercises`, `notifications`, `roster`, `storage`, `users`, `workouts`) call `lib/api/client.ts`. The app does not work with the backend stopped — that is the intended state, not a regression.
 
 **Supabase is still used for three things:**
 
 1. **Auth** — `signUp` / `signInWithPassword` / `signOut` / `onAuthStateChange` in `contexts/AuthContext.tsx`, and `getSession()` inside the API client to attach the bearer token. Supabase is the identity provider.
 2. **Storage** — the two image buckets. Only *Postgres* moved to RDS; the buckets are independent. Moving them means the backend minting signed upload URLs and the client PUTting directly (never proxying binary through Fargate), which is its own piece of work.
-3. **Reference-data reads on one screen** — `app/(app)/create-profile.tsx` reads `federations`, `divisions` and `weight_classes` **straight from Supabase with the anon key**, in three chained effects. This is the one surviving direct table read.
+3. **Reference-data reads** — `federations`, `divisions` and `weight_classes` are read **straight from Supabase with the anon key**. These are the only surviving direct table reads, and they live in two places: `lib/reference.ts`, the shared module `app/(app)/edit-profile.tsx` uses behind TanStack Query, and `app/(app)/create-profile.tsx`, which still has the original three chained effects. The duplication is deliberate for now — create-profile's quirks are recorded under "Known issues" below and the signup flow is not worth disturbing to dedupe a read — but it should adopt the module next time anyone edits it.
 
 ⚠️ **That third one is a genuine exception to the sentence above**, and it was undocumented long enough to mislead. It is public reference data — three federations, sixteen divisions, the weight classes — so nothing user-owned is exposed, and moving it behind the API is a small piece of work nobody has needed yet. Know it is there before reasoning about the trust boundary, and **don't extend the pattern** to anything user-owned.
 
@@ -183,7 +183,8 @@ Three traps:
 
 ## Known issues
 
-- **Date of birth has no unset state.** It initialises to `new Date()`, so the row always shows today and `handleSubmit`'s `!dateOfBirth` check can never fail. A user can submit today as their birth date.
+- **The two profile forms disagree about the gender options, and `edit-profile.tsx` is the correct one.** `create-profile.tsx` renders `["Male", "Female", "Other"]`; the DTO and the Postgres enum are `Male | Female | Gender-fluid`, so "Other" 400s on submit (a confirmed bug, `docs/ARCHITECTURE.md` §7). `edit-profile.tsx` renders the real enum. Don't "align" them by copying the signup screen's list.
+- **Date of birth has no unset state.** It initialises to `new Date()`, so the row always shows today and `handleSubmit`'s `!dateOfBirth` check can never fail. A user can submit today as their birth date. It is also not editable afterwards — `edit-profile.tsx` deliberately leaves it out.
 - **`onCreateWorkout` takes an `isTemplate` flag that is silently dropped.** Both call sites in `program/[athleteId].tsx` pass one, but the parent handler declares three parameters and TypeScript allows the narrower signature. `createWorkout()` has no such field either, so template-derived and custom workouts persist identically.
 - `isLoading` in create-profile is set and cleared synchronously inside the fetch effects, so it's effectively always `false` during those reads. Don't build a spinner on it.
 - `years_of_experience` is `parseInt("")` → `NaN` → serialises to `null`. It passes because the DTO field is optional.

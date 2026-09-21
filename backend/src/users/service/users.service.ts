@@ -1,14 +1,11 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { User } from '@supabase/supabase-js';
-import { and, eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { DRIZZLE, type Database } from 'src/db/db.module';
-import { athletes, coaches, divisions, users, weightClasses } from 'src/db/schema';
+import { athletes, coaches, users } from 'src/db/schema';
 import { UpdateUserDto } from '../dto/update-user.dto';
-import { CreateUserDto, Gender } from '../dto/create-user.dto';
-
-/** Postgres rejects a malformed uuid with 22P02 before any row is examined, so
- * this is used only to name which of several candidate ids was the bad one. */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { CreateUserDto } from '../dto/create-user.dto';
+import { assertDivisionInFederation, assertWeightClassMatches } from './reference-validation';
 
 @Injectable()
 export class UsersService {
@@ -34,10 +31,10 @@ export class UsersService {
     // failing here should produce a clean 400 rather than an aborted transaction.
     if (dto.is_athlete) {
       if (dto.division_id) {
-        await this.validateDivision(dto.division_id, dto.federation_id);
+        await assertDivisionInFederation(this.db, dto.division_id, dto.federation_id);
       }
       if (dto.weight_class_id) {
-        await this.validateWeightClass(dto.weight_class_id, dto.federation_id, dto.gender);
+        await assertWeightClassMatches(this.db, dto.weight_class_id, dto.federation_id, dto.gender);
       }
     }
 
@@ -191,70 +188,5 @@ export class UsersService {
     const detail = pg?.detail ?? pg?.message ?? String(error);
     console.error(error);
     return new BadRequestException(`${message}: ${code} - ${detail}`);
-  }
-
-  private async validateDivision(divisionId: string, federationId?: string): Promise<void> {
-    if (!federationId) {
-      throw new BadRequestException('Federation is required to validate division');
-    }
-
-    const rows = await this.runReferenceLookup(
-      () =>
-        this.db
-          .select({ one: sql<number>`1` })
-          .from(divisions)
-          .where(and(eq(divisions.id, divisionId), eq(divisions.federationId, federationId)))
-          .limit(1),
-      [divisionId, federationId],
-    );
-
-    if (rows.length === 0) throw new BadRequestException('Division not found');
-  }
-
-  /** Runs a reference-data lookup, turning a malformed uuid into a 400.
-   *
-   * PostgREST used to reject a bad uuid as a request error, which this service
-   * mapped to a 400 naming the offending value. Postgres raises 22P02
-   * (invalid_text_representation) instead, which would otherwise escape as an
-   * unhandled 500 — the client sent bad input and deserves to be told which part.
-   */
-  private async runReferenceLookup<T>(run: () => Promise<T[]>, candidates: string[]): Promise<T[]> {
-    try {
-      return await run();
-    } catch (error) {
-      if ((error as { cause?: { code?: string } })?.cause?.code === '22P02') {
-        const malformed = candidates.find((c) => !UUID_PATTERN.test(c)) ?? candidates.join(', ');
-        throw new BadRequestException(`Invalid identifier: '${malformed}'`);
-      }
-      throw error;
-    }
-  }
-
-  private async validateWeightClass(
-    weightClassId: string,
-    federationId: string | undefined,
-    gender: Gender,
-  ): Promise<void> {
-    if (!federationId) {
-      throw new BadRequestException('Federation is required to validate weight class');
-    }
-
-    const rows = await this.runReferenceLookup(
-      () =>
-        this.db
-          .select({ one: sql<number>`1` })
-          .from(weightClasses)
-          .where(
-            and(
-              eq(weightClasses.id, weightClassId),
-              eq(weightClasses.federationId, federationId),
-              eq(weightClasses.gender, gender),
-            ),
-          )
-          .limit(1),
-      [weightClassId, federationId],
-    );
-
-    if (rows.length === 0) throw new BadRequestException('Weight class not found');
   }
 }

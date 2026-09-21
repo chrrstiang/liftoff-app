@@ -909,10 +909,10 @@ describe('Programming (e2e)', () => {
    * `stranger` gets a 404, and it deletes the relationship again in `afterAll`.
    * **Do not add a describe below this one** without reading that.
    *
-   * What it pins is the deliberately narrow rule in `historyVisibilityFilter`: a
-   * coach reads only the sessions they authored, so coach A cannot see what coach B
-   * programmed for their shared athlete. That is a pending product decision rather
-   * than a settled one — if it is widened, these expectations change on purpose.
+   * What it pins is the **asymmetry** settled on 2026-09-20: any active coach of the
+   * athlete may READ every session, whoever authored it, but only the authoring
+   * coach may CHANGE one. The read half was deliberately narrow when history
+   * shipped, pending a product decision; the decision widened it.
    */
   describe('history with two coaches', () => {
     /** Earlier than every other workout in this file, so a `before` bound of
@@ -966,16 +966,16 @@ describe('Programming (e2e)', () => {
       expect(res.body.workouts.map((w: { id: string }) => w.id)).toEqual([theirWorkoutId]);
     });
 
-    /** The assertion the narrow rule exists for. Not a 404 — the other coach is a
-     * legitimate reader of this athlete, so the request succeeds and the row is
-     * simply not in it. */
-    it('does not show one coach the session the other coach wrote', async () => {
+    /** ⚠️ **Inverted on purpose (2026-09-20).** This previously asserted the row was
+     * absent. A coach writing next week needs to know what the athlete actually did,
+     * including under their other coach — and three coaches sharing a spreadsheet
+     * had that for free, so withholding it made this worse than what it replaces. */
+    it('shows one coach the session the other coach wrote', async () => {
       const res = await as(coach)
         .get(`/workouts/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
         .expect(200);
 
-      expect(res.body.workouts.map((w: { id: string }) => w.id)).not.toContain(theirWorkoutId);
-      expect(res.body.workouts).toEqual([]);
+      expect(res.body.workouts.map((w: { id: string }) => w.id)).toContain(theirWorkoutId);
     });
 
     it('shows the athlete everything assigned to them, whoever wrote it', async () => {
@@ -995,12 +995,49 @@ describe('Programming (e2e)', () => {
       const others = await as(coach)
         .get(`/exercises/${theirExerciseId}/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
         .expect(200);
-      expect(others.body.sessions).toEqual([]);
+      expect(others.body.sessions).toHaveLength(1);
 
       const own = await as(athlete)
         .get(`/exercises/${theirExerciseId}/history?athlete_id=${athlete.userId}&before=${BEFORE}`)
         .expect(200);
       expect(own.body.sessions).toHaveLength(1);
+    });
+
+    /** ⚠️ **The write half, and the reason widening reads is safe.** Reading another
+     * coach's programming is coordination; silently rewriting it is not. A co-coach
+     * gets a 403 rather than a 404 because they demonstrably *can* read this workout
+     * — the tests above just proved it — so the 403 reveals nothing, and "not yours
+     * to change" is the more useful answer than "does not exist".
+     *
+     * Non-destructive on failure by design: if the rule ever regresses, this adds an
+     * exercise rather than deleting a workout, so the blast radius of a red test is
+     * one extra row. */
+    it('does not let a co-coach change what the other coach wrote', async () => {
+      const res = await as(coach)
+        .post(`/workouts/${theirWorkoutId}/exercises`, {
+          exercise_id: exerciseId,
+          sets: [{ set_number: 1, prescribed_reps: 5 }],
+        })
+        .expect(403);
+
+      expect(res.body.message).toBe('Only the coach who owns this workout can change it');
+    });
+
+    /** Widening coach reads must not have widened the athlete's powers either. The
+     * athlete may log what they lifted (`isPerformer`) but never restructure the
+     * prescription they were given — an athlete who can rewrite `prescribed_reps`
+     * can rewrite the program they were set, and the record of what was actually
+     * asked of them is gone. 403 rather than 404 for the same reason as above: it
+     * is their own workout, so its existence is not a secret from them. */
+    it('does not let the athlete restructure a workout they were assigned', async () => {
+      const res = await as(athlete)
+        .post(`/workouts/${theirWorkoutId}/exercises`, {
+          exercise_id: exerciseId,
+          sets: [{ set_number: 1, prescribed_reps: 5 }],
+        })
+        .expect(403);
+
+      expect(res.body.message).toBe('Only the coach who owns this workout can change it');
     });
   });
 

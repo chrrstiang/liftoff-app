@@ -230,12 +230,12 @@ row would pass without it.
 | Endpoint | Rule enforced | Where | Outsider assertion | Anon |
 |---|---|---|---|---|
 | `GET /workouts?athlete_id=` | self, or active coach → else 404 | `workouts.service.ts:126` | `programming:356` | `programming:660` |
-| `GET /workouts/history?athlete_id=` | gate: `assertReadableAthlete` → 404. Row scope: `historyVisibilityFilter` — self sees all, a coach sees only what they authored | `programming-access.ts` | `programming` "history with two coaches" | `programming` "401s on … without a token" |
+| `GET /workouts/history?athlete_id=` | gate: `assertReadableAthlete` → 404. Row scope: `historyVisibilityFilter` — every session assigned to the athlete, whoever authored it | `programming-access.ts` | `programming` "history with two coaches" | `programming` "401s on … without a token" |
 | `GET /exercises/:id/history?athlete_id=` | same gate and same filter | `programming-access.ts` | `programming` "scopes exercise history the same way" | as above |
 | `GET /workouts/templates` | `eq(coachId, callerId)` + `athleteId is null` | `workouts.service.ts:159` | `programming:330` | `programming:660` |
-| `GET /workouts/:id` | `loadReadableWorkout` → 404 | `programming-access.ts:75` | `programming:395,400` | `programming:660` |
+| `GET /workouts/:id` | `loadReadableWorkout` → 404. Self, author, **or any active coach of the athlete** | `programming-access.ts:75` | `programming:395,400` | `programming:660` |
 | `POST /workouts` | caller must be coach; athlete must be on roster; `coach_id` from token | `workouts.service.ts:246,264` | `programming:229,242,257,269` | `programming:660` |
-| `POST /workouts/:id/exercises` | `loadProgrammableWorkout` → 404 then 403 | `programming-access.ts:97` | `programming:503,514` | `programming:660` |
+| `POST /workouts/:id/exercises` | `loadProgrammableWorkout` → 404 then 403. **Authoring coach only** — a co-coach reads it but gets 403 | `programming-access.ts:97` | `programming:503,514` | `programming:660` |
 | `DELETE /workouts/:id` | `loadProgrammableWorkout` | `workouts.service.ts:468` | `programming:527` | `programming:660` |
 | `PATCH /sets/:id` | walk to workout → 404; performer only → 403 | `workouts.service.ts:432,437` | `programming:425,430` | `programming:660` |
 | `GET /exercises` | `eq(createdBy, callerId)` | `exercises.service.ts:27` | `programming:212` | `programming:660` |
@@ -251,30 +251,45 @@ an athlete lifted.
 (`programming:102`), so `programming:356` — a second coach getting 404 on another coach's
 athlete — is a genuine coach-vs-coach assertion, not just an unrelated-user one.
 
-**The history routes separate the gate from the row scope, and the row scope is
-narrower.** Everywhere else in this table, "may read this athlete" settles the
-question. History cannot use that alone, because **an athlete may have more than
-one coach**. `assertReadableAthlete` still decides whether the request is answered
-at all — an outsider gets a 404, not an empty list — but which rows come back is
-decided by `historyVisibilityFilter`:
+**Reads are wide, writes are narrow, and the asymmetry is the whole rule.** An
+athlete may have more than one coach (decided 2026-09-17), so "may read this
+athlete" and "may change this workout" are two different questions. As of
+2026-09-20 they are answered as follows, and this is the summary to read before
+touching any of the three functions:
 
-- the **athlete** sees every session assigned to them, whoever wrote it;
-- a **coach** sees only sessions they authored, which is the rule
-  `loadReadableWorkout` already applies to a single workout.
+| Action | Who | Enforced by |
+|---|---|---|
+| **Read** an athlete's sessions | the athlete, and **any active coach of them** — whoever authored the session | `assertReadableAthlete` (gate) + `historyVisibilityFilter` (row scope) + `loadReadableWorkout` (single workout) |
+| **Change** a workout's structure | the **authoring coach only** | `loadProgrammableWorkout` |
+| **Record what was lifted** (`actual_*`, `is_completed`) | the **athlete only**, or the owning coach on a template | `isPerformer` |
 
-So with coaches A and B both coaching athlete X, A cannot read what B programmed.
-**This is a deliberate narrow choice pending a product decision**, not an
-oversight: the broader rule would newly expose one coach's programming to another.
-The filter is a single named function so that reversing it is a one-line change,
-and the e2e block "history with two coaches" plus
-`programming-access.spec.ts` pin the current behaviour — if the decision flips,
-those failures are the review prompt.
+Reading another coach's programming is coordination — a coach writing next week
+needs to know what the athlete actually did, including under someone else, and
+three coaches sharing a Google Sheet had that for free. Silently rewriting or
+deleting it is not, and has a far larger blast radius, so writes stayed put.
 
-⚠️ `GET /workouts?athlete_id=` does **not** apply that filter: a coach sees the
-name and date of every workout assigned to their athlete, including another
-coach's. That predates history and is untouched here, but it means the two reads
-disagree, and whichever way the product decision goes, both should end up on the
-same rule.
+Two consequences worth knowing:
+
+- **A co-coach attempting a write gets a 403, not a 404, and that is correct.**
+  404-over-403 exists so a caller with *no* claim cannot confirm an id is real. A
+  co-coach demonstrably can read the workout, so the 403 reveals nothing they could
+  not already see — and "not yours to change" is the more useful answer.
+- **Templates are excluded from the co-coach case.** A template has `athlete_id`
+  null, so there is no athlete to be a co-coach *of*; it stays private to its
+  author. `loadReadableWorkout` null-guards before consulting relationships.
+
+`historyVisibilityFilter` deliberately **no longer takes a `callerId`**. It did
+while the rule varied by caller; keeping the parameter would imply a per-caller
+restriction that no longer exists. Re-adding it is the first move of any change
+that re-narrows this, which is why `programming-access.spec.ts` pins the arity.
+
+The history routes still separate the gate from the row scope even though the two
+now agree. The gate has to run: without it the filter alone would return an empty
+list for a stranger, which answers "is this user training with me?" for any id —
+exactly the leak the 404 exists to prevent.
+
+`GET /workouts?athlete_id=` never applied the filter and now does not need to —
+the two reads finally agree. They disagreed for exactly one release.
 
 `programming-access.spec.ts` is also the one spec in this repo that asserts
 compiled SQL. It has to: the shared Drizzle double routes results by table and

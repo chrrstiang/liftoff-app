@@ -14,8 +14,9 @@ it, because the reasoning is why the work was worth doing — not because the ho
 | Item | State |
 |---|---|
 | 1 · Indexes + unique constraint | **merged** (#31) |
-| 4 · Workout and exercise history | in review (#33) |
-| 6 · Profile editing | in review (#32) |
+| 4 · Workout and exercise history | **merged** (#33) |
+| 6 · Profile editing | **merged** (#32) |
+| — · Co-coach read visibility | this PR — see open question 6 |
 | 2 · Stored max + percentage prescription | not started — **next**, and the one that decides adoption |
 | 3 · Bulk assign | not started |
 | 5 · Auto-updating training max | not started, depends on 2 and 4 |
@@ -226,8 +227,15 @@ e1RM work and the WebSocket work compete for the same weekend, e1RM wins.
 ## 6. Open questions
 
 1. **When is the next training-block or semester boundary?** Migration should happen at one,
-   not mid-block. This is the date everything else works backwards from, and "this season" is
-   too fuzzy to scope against. **Unanswered, and it is the most important one.**
+   not mid-block. Still no date — but **answered in the loose sense on 2026-09-20: months,
+   not weeks.**
+
+   That is the scoping answer that matters most, and it changes the plan: there is room to
+   build item 2 properly rather than cutting corners, to fix the `create-profile.tsx` bugs
+   alongside question 7, and to let item 5 wait for items 2 and 4 instead of racing them.
+   A date would still be better than "months" — it is what turns a sequence into a schedule —
+   so it stays open.
+
 2. ~~**Can an athlete have more than one coach?**~~ **Answered 2026-09-17: yes.** See 3.4. The
    unique index in item 1 is on `(athlete_id, coach_id)` rather than `athlete_id` alone, which
    permits distinct coaches while still rejecting a duplicate pair.
@@ -238,30 +246,63 @@ e1RM work and the WebSocket work compete for the same weekend, e1RM wins.
    separate `athlete_maxes` table does.
 5. **Does the coach set the training max, or does the app?** Item 5 implies the app computes
    it, but coaches often want to override. Likely both, with the computed value as a suggestion.
-6. **Can co-coaches see each other's programming for a shared athlete?** Created by the
-   multi-coach decision above, and currently answered "no" by accident rather than by intent:
-   `loadReadableWorkout` allows a read when `workout.coachId === callerId`, i.e. only the coach
-   who *authored* the workout. So with coaches A and B both coaching athlete X, A cannot read a
-   workout B wrote.
+6. ~~**Can co-coaches see each other's programming for a shared athlete?**~~
+   **Answered 2026-09-20: yes for reads, no for writes.**
 
-   Both answers are defensible. Full visibility is what makes history useful — a coach
-   programming next week needs to know what the athlete actually did, including under someone
-   else. Narrow visibility is right if a strength coach and a technique coach should not see
-   each other's work. **For a university team of collaborating coaches, full visibility is
-   probably correct**, but it widens a read boundary and there is no RLS behind it, so it should
-   be decided deliberately. The history work (item 4) deliberately keeps the narrow rule and
-   pins it with a test, so reversing it is one function and one failing test.
+   The rule is asymmetric, and the asymmetry is deliberate:
 
-   ⚠️ **Whatever is decided, two reads currently disagree.** `GET /workouts?athlete_id=` does
-   *not* apply the filter, so a coach already sees the name and date of every workout assigned
-   to their athlete including another coach's, while `/workouts/history` hides them. That
-   predates #33 and was left untouched rather than changed by accident, but the two should end
-   on the same rule.
-7. **Should reference data move behind the API?** `federations` / `divisions` / `weight_classes`
-   are read straight from Supabase with the anon key. That was the one documented exception to
-   "everything goes through the API"; #32 extended it to a second screen (§3.5). Three public
-   read endpoints would let both screens migrate and delete the exception outright, rather than
-   entrenching it. Small, and it is the last thing standing between the app and one data path.
+   | Action | Who |
+   |---|---|
+   | **Read** an athlete's sessions | the athlete, and any active coach of them, whoever authored it |
+   | **Change** a workout's structure | the authoring coach only |
+   | **Record what was lifted** | the athlete only |
+
+   Reading another coach's programming is coordination — and three coaches sharing a Google
+   Sheet had it for free, so withholding it made the app worse than the tool it replaces.
+   That is what promoted this above the cutline despite being filed below it. Silently
+   rewriting or deleting another coach's work is not coordination and has a far larger blast
+   radius, so writes did not move.
+
+   Resolved the disagreement noted here previously: `GET /workouts?athlete_id=` never applied
+   the filter, and now does not need to. See `AUTHORIZATION.md`.
+
+7. **Should reference data move behind the API? — yes, but triggered rather than queued.**
+
+   `federations` / `divisions` / `weight_classes` are read straight from Supabase with the
+   anon key, in six calls across `frontend/lib/reference.ts` and `create-profile.tsx`. Those
+   six are **every** `supabase.from()` in the app; migrating them means the client makes zero
+   Supabase table reads, permanently. Supabase keeps auth and the image buckets — those are
+   not tables.
+
+   **The real argument is a latent bug, not tidiness.** The pickers read the *Supabase* copy
+   of this data; `backend/src/users/service/reference-validation.ts` validates submissions
+   against the *RDS* copy. Nothing keeps them in sync. Add a weight class, reseed, or fix a
+   typo in a division name and the picker offers an option the API rejects with a 400, on the
+   one screen every new user must complete. This is invisible until someone edits reference
+   data — which makes it exactly the kind of thing that surfaces during a migration week.
+
+   Two smaller gains: these six calls throw raw Supabase errors rather than the
+   `{ statusCode, message, timestamp, path, method }` envelope every other call uses; and once
+   nothing reads tables, the anon role's table access can be **revoked outright**, turning
+   "safe as long as RLS is configured correctly" into a structural guarantee. (The anon key
+   itself stays in the bundle regardless — auth needs it.)
+
+   **It is below the cutline and should stay there.** It does nothing for a coach handling 17
+   athletes. So it is triggered, not queued:
+
+   - **Do it the next time anyone opens `create-profile.tsx`.** That screen also carries two
+     known bugs — the gender list offers "Other", which 400s against the enum, and
+     date-of-birth initialises to `new Date()` so a user can submit today as their birthday.
+     One PR fixes the data path and both bugs together.
+   - **Or immediately, if reference data is going to be edited before the team migrates.**
+     That is the scenario the drift bug is waiting for.
+
+   Shape: three reads behind `JwtAuthGuard` (profile creation runs before the `users` row
+   exists, but the caller is authenticated, so the guard is fine), or one `GET /reference`
+   returning all ~59 rows. Then point both screens at it. **Do not drop the Supabase tables in
+   the same PR** — stop reading them first, verify, then revoke access as a separate commit so
+   the revert is obvious if something outside this repo still reads them.
+
 8. **When does the coach profile view get built, and as a list?** §3.4 — multiple coaches per
    athlete is supported, so the screen that does not exist yet must be plural from day one.
    Retrofitting a singular screen is the expensive version.

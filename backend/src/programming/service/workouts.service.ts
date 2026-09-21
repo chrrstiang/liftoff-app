@@ -125,11 +125,11 @@ export class WorkoutsService {
    * relationship. Templates are excluded — they belong to a coach's library, not
    * to anyone's calendar, and `athlete_id` is null on them anyway.
    *
-   * ⚠️ Note this does **not** apply `historyVisibilityFilter`, so a coach sees the
-   * name and date of every workout assigned to their athlete including another
-   * coach's. That is pre-existing behaviour, left alone deliberately rather than
-   * changed as a side effect of adding history — but it means the two reads
-   * disagree about co-coach visibility. See `docs/AUTHORIZATION.md`.
+   * This does not apply `historyVisibilityFilter`, and no longer needs to: as of
+   * 2026-09-20 that filter scopes to the athlete and nothing more, so the two
+   * reads finally agree. They disagreed for exactly one release — this one showed
+   * every coach's workouts while history showed only your own — which is why the
+   * rule now lives in one named function instead of a `where` clause per query.
    */
   async listAthleteWorkouts(athleteId: string, callerId: string) {
     // 404, not 403: a 403 here confirms which user ids are athletes.
@@ -156,12 +156,15 @@ export class WorkoutsService {
    * summary of what was logged is wanted — so they are two queries wearing one
    * name at best.
    *
-   * Authorization is two things, and both are needed. `assertReadableAthlete` is
-   * the gate — `athlete_id` comes from the query string, so a caller with no claim
-   * on it gets a 404 before a row is read. `historyVisibilityFilter` is the row
-   * scope, and it is **narrower than the gate**: an athlete with two coaches is a
-   * supported case, and a coach sees only the sessions they wrote. Read the note on
-   * that function before widening either.
+   * Authorization is two things, and both are still needed. `assertReadableAthlete`
+   * is the gate — `athlete_id` comes from the query string, so a caller with no
+   * claim on it gets a 404 before a row is read. `historyVisibilityFilter` is the
+   * row scope, and it now **matches** the gate rather than narrowing it: anyone who
+   * may read this athlete may read all of their sessions, whoever authored them.
+   *
+   * The gate still has to run. Without it the filter alone would return an empty
+   * list for a stranger, which answers "is this user training with me?" for any id
+   * — the leak the 404 exists to prevent.
    */
   async listWorkoutHistory(query: HistoryQueryDto, callerId: string) {
     const athleteId = query.athlete_id;
@@ -184,7 +187,7 @@ export class WorkoutsService {
         notes: workouts.notes,
       })
       .from(workouts)
-      .where(and(historyVisibilityFilter(athleteId, callerId), lt(workouts.date, before)))
+      .where(and(historyVisibilityFilter(athleteId), lt(workouts.date, before)))
       .orderBy(desc(workouts.date), desc(workouts.createdAt), desc(workouts.id))
       .limit(limit + 1)
       .offset(offset);
@@ -213,8 +216,8 @@ export class WorkoutsService {
    * the desired answer, not a gap.
    *
    * Scoped by the same gate-plus-filter pair as `listWorkoutHistory`, so a coach
-   * sees this athlete's progression only through the sessions they themselves
-   * programmed. See `historyVisibilityFilter`.
+   * sees the athlete's full progression on this lift, including sessions another
+   * of their coaches wrote. See `historyVisibilityFilter`.
    */
   async listExerciseHistory(exerciseId: string, query: HistoryQueryDto, callerId: string) {
     const athleteId = query.athlete_id;
@@ -236,7 +239,7 @@ export class WorkoutsService {
       .innerJoin(workoutExercises, eq(workoutExercises.workoutId, workouts.id))
       .where(
         and(
-          historyVisibilityFilter(athleteId, callerId),
+          historyVisibilityFilter(athleteId),
           eq(workoutExercises.exerciseId, exerciseId),
           lt(workouts.date, before),
         ),

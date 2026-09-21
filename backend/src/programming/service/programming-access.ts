@@ -75,41 +75,46 @@ export async function assertReadableAthlete(
 /** The row filter for every history read: which of an athlete's workouts this
  * caller is allowed to see.
  *
- * ⚠️ **Deliberately narrow, and an open product question.** An athlete may have
- * more than one coach, so "may read this athlete" and "may read this workout" are
- * two different questions:
+ * **Every workout assigned to the athlete, whoever authored it.** An athlete may
+ * have more than one coach, and as of 2026-09-20 co-coaches see each other's
+ * programming: a coach writing next week needs to know what the athlete actually
+ * did, including under someone else, and three coaches sharing a Google Sheet had
+ * that for free. Withholding it made the app worse than the tool it replaces.
  *
- *  - The **athlete** sees every workout assigned to them. All of it is theirs.
- *  - A **coach** sees only the workouts they authored (`coach_id = callerId`),
- *    which is exactly the rule `loadReadableWorkout` already enforces for a single
- *    workout. With coaches A and B both coaching athlete X, A cannot read the
- *    sessions B wrote.
+ * The rule across the whole module is now asymmetric, and the asymmetry is the
+ * point:
  *
- * The broader rule — any active coach of an athlete sees that athlete's whole
- * history — is more useful and is what a coach would probably expect. It is not
- * implemented here because it would newly expose one coach's programming to
- * another, and that is a product decision with privacy consequences rather than an
- * implementation detail. There is no RLS, so this filter is the entire boundary.
+ *  - **Any active coach of the athlete may READ** — this filter, and
+ *    `loadReadableWorkout`.
+ *  - **Only the authoring coach may CHANGE** — `loadProgrammableWorkout`, still
+ *    `coach_id = callerId`. Letting a co-coach silently rewrite or delete another
+ *    coach's programming is a far larger blast radius than letting them read it.
+ *  - **Only the athlete may record what they lifted** — `isPerformer`, unchanged.
  *
- * If that decision is reversed, this function is the only thing that changes —
- * which is why it exists as a function rather than as a `where` clause repeated in
- * each query. `programming-access.spec.ts` pins the narrow behaviour, so the
- * reversal shows up as a failing test to be changed on purpose.
+ * `callerId` is deliberately **not** a parameter any more. It was one while the
+ * rule varied by caller; keeping it now would imply a per-caller restriction that
+ * no longer exists and invite someone to "fix" a filter that is already correct.
+ * Who may read *this athlete at all* is `assertReadableAthlete`, which still runs
+ * first — so a caller with no claim gets a 404 rather than an empty list.
  *
- * Note this is a *filter*, not a gate: it decides which rows come back, not
- * whether the request is allowed at all. `assertReadableAthlete` still runs first,
- * so a caller with no claim on the athlete gets a 404 rather than an empty list.
+ * Kept as a function rather than inlined because it is the single place this
+ * decision lives, and `programming-access.spec.ts` pins it by compiling it to SQL.
  */
-export function historyVisibilityFilter(athleteId: string, callerId: string) {
-  return and(
-    eq(workouts.athleteId, athleteId),
-    // `and` drops an undefined term, so this is "no extra restriction" when the
-    // caller is the athlete themselves.
-    athleteId === callerId ? undefined : eq(workouts.coachId, callerId),
-  );
+export function historyVisibilityFilter(athleteId: string) {
+  return eq(workouts.athleteId, athleteId);
 }
 
-/** Loads a workout the caller may **read**: their own, or one they coach.
+/** Loads a workout the caller may **read**: their own, one they authored, or one
+ * belonging to an athlete they actively coach.
+ *
+ * That third case is what keeps this consistent with `historyVisibilityFilter`.
+ * Without it a co-coach would see another coach's session listed in history and
+ * then get a 404 opening it, which reads as a broken app rather than a rule.
+ *
+ * **Templates are excluded from the co-coach case.** A template has no
+ * `athlete_id` (it belongs solely to its coach), so there is no athlete to be a
+ * co-coach *of*, and the null guard below is what stops `isActiveCoachOf` being
+ * asked a meaningless question.
  *
  * A caller with no claim on the workout gets a 404, not a 403 — the same choice
  * made for coach requests and conversations. A 403 confirms the id names a real
@@ -130,11 +135,21 @@ export async function loadReadableWorkout(
     .where(eq(workouts.id, workoutId))
     .limit(1);
 
-  if (!workout || !(workout.athleteId === callerId || workout.coachId === callerId)) {
+  if (!workout) {
     throw new NotFoundException(`Workout with ID ${workoutId} could not be found`);
   }
 
-  return workout;
+  if (workout.athleteId === callerId || workout.coachId === callerId) {
+    return workout;
+  }
+
+  // The co-coach case. Costs a second query, and only for a caller who is neither
+  // the athlete nor the author — the common paths above return without it.
+  if (workout.athleteId !== null && (await isActiveCoachOf(db, callerId, workout.athleteId))) {
+    return workout;
+  }
+
+  throw new NotFoundException(`Workout with ID ${workoutId} could not be found`);
 }
 
 /** Loads a workout whose **structure** the caller may change — add an exercise,
@@ -144,6 +159,13 @@ export async function loadReadableWorkout(
  *
  * Read access is checked first so that a stranger still gets a 404 rather than a
  * 403 revealing the workout exists.
+ *
+ * ⚠️ **A co-coach now gets the 403 rather than the 404**, and that is correct
+ * rather than a leak. The 404-over-403 rule exists so a caller with *no* claim
+ * cannot confirm the id names something real; a co-coach already has a claim —
+ * they can read this workout — so the 403 tells them nothing they could not
+ * already see. It is also the more useful answer: "this is not yours to change"
+ * rather than "this does not exist".
  */
 export async function loadProgrammableWorkout(
   db: Database,

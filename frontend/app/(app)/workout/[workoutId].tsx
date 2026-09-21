@@ -8,6 +8,7 @@ import {
   Sheet,
   Text,
 } from "@/components/ui";
+import { ExerciseHistorySheet } from "@/components/ExerciseHistorySheet";
 import { useAuth } from "@/contexts/AuthContext";
 import { createExercise } from "@/lib/api/exercises";
 import { fetchWorkoutById, updateSet } from "@/lib/api/workouts";
@@ -102,14 +103,19 @@ function ExerciseCard({
   exercise,
   sets,
   workoutExercise,
+  athleteId,
   onUpdateSet,
 }: {
   exercise: Exercise;
   sets: Set[];
   workoutExercise: WorkoutExercise;
+  /** The athlete performing this workout, or null on a template — a template has
+   * no performer, so there is nothing to show a history of. */
+  athleteId?: string | null;
   onUpdateSet: (set: Partial<Set>) => void;
 }) {
   const [editingSet, setEditingSet] = useState<Set | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   const rows = sets.map((set) => ({
     key: set.id,
@@ -144,12 +150,38 @@ function ExerciseCard({
         emptyMessage="No sets prescribed"
       />
 
+      {/* Reached without leaving the session being logged — the point of the sheet.
+          Ghost rather than secondary: the action on this screen is logging a set,
+          and a bordered button per exercise would compete with it. */}
+      {athleteId ? (
+        <View className="flex-row justify-end">
+          <Button
+            label="Last time"
+            variant="ghost"
+            onPress={() => setShowHistory(true)}
+          />
+        </View>
+      ) : null}
+
       {editingSet ? (
         <SetModal
           isVisible
           onClose={() => setEditingSet(null)}
           set={editingSet}
           onSave={onUpdateSet}
+        />
+      ) : null}
+
+      {/* Mounted only while open, the same way SetModal is. Section interleaves a
+          hairline between its children, so a permanently mounted modal leaves a
+          stray rule under every exercise. */}
+      {showHistory && athleteId ? (
+        <ExerciseHistorySheet
+          visible
+          onClose={() => setShowHistory(false)}
+          exerciseId={exercise.id}
+          exerciseName={exercise.name}
+          athleteId={athleteId}
         />
       ) : null}
     </Section>
@@ -501,6 +533,9 @@ export default function WorkoutDetails() {
               exercise={workoutExercise.exercise}
               sets={workoutExercise.sets || []}
               workoutExercise={workoutExercise}
+              // From the workout, not from useAuth: a coach reading this screen is
+              // looking at their athlete's log, not their own.
+              athleteId={localWorkout?.athlete_id}
               onUpdateSet={handleUpdateSet}
             />
           ))

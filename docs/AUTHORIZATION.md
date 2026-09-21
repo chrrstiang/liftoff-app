@@ -230,6 +230,8 @@ row would pass without it.
 | Endpoint | Rule enforced | Where | Outsider assertion | Anon |
 |---|---|---|---|---|
 | `GET /workouts?athlete_id=` | self, or active coach → else 404 | `workouts.service.ts:126` | `programming:356` | `programming:660` |
+| `GET /workouts/history?athlete_id=` | gate: `assertReadableAthlete` → 404. Row scope: `historyVisibilityFilter` — self sees all, a coach sees only what they authored | `programming-access.ts` | `programming` "history with two coaches" | `programming` "401s on … without a token" |
+| `GET /exercises/:id/history?athlete_id=` | same gate and same filter | `programming-access.ts` | `programming` "scopes exercise history the same way" | as above |
 | `GET /workouts/templates` | `eq(coachId, callerId)` + `athleteId is null` | `workouts.service.ts:159` | `programming:330` | `programming:660` |
 | `GET /workouts/:id` | `loadReadableWorkout` → 404 | `programming-access.ts:75` | `programming:395,400` | `programming:660` |
 | `POST /workouts` | caller must be coach; athlete must be on roster; `coach_id` from token | `workouts.service.ts:246,264` | `programming:229,242,257,269` | `programming:660` |
@@ -248,6 +250,36 @@ an athlete lifted.
 **The cross-coach case is covered.** `stranger` is seeded as both athlete and coach
 (`programming:102`), so `programming:356` — a second coach getting 404 on another coach's
 athlete — is a genuine coach-vs-coach assertion, not just an unrelated-user one.
+
+**The history routes separate the gate from the row scope, and the row scope is
+narrower.** Everywhere else in this table, "may read this athlete" settles the
+question. History cannot use that alone, because **an athlete may have more than
+one coach**. `assertReadableAthlete` still decides whether the request is answered
+at all — an outsider gets a 404, not an empty list — but which rows come back is
+decided by `historyVisibilityFilter`:
+
+- the **athlete** sees every session assigned to them, whoever wrote it;
+- a **coach** sees only sessions they authored, which is the rule
+  `loadReadableWorkout` already applies to a single workout.
+
+So with coaches A and B both coaching athlete X, A cannot read what B programmed.
+**This is a deliberate narrow choice pending a product decision**, not an
+oversight: the broader rule would newly expose one coach's programming to another.
+The filter is a single named function so that reversing it is a one-line change,
+and the e2e block "history with two coaches" plus
+`programming-access.spec.ts` pin the current behaviour — if the decision flips,
+those failures are the review prompt.
+
+⚠️ `GET /workouts?athlete_id=` does **not** apply that filter: a coach sees the
+name and date of every workout assigned to their athlete, including another
+coach's. That predates history and is untouched here, but it means the two reads
+disagree, and whichever way the product decision goes, both should end up on the
+same rule.
+
+`programming-access.spec.ts` is also the one spec in this repo that asserts
+compiled SQL. It has to: the shared Drizzle double routes results by table and
+ignores `where` by design, so **no service-level unit test can show that a filter
+excluded a row** — dropping the `coach_id` term would leave every other spec green.
 
 ---
 

@@ -201,10 +201,18 @@ function WorkoutModal({
         id: we.exercise.id,
         name: we.name,
         order: we.order,
+        // ⚠️ Carry the whole prescription. This used to map only reps and
+        // intensity, so a template built around "5x3 @ 75%" came back as bare
+        // rep counts — the prescription discarded at the one moment a template
+        // exists to preserve it. The backend half was fixed in #36; this is the
+        // client throwing it away on the way back out.
         sets: we.sets.map((s) => ({
           set_number: s.set_number,
           prescribed_reps: s.prescribed_reps,
           prescribed_intensity: s.prescribed_intensity,
+          prescribed_percent: s.prescribed_percent ?? null,
+          suggested_load_min: s.suggested_load_min ?? null,
+          suggested_load_max: s.suggested_load_max ?? null,
         })),
       };
     });
@@ -235,10 +243,17 @@ function WorkoutModal({
       id: selectedExercise.exercise.id,
       name: selectedExercise.selectedTemplate.name,
       order: index + 1,
+      // Carries the same three fields as the from-template path above. It used
+      // to drop suggested_load_* here, so a coach who typed a plain kg range on
+      // a set built through the custom flow lost it on save — asymmetric with
+      // the template flow and invisible until you compared the two.
       sets: selectedExercise.selectedTemplate.sets.map((set: SetTemplate) => ({
         set_number: set.set_number,
         prescribed_reps: set.prescribed_reps,
         prescribed_intensity: set.prescribed_intensity,
+        prescribed_percent: set.prescribed_percent ?? null,
+        suggested_load_min: set.suggested_load_min ?? null,
+        suggested_load_max: set.suggested_load_max ?? null,
       })),
     }));
 

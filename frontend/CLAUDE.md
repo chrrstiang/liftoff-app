@@ -29,6 +29,7 @@ app/
   _layout.tsx                          root — fonts, splash, <Provider>, auth gate
   (auth)/                              login.tsx, signup.tsx
   (app)/                               index.tsx, create-profile.tsx, edit-profile.tsx
+  (app)/maxes/[athleteId].tsx          coach-facing; what percentages resolve against
   (app)/(tabs)/                        home.tsx, profile.tsx
   (app)/(tabs)/conversations/          conversations.tsx      (Messages tab)
   (app)/(tabs)/program/[athleteId].tsx (Program tab, athletes)
@@ -107,7 +108,7 @@ No Redux, Zustand or Jotai. Screen state is plain `useState`.
 
 ## Talking to the backend
 
-**Every user-owned read and write goes through the API.** All eight `lib/api/*` resource modules (`athlete`, `conversations`, `exercises`, `notifications`, `roster`, `storage`, `users`, `workouts`) call `lib/api/client.ts`. The app does not work with the backend stopped — that is the intended state, not a regression.
+**Every user-owned read and write goes through the API.** All nine `lib/api/*` resource modules (`athlete`, `conversations`, `exercises`, `maxes`, `notifications`, `roster`, `storage`, `users`, `workouts`) call `lib/api/client.ts`. The app does not work with the backend stopped — that is the intended state, not a regression.
 
 **Supabase is still used for three things:**
 

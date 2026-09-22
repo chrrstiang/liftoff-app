@@ -11,6 +11,15 @@ export interface Set {
   prescribed_reps: number | null;
   /** text in the schema, unlike actual_intensity which is a double. */
   prescribed_intensity: string | null;
+  /** Percentage of the athlete's max for this exercise, when the coach prescribed
+   * one rather than typing a load. */
+  prescribed_percent?: number | null;
+  /** The server resolving `prescribed_percent` against the athlete's current max.
+   *
+   * **Null is meaningful and not an error**: it means the athlete has no max for
+   * this exercise yet, which is the normal state of a first block. Render the
+   * percentage with no kilograms rather than hiding the set or showing zero. */
+  resolved_load?: number | null;
   suggested_load_min?: number | null;
   suggested_load_max?: number | null;
   actual_load?: number | null;
@@ -84,6 +93,13 @@ export interface SetTemplate {
   set_number: number;
   prescribed_reps: number | null;
   prescribed_intensity: string | null;
+  /** A template carries its whole prescription, not just rep counts — otherwise
+   * "5x3 @ 75%" comes back as bare threes at the one moment a template exists to
+   * preserve it. Templates have no athlete, so a percentage travels unresolved
+   * and resolves once the workout is assigned. */
+  prescribed_percent?: number | null;
+  suggested_load_min?: number | null;
+  suggested_load_max?: number | null;
 }
 
 export interface WorkoutTemplate {
@@ -107,6 +123,9 @@ export interface ExerciseTemplate {
 export type ExerciseFormSet = {
   prescribed_reps: number | null;
   prescribed_intensity: string | null;
+  /** A set carries either a percentage or hand-typed loads, never both — the
+   * percentage wins server-side when present. */
+  prescribed_percent?: number | null;
   suggested_load_min?: number | null;
   suggested_load_max?: number | null;
   set_number?: number;

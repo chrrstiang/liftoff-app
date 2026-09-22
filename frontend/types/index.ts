@@ -7,6 +7,7 @@
 
 export * from "./coach";
 export * from "./conversation";
+export * from "./max";
 export * from "./reference";
 export * from "./user";
 export * from "./workout";

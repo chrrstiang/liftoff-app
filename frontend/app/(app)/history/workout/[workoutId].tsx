@@ -41,9 +41,18 @@ function PastExercise({
           cells: {
             set: set.set_number,
             reps: set.prescribed_reps,
-            load: set.suggested_load_min
-              ? `${set.suggested_load_min}–${set.suggested_load_max}`
-              : null,
+            // Same rule as the live logging screen: a percentage wins over
+            // hand-typed loads, matching the server. Without this a session
+            // prescribed by percentage showed a blank load column in history
+            // while the identical-looking live screen showed "142.5 · 85%".
+            load:
+              set.prescribed_percent != null
+                ? set.resolved_load != null
+                  ? `${Math.round(set.resolved_load * 10) / 10} · ${set.prescribed_percent}%`
+                  : `${set.prescribed_percent}%`
+                : set.suggested_load_min
+                  ? `${set.suggested_load_min}–${set.suggested_load_max}`
+                  : null,
             rpe: set.prescribed_intensity,
             actual: set.actual_load
               ? `${set.actual_load}@${set.actual_intensity}`

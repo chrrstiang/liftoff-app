@@ -5,8 +5,8 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
-  Put,
   Query,
   Req,
   UseGuards,
@@ -42,8 +42,14 @@ export class MaxesController {
   }
 
   /** Pins or clears a coach override. `override_value: null` clears it and lets the
-   * derived value take over again. */
-  @Put(':exerciseId')
+   * derived value take over again.
+   *
+   * PATCH rather than PUT: every update in this codebase is a PATCH
+   * (`/users/profile`, `/sets/:id`, `/coach-requests/:id`), and `lib/api/client.ts`
+   * exposes no `put`. Adding a verb to the client for one endpoint would be the
+   * tail wagging the dog, and this *is* a partial update — one column on a row the
+   * caller does not otherwise own. */
+  @Patch(':exerciseId')
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
   async setOverride(

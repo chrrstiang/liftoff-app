@@ -145,7 +145,7 @@ first block, and it is fixed by an override or by the athlete logging one RPE se
 | Endpoint | Purpose |
 |---|---|
 | `GET /maxes?athlete_id=` | every max for an athlete, with source and provenance |
-| `PUT /maxes/:exerciseId` | set or clear an override (`athlete_id` in the body) |
+| `PATCH /maxes/:exerciseId` | set or clear an override (`athlete_id` in the body) |
 | `POST /maxes/refresh` | recompute from logged sets |
 
 The athlete is named in a query string or body rather than the path, matching

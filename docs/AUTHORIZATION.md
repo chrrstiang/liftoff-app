@@ -242,7 +242,7 @@ row would pass without it.
 | `POST /exercises` | caller must be a coach | `exercises.service.ts:49` | `programming:220` | `programming:660` |
 | `GET /exercises/templates` | `eq(createdBy, callerId)` | `exercises.service.ts:82` | `programming:271,280` | `programming:660` |
 | `GET /maxes?athlete_id=` | `assertReadableAthlete` → 404. **Wide**: the athlete, or any active coach | `maxes.service.ts` | `maxes.service.spec.ts` "404s a caller with no claim" | — **unit only** |
-| `PUT /maxes/:exerciseId` | `isActiveCoachOf` → 404, **then** the exercise must be in the caller's own library | `maxes.service.ts` | `maxes.service.spec.ts` "refuses the athlete", "refuses an exercise outside…" | — **unit only** |
+| `PATCH /maxes/:exerciseId` | `isActiveCoachOf` → 404, **then** the exercise must be in the caller's own library | `maxes.service.ts` | `maxes.service.spec.ts` "refuses the athlete", "refuses an exercise outside…" | — **unit only** |
 | `POST /maxes/refresh` | `isActiveCoachOf` → 404 | `maxes.service.ts` | `maxes.service.spec.ts` "refuses a caller who does not coach" | — **unit only** |
 
 `programming-access.ts` is the worked example the rest of the codebase should follow: the

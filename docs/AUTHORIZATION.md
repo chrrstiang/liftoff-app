@@ -245,6 +245,7 @@ row would pass without it.
 | `GET /maxes?athlete_id=` | `assertReadableAthlete` → 404. **Wide**: the athlete, or any active coach | `maxes.service.ts` | `maxes.service.spec.ts` "404s a caller with no claim" | — **unit only** |
 | `PATCH /maxes/:exerciseId` | `isActiveCoachOf` → 404, **then** the exercise must be in the caller's own library | `maxes.service.ts` | `maxes.service.spec.ts` "refuses the athlete", "refuses an exercise outside…" | — **unit only** |
 | `POST /maxes/refresh` | `isActiveCoachOf` → 404 | `maxes.service.ts` | `maxes.service.spec.ts` "refuses a caller who does not coach" | — **unit only** |
+| `GET /adherence` | **no id in the request.** The query starts from `coach_athlete_relationships` scoped to the caller, so it cannot reach an athlete who is not theirs | `adherence.service.ts` | `adherence.service.spec.ts` "returns an empty list for a caller with no roster" | — **unit only** |
 
 `programming-access.ts` is the worked example the rest of the codebase should follow: the
 `sets → workout_exercises → workouts` walk is one joined query, not three lookups, so it

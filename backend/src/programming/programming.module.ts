@@ -4,9 +4,11 @@ import { WorkoutsController } from './controller/workouts.controller';
 import { SetsController } from './controller/sets.controller';
 import { ExercisesController } from './controller/exercises.controller';
 import { MaxesController } from './controller/maxes.controller';
+import { AdherenceController } from './controller/adherence.controller';
 import { WorkoutsService } from './service/workouts.service';
 import { ExercisesService } from './service/exercises.service';
 import { MaxesService } from './service/maxes.service';
+import { AdherenceService } from './service/adherence.service';
 
 /** Workouts, sets and the exercise library.
  *
@@ -15,7 +17,13 @@ import { MaxesService } from './service/maxes.service';
  */
 @Module({
   imports: [SupabaseModule],
-  controllers: [WorkoutsController, SetsController, ExercisesController, MaxesController],
-  providers: [WorkoutsService, ExercisesService, MaxesService],
+  controllers: [
+    WorkoutsController,
+    SetsController,
+    ExercisesController,
+    MaxesController,
+    AdherenceController,
+  ],
+  providers: [WorkoutsService, ExercisesService, MaxesService, AdherenceService],
 })
 export class ProgrammingModule {}

@@ -149,6 +149,7 @@ Every route except `GET /` and `GET /health` carries a per-route `@UseGuards(Jwt
 | sets | `PATCH /sets/:id` |
 | exercises | `GET`/`POST /exercises`, `GET /exercises/templates`, `GET /exercises/:id/history?athlete_id=` |
 | maxes | `GET /maxes?athlete_id=`, `PATCH /maxes/:exerciseId`, `POST /maxes/refresh` |
+| adherence | `GET /adherence?days=` (roster-wide; no id in the request) |
 
 **`maxes` is what percentage prescription resolves against.** Reads are wide (the
 athlete, or any active coach of them); writes are coach-only, because setting a

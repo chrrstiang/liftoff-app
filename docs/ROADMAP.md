@@ -18,9 +18,9 @@ it, because the reasoning is why the work was worth doing — not because the ho
 | 6 · Profile editing | **merged** (#32) |
 | — · Co-coach read visibility | **merged** (#35) — see open question 6 |
 | **2+5** · Maxes + percentage prescription | **merged** (#36, #37) — see `MAXES-DESIGN.md` |
-| 3 · Bulk assign | **in review** — scoped as "assign this workout to N athletes", not templates |
+| 3 · Bulk assign | **merged** (#38) — scoped as "assign this workout to N athletes", not templates |
 
-| 7 · Adherence view | not started |
+| 7 · Adherence view | **in review** — the cutline is complete |
 
 ---
 
@@ -218,8 +218,9 @@ and "the coaches stayed."
    cannot do. **Merged into item 2** — they are the same feature.
 6. 🔄 **Profile editing.** In review (#32). Needed a new `PATCH /athlete/profile` after all —
    the athlete columns had no update path. See 3.5.
-7. **Coach-side adherence view** — who actually did the work. The coach's reason to open the app
-   on a day they are not programming.
+7. 🔄 **Coach-side adherence view** — in review. Who actually did the work, worst first, so the
+   answer is at the top rather than behind a scroll. The coach's reason to open the app on a day
+   they are not programming.
 
 ### Below — after migration
 

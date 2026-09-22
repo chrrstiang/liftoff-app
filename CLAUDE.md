@@ -82,6 +82,8 @@ Feature-branch pushes skip e2e, so e2e breakage first surfaces at PR time. Run `
 - `docs/AUTHORIZATION.md` — who may reach what, per endpoint, with the code and test for each rule
 - `docs/SETUP.md` — running both halves locally
 - `infra/README.md` — deploying the API to ECS
+- `docs/ROADMAP.md` — what is built, the cutline for a team migration, and the open questions
+- `docs/AUDIT.md` — findings from the 2026-09-22 feature-by-feature pass, worst first
 - `docs/MAXES-DESIGN.md` — derived maxes and percentage prescription: the decisions and why
 - `docs/REALTIME-MESSAGING-DESIGN.md` — design only, nothing built
 - `docs/archive/` — completed work kept for the traps it records, not current

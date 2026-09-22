@@ -236,6 +236,7 @@ row would pass without it.
 | `GET /workouts/:id` | `loadReadableWorkout` → 404. Self, author, **or any active coach of the athlete** | `programming-access.ts:75` | `programming:395,400` | `programming:660` |
 | `POST /workouts` | caller must be coach; athlete must be on roster; `coach_id` from token | `workouts.service.ts:246,264` | `programming:229,242,257,269` | `programming:660` |
 | `POST /workouts/:id/exercises` | `loadProgrammableWorkout` → 404 then 403. **Authoring coach only** — a co-coach reads it but gets 403 | `programming-access.ts:97` | `programming:503,514` | `programming:660` |
+| `POST /workouts/:id/assign` | source: `loadReadableWorkout` → 404. Each target: `isActiveCoachOf` → 404 naming the **athlete**, checked for all before any write | `workouts.service.ts` | `workouts.service.spec.ts` "refuses when a target athlete is not on the caller's roster" | — **unit only** |
 | `DELETE /workouts/:id` | `loadProgrammableWorkout` | `workouts.service.ts:468` | `programming:527` | `programming:660` |
 | `PATCH /sets/:id` | walk to workout → 404; performer only → 403 | `workouts.service.ts:432,437` | `programming:425,430` | `programming:660` |
 | `GET /exercises` | `eq(createdBy, callerId)` | `exercises.service.ts:27` | `programming:212` | `programming:660` |

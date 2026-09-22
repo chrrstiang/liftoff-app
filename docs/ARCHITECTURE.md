@@ -145,7 +145,7 @@ Every route except `GET /` and `GET /health` carries a per-route `@UseGuards(Jwt
 | athletes | `GET /athlete/profile/:id`, `GET /athlete/search?q=`, `PATCH /athlete/profile` |
 | coaching | `GET`/`POST /coach-requests`, `PATCH /coach-requests/:id`, `GET /coach-requests/roster` |
 | messaging | `GET`/`POST /conversations`, `GET`/`POST /conversations/:id/messages`, `POST /conversations/:id/read` |
-| workouts | `GET /workouts?athlete_id=`, `GET /workouts/templates`, `GET /workouts/history?athlete_id=`, `GET /workouts/:id`, `POST /workouts`, `POST /workouts/:id/exercises`, `DELETE /workouts/:id` |
+| workouts | `GET /workouts?athlete_id=`, `GET /workouts/templates`, `GET /workouts/history?athlete_id=`, `GET /workouts/:id`, `POST /workouts`, `POST /workouts/:id/exercises`, `POST /workouts/:id/assign`, `DELETE /workouts/:id` |
 | sets | `PATCH /sets/:id` |
 | exercises | `GET`/`POST /exercises`, `GET /exercises/templates`, `GET /exercises/:id/history?athlete_id=` |
 | maxes | `GET /maxes?athlete_id=`, `PATCH /maxes/:exerciseId`, `POST /maxes/refresh` |

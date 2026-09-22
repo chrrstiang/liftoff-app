@@ -16,6 +16,7 @@ import { JwtAuthGuard } from 'src/common/validation/guards/auth-guard';
 import type { RequestWithUser } from 'src/common/types/request.interface';
 import { WorkoutsService } from '../service/workouts.service';
 import { CreateWorkoutDto } from '../dto/create-workout.dto';
+import { AssignWorkoutDto } from '../dto/assign-workout.dto';
 import { AddWorkoutExerciseDto } from '../dto/add-workout-exercise.dto';
 import { HistoryQueryDto } from '../dto/history-query.dto';
 
@@ -100,6 +101,24 @@ export class WorkoutsController {
     @Req() req: RequestWithUser,
   ) {
     return this.workoutsService.addExercise(id, dto, req.user.id);
+  }
+
+  /** Copies this workout onto several athletes at once.
+   *
+   * The 17-athletes-per-coach bottleneck: writing a week by hand means building
+   * the same session seventeen times. `:id/assign` cannot collide with any
+   * literal POST route, but a future `@Post('assign')` would have to be declared
+   * above it — Nest matches in declaration order.
+   */
+  @Post(':id/assign')
+  @HttpCode(201)
+  @UseGuards(JwtAuthGuard)
+  async assign(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: AssignWorkoutDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.workoutsService.assignWorkout(id, dto, req.user.id);
   }
 
   @Delete(':id')

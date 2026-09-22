@@ -17,8 +17,8 @@ it, because the reasoning is why the work was worth doing — not because the ho
 | 4 · Workout and exercise history | **merged** (#33) |
 | 6 · Profile editing | **merged** (#32) |
 | — · Co-coach read visibility | **merged** (#35) — see open question 6 |
-| **2+5** · Maxes + percentage prescription | backend **merged** (#36); UI in review — see `MAXES-DESIGN.md` |
-| 3 · Bulk assign | not started — **next**, the last adoption decider |
+| **2+5** · Maxes + percentage prescription | **merged** (#36, #37) — see `MAXES-DESIGN.md` |
+| 3 · Bulk assign | **in review** — scoped as "assign this workout to N athletes", not templates |
 
 | 7 · Adherence view | not started |
 
@@ -203,9 +203,15 @@ and "the coaches stayed."
 2. 🔄 **A stored max per athlete per exercise, and percentage-based prescription.** Backend in
    review. **Merged with item 5** — see 3.1 and `MAXES-DESIGN.md`. The price of entry against
    Sheets.
-3. ⬅️ **Bulk assign: one template to N athletes.** **Next.** Templates already exist — `is_template` is
-   derived from `athlete_id === null` at `workouts.service.ts:296` — but nothing applies one to
-   a group. This is what makes 17:1 survivable.
+3. 🔄 **Bulk assign — in review, and re-scoped.** It was specified as "one template to N
+   athletes". Building it found that **workout templates cannot be created from the app at
+   all**: a workout is a template exactly when `athlete_id` is null, and the program screen is
+   only ever reached *for* an athlete, so it always sends a concrete id. `GET /workouts/templates`
+   is empty for everyone, and an assign built on templates would have had nothing to assign.
+
+   Shipped instead as **"assign this workout to these athletes"** — `POST /workouts/:id/assign`,
+   copying an existing session. No template concept required, it matches how a coach actually
+   writes a week, and a template source still works if one ever exists.
 4. 🔄 **Workout and exercise history.** In review (#33). Required for coaching, and it feeds
    item 5. See 3.2.
 5. 🔄 **Auto-updating training max from logged sets.** The leapfrog; the one thing Sheets

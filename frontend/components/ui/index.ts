@@ -21,7 +21,14 @@ export { Input, type InputProps } from "./Input";
 export { Numeral, type NumeralProps, type NumeralSize } from "./Numeral";
 export { Screen, type ScreenProps } from "./Screen";
 export { Section, type SectionProps } from "./Section";
-export { SelectSheet, Sheet, type SelectSheetProps, type SheetProps } from "./Sheet";
+export {
+  MultiSelectSheet,
+  SelectSheet,
+  Sheet,
+  type MultiSelectSheetProps,
+  type SelectSheetProps,
+  type SheetProps,
+} from "./Sheet";
 export { SheetInput, type SheetInputProps } from "./SheetInput";
 export { SheetRow, type PlateWeight, type SheetRowProps } from "./SheetRow";
 export { Text, type TextProps, type TextTone, type TextVariant } from "./Text";

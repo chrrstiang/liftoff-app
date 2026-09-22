@@ -7,6 +7,11 @@ was verified by reading the code — but it ages, so re-check before trusting a 
 Companion documents: `ARCHITECTURE.md` (how the built parts work), `AUTHORIZATION.md` (who
 may reach what), `REALTIME-MESSAGING-DESIGN.md` (a design, also unbuilt).
 
+**✅ The cutline is complete as of 2026-09-22.** All seven items above the line are
+built and merged. What stands between the app and a team migration is no longer
+missing features — it is the findings in `AUDIT.md`, three of which should be
+fixed before real users.
+
 **State of play, 2026-09-20.** Three of the seven items in the cutline (§5) have been built
 since this was drafted. The holes in §3 are kept as written, each annotated with what closed
 it, because the reasoning is why the work was worth doing — not because the hole is still open.
@@ -20,7 +25,7 @@ it, because the reasoning is why the work was worth doing — not because the ho
 | **2+5** · Maxes + percentage prescription | **merged** (#36, #37) — see `MAXES-DESIGN.md` |
 | 3 · Bulk assign | **merged** (#38) — scoped as "assign this workout to N athletes", not templates |
 
-| 7 · Adherence view | **in review** — the cutline is complete |
+| 7 · Adherence view | **merged** (#39) |
 
 ---
 
@@ -200,10 +205,10 @@ Ordered. Items 1-3 are the difference between "the coaches tried it and went bac
 and "the coaches stayed."
 
 1. ✅ **Indexes, plus the `(athlete_id, coach_id)` unique constraint.** Merged (#31). See 3.3, 3.4.
-2. 🔄 **A stored max per athlete per exercise, and percentage-based prescription.** Backend in
-   review. **Merged with item 5** — see 3.1 and `MAXES-DESIGN.md`. The price of entry against
+2. ✅ **A stored max per athlete per exercise, and percentage-based prescription.** Merged
+   (#36, #37). **Merged with item 5** — see 3.1 and `MAXES-DESIGN.md`. The price of entry against
    Sheets.
-3. 🔄 **Bulk assign — in review, and re-scoped.** It was specified as "one template to N
+3. ✅ **Bulk assign — merged (#38), and re-scoped.** It was specified as "one template to N
    athletes". Building it found that **workout templates cannot be created from the app at
    all**: a workout is a template exactly when `athlete_id` is null, and the program screen is
    only ever reached *for* an athlete, so it always sends a concrete id. `GET /workouts/templates`
@@ -214,11 +219,11 @@ and "the coaches stayed."
    writes a week, and a template source still works if one ever exists.
 4. 🔄 **Workout and exercise history.** In review (#33). Required for coaching, and it feeds
    item 5. See 3.2.
-5. 🔄 **Auto-updating training max from logged sets.** The leapfrog; the one thing Sheets
+5. ✅ **Auto-updating training max from logged sets.** Merged. The leapfrog; the one thing Sheets
    cannot do. **Merged into item 2** — they are the same feature.
 6. 🔄 **Profile editing.** In review (#32). Needed a new `PATCH /athlete/profile` after all —
    the athlete columns had no update path. See 3.5.
-7. 🔄 **Coach-side adherence view** — in review. Who actually did the work, worst first, so the
+7. ✅ **Coach-side adherence view** — merged (#39). Who actually did the work, worst first, so the
    answer is at the top rather than behind a scroll. The coach's reason to open the app on a day
    they are not programming.
 

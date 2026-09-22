@@ -15,11 +15,13 @@ features:
    for ~50 students with no block and no report, this is a safety question.
 2. **A returning user on a bad connection is dropped into the signup form** — and
    if they fill it in, it 400s on the primary key and they are stuck.
-3. **A deploy right now would 500 on every workout read**, because migration 0003
-   is on `main` and nothing in the deploy pipeline applies it.
+3. **Production is very likely broken right now.** Merging tonight's PRs
+   auto-deployed code that needs migration 0003, and nothing in the deploy
+   pipeline applies migrations. The workout detail screen and all of maxes are
+   the likely casualties. See finding 3 — it has the fix.
 
-The first two need fixing before the team migration. The third needs one manual
-command before the next deploy, and a pipeline change so it stops recurring.
+The first two need fixing before the team migration. **The third needs a command
+run now**, and a pipeline change so it stops recurring.
 
 Two more that are not emergencies but will make migration week miserable:
 **eight of eleven screens render a failed request as "you have nothing"**, and
@@ -116,8 +118,41 @@ Merging #36 armed a trap. `main` now contains code querying `athlete_maxes` and
 and every `/maxes` call and every workout read 500s until someone runs the migrate
 task by hand.
 
-Nothing has broken only because no deploy has happened — `AWS_DEPLOY_ROLE_ARN`
-gates the workflow.
+**⚠️ This stopped being hypothetical while the audit was being written.** Merging
+#36–#39 triggered `deploy.yml` three times (it fires on any push to `main`
+touching `backend/**`), and the deploys were **real, not skipped** —
+`AWS_DEPLOY_ROLE_ARN` is set, and the last run reported
+`rolled: the running container reports 14294e86…`. Production has been serving
+code that needs migration 0003 since roughly 04:56 UTC on 2026-09-22.
+
+`GET /health` still returns `ok` because it deliberately does not touch the
+database, so nothing external signals the problem.
+
+**Very likely broken right now** (these select `sets.prescribed_percent` or read
+`athlete_maxes`):
+
+| Endpoint | What it is |
+|---|---|
+| `GET /workouts/:id` | **the workout detail / logging screen** |
+| `GET /exercises/:id/history` | exercise history |
+| `GET /workouts/templates` | template picker |
+| `GET /maxes`, `PATCH /maxes/:id`, `POST /maxes/refresh` | all of maxes |
+| `POST /workouts`, `POST /workouts/:id/exercises`, `POST /workouts/:id/assign` | they insert the new column |
+
+**Probably still fine:** `GET /workouts?athlete_id=` (the home screen list selects
+only id, name and date), all messaging, profile and roster routes.
+
+I could not confirm it: RDS is `--no-publicly-accessible`, every data endpoint is
+guarded so an external probe only ever returns 401, and the local AWS session has
+expired (`aws login` is interactive). I also did not roll back — the app is
+pre-release with no real users, so the cost of leaving it overnight is close to
+zero, while an unsupervised production rollback that might be unnecessary is not.
+
+**To fix:** authenticate (`aws sso login --profile liftoff`), run the migrate task
+from `infra/README.md` → "Applying migrations to RDS", and confirm it prints
+`done: 19 tables, 5 views, 3 federations`. The task is idempotent, so running it
+when it was not needed is harmless. No redeploy is required afterwards — the
+running container picks the schema up on its next query.
 
 **Before the next deploy:** run the migrate task from `infra/README.md`. Migration
 first, then deploy; the reverse is an outage.

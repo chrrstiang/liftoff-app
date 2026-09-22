@@ -148,6 +148,15 @@ Every route except `GET /` and `GET /health` carries a per-route `@UseGuards(Jwt
 | workouts | `GET /workouts?athlete_id=`, `GET /workouts/templates`, `GET /workouts/history?athlete_id=`, `GET /workouts/:id`, `POST /workouts`, `POST /workouts/:id/exercises`, `DELETE /workouts/:id` |
 | sets | `PATCH /sets/:id` |
 | exercises | `GET`/`POST /exercises`, `GET /exercises/templates`, `GET /exercises/:id/history?athlete_id=` |
+| maxes | `GET /maxes?athlete_id=`, `PATCH /maxes/:exerciseId`, `POST /maxes/refresh` |
+
+**`maxes` is what percentage prescription resolves against.** Reads are wide (the
+athlete, or any active coach of them); writes are coach-only, because setting a
+max is programming. The stored value is `override_value ?? computed_value`, the
+computed half is derived from logged sets on an explicit refresh rather than
+automatically, and the resolved kilograms are never stored — a set carries
+`prescribed_percent` and the server resolves it on read, so refreshing a max
+re-scales work already written. See `MAXES-DESIGN.md`.
 
 The two `history` routes are the only paginated reads in the API: `?before=` is an
 exclusive `YYYY-MM-DD` bound the client fills with its **local** today, `?limit=`

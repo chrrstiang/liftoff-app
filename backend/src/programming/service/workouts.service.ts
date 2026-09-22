@@ -461,6 +461,21 @@ export class WorkoutsService {
             set_number: sets.setNumber,
             prescribed_reps: sets.prescribedReps,
             prescribed_intensity: sets.prescribedIntensity,
+            /** A template carries its percentages, and the hand-typed loads
+             * beside them.
+             *
+             * Without these, a coach who built a template around "5x3 @ 75%" and
+             * then applied it would get bare rep counts — the prescription
+             * silently dropped at the moment it was reused, which is the one
+             * moment a template exists for. Matters twice over because bulk
+             * assign (roadmap item 3) applies templates to a whole roster.
+             *
+             * Templates have no athlete, so there is no max to resolve against
+             * here; the percentage travels and resolves once the workout is
+             * assigned to someone. */
+            prescribed_percent: sets.prescribedPercent,
+            suggested_load_min: sets.suggestedLoadMin,
+            suggested_load_max: sets.suggestedLoadMax,
           })
           .from(sets)
           .where(

@@ -146,6 +146,10 @@ export async function createWorkout(workout: CreateWorkoutBody) {
         set_number: set.set_number,
         prescribed_reps: set.prescribed_reps,
         prescribed_intensity: set.prescribed_intensity ?? undefined,
+        // Omitted rather than sent as null: ValidationPipe runs with
+        // forbidNonWhitelisted, and the DTO field is optional, so `undefined`
+        // means "no percentage" while an explicit null would be a 400.
+        prescribed_percent: set.prescribed_percent ?? undefined,
         suggested_load_min: set.suggested_load_min ?? undefined,
         suggested_load_max: set.suggested_load_max ?? undefined,
       })),

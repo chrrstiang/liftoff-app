@@ -17,7 +17,7 @@ it, because the reasoning is why the work was worth doing — not because the ho
 | 4 · Workout and exercise history | **merged** (#33) |
 | 6 · Profile editing | **merged** (#32) |
 | — · Co-coach read visibility | **merged** (#35) — see open question 6 |
-| **2+5** · Maxes + percentage prescription | **backend in review** — the two merged into one feature, see `MAXES-DESIGN.md` |
+| **2+5** · Maxes + percentage prescription | backend **merged** (#36); UI in review — see `MAXES-DESIGN.md` |
 | 3 · Bulk assign | not started — **next**, the last adoption decider |
 
 | 7 · Adherence view | not started |

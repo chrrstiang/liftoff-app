@@ -132,6 +132,12 @@ export default function AthleteDetails() {
           onPress={() => router.push(`/program/${athleteData?.athlete_id}`)}
         />
         <Button
+          label="Maxes"
+          variant="secondary"
+          block
+          onPress={() => router.push(`/maxes/${athleteData?.athlete_id}`)}
+        />
+        <Button
           label={openConversation.isPending ? "Opening" : "Message"}
           variant="secondary"
           block

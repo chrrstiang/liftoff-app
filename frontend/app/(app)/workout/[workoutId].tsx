@@ -122,9 +122,17 @@ function ExerciseCard({
     cells: {
       set: set.set_number,
       reps: set.prescribed_reps,
-      load: set.suggested_load_min
-        ? `${set.suggested_load_min}–${set.suggested_load_max}`
-        : null,
+      // A percentage wins over hand-typed loads, matching the server. When
+      // there is no max yet `resolved_load` is null and the percentage shows
+      // alone — deliberately not zero, which would read as an empty barbell.
+      load:
+        set.prescribed_percent != null
+          ? set.resolved_load != null
+            ? `${Math.round(set.resolved_load * 10) / 10} · ${set.prescribed_percent}%`
+            : `${set.prescribed_percent}%`
+          : set.suggested_load_min
+            ? `${set.suggested_load_min}–${set.suggested_load_max}`
+            : null,
       rpe: set.prescribed_intensity,
       actual: set.actual_load
         ? `${set.actual_load}@${set.actual_intensity}`
@@ -207,6 +215,7 @@ function AddExerciseModal({
       {
         prescribed_reps: null,
         prescribed_intensity: null,
+        prescribed_percent: null,
         suggested_load_min: null,
         suggested_load_max: null,
       },
@@ -221,6 +230,7 @@ function AddExerciseModal({
         {
           prescribed_reps: null,
           prescribed_intensity: null,
+          prescribed_percent: null,
           suggested_load_min: null,
           suggested_load_max: null,
         },
@@ -251,6 +261,9 @@ function AddExerciseModal({
       sets: formData.sets.map((set, index) => ({
         prescribed_reps: Number(set.prescribed_reps),
         prescribed_intensity: set.prescribed_intensity || null,
+        // `|| null` rather than `?? null` on purpose: an empty string and a typed
+        // 0 both mean "no percentage here", and Number("") is 0.
+        prescribed_percent: Number(set.prescribed_percent) || null,
         suggested_load_min: Number(set.suggested_load_min) || null,
         suggested_load_max: Number(set.suggested_load_max) || null,
         set_number: index + 1,
@@ -329,6 +342,22 @@ function AddExerciseModal({
                 placeholder="7"
               />
             </View>
+
+            {/* A percentage and hand-typed loads are alternatives, not a pair —
+                the server takes the percentage when both are present. Kept as a
+                full-width row above them so it reads as the choice it is rather
+                than a third load field. */}
+            <Input
+              label="% of max"
+              value={
+                set.prescribed_percent ? set.prescribed_percent.toString() : ""
+              }
+              onChangeText={(text) =>
+                updateSet(index, "prescribed_percent", text || null)
+              }
+              placeholder="75"
+              keyboardType="decimal-pad"
+            />
 
             <View className="flex-row gap-2">
               <Input

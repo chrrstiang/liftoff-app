@@ -201,10 +201,18 @@ function WorkoutModal({
         id: we.exercise.id,
         name: we.name,
         order: we.order,
+        // ⚠️ Carry the whole prescription. This used to map only reps and
+        // intensity, so a template built around "5x3 @ 75%" came back as bare
+        // rep counts — the prescription discarded at the one moment a template
+        // exists to preserve it. The backend half was fixed in #36; this is the
+        // client throwing it away on the way back out.
         sets: we.sets.map((s) => ({
           set_number: s.set_number,
           prescribed_reps: s.prescribed_reps,
           prescribed_intensity: s.prescribed_intensity,
+          prescribed_percent: s.prescribed_percent ?? null,
+          suggested_load_min: s.suggested_load_min ?? null,
+          suggested_load_max: s.suggested_load_max ?? null,
         })),
       };
     });
@@ -239,6 +247,7 @@ function WorkoutModal({
         set_number: set.set_number,
         prescribed_reps: set.prescribed_reps,
         prescribed_intensity: set.prescribed_intensity,
+        prescribed_percent: set.prescribed_percent ?? null,
       })),
     }));
 

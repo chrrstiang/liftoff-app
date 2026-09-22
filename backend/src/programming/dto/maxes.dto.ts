@@ -1,4 +1,5 @@
 import { IsNumber, IsOptional, IsUUID, Max, Min, ValidateIf } from 'class-validator';
+import { MAX_PLAUSIBLE_LOAD_KG } from '../service/e1rm';
 
 /** Which athlete's maxes. Follows the same shape as `HistoryQueryDto`: the athlete
  * is named in the request and authorized against the token, never taken *as* the
@@ -8,14 +9,10 @@ export class MaxesQueryDto {
   athlete_id: string;
 }
 
-/** An upper bound on a pinned max, in kilograms.
- *
- * Not arbitrary paranoia: the all-time raw powerlifting total record is under
- * 1400kg across three lifts, so a single-lift max above 1000 is a typo — someone
- * entering grams, or adding a digit. Rejecting it turns a prescription of
- * "75% of 18000kg" into a 400 at the point of entry rather than an unliftable
- * number appearing on an athlete's screen three weeks later. */
-export const MAX_PLAUSIBLE_LOAD_KG = 1000;
+/** Re-exported from the domain module so the two ways a number can become a max —
+ * a coach pinning an override, and derivation from a logged set — are bounded by
+ * the same constant and cannot drift apart. */
+export { MAX_PLAUSIBLE_LOAD_KG } from '../service/e1rm';
 
 /** Body for `PUT /maxes/:exerciseId` — pinning or clearing a coach override.
  *

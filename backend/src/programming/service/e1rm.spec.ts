@@ -1,4 +1,5 @@
 import {
+  MAX_PLAUSIBLE_LOAD_KG,
   MAX_WINDOW_DAYS,
   effectiveMax,
   estimateOneRepMax,
@@ -65,6 +66,15 @@ describe('estimateOneRepMax', () => {
     expect(estimateOneRepMax(180, 3, -5)).toBeNull();
   });
 
+  /** ⚠️ **The typo that travels.** `UpdateSetDto` bounds `actual_load` at `Min(0)`
+   * with no ceiling, so an athlete meaning 100kg who types 1000 logs it happily.
+   * Before derived maxes that was one wrong row; now it would become this
+   * exercise's max and then every future percentage prescribed against it. */
+  it('refuses a load above the plausible ceiling, so a typo cannot become a max', () => {
+    expect(estimateOneRepMax(MAX_PLAUSIBLE_LOAD_KG + 1, 3, 8)).toBeNull();
+    expect(estimateOneRepMax(MAX_PLAUSIBLE_LOAD_KG, 3, 8)).not.toBeNull();
+  });
+
   it('refuses non-finite input rather than returning NaN', () => {
     expect(estimateOneRepMax(Number.NaN, 3, 8)).toBeNull();
     expect(estimateOneRepMax(180, 3, Number.POSITIVE_INFINITY)).toBeNull();
@@ -124,6 +134,15 @@ describe('selectMaxEstimate', () => {
     );
 
     expect(result).not.toBeNull();
+  });
+
+  it('skips an implausible load and falls back to a real one', () => {
+    const result = selectMaxEstimate(
+      [set({ id: 'typo', actual_load: 1000000 }), set({ id: 'real', actual_load: 150 })],
+      NOW,
+    );
+
+    expect(result!.fromSetId).toBe('real');
   });
 
   it('skips sets it cannot estimate from rather than failing', () => {

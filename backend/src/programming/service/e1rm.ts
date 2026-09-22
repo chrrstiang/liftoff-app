@@ -29,6 +29,24 @@ const MAX_RPE = 10;
  * maintain or mistype. */
 const EPLEY_DIVISOR = 30;
 
+/** Upper bound on a load, in kilograms, for anything that can drive a max.
+ *
+ * ⚠️ **This exists because of how far a single typo travels.** `UpdateSetDto`
+ * bounds `actual_load` at `Min(0)` with no ceiling, so an athlete who means 100kg
+ * and types 1000 logs it happily. Before derived maxes that was one wrong row in
+ * one workout. Now it becomes this exercise's max, and then **every future set
+ * prescribed as a percentage of it** — a wrong number that looks authoritative,
+ * which is precisely the failure mode docs/MAXES-DESIGN.md is most worried about.
+ *
+ * 1000kg is not arbitrary: the all-time raw powerlifting *total* record is under
+ * 1400kg across three lifts, so a single-lift load above 1000 is a data-entry
+ * error rather than a very strong athlete.
+ *
+ * Shared with `maxes.dto.ts`, which bounds the coach's manual override, so the
+ * two paths into a max cannot disagree about what is plausible.
+ */
+export const MAX_PLAUSIBLE_LOAD_KG = 1000;
+
 /** Estimates a one-rep max from load, reps and RPE.
  *
  * RPE converts to reps-in-reserve — RPE 8 means two more were available — so a
@@ -54,6 +72,9 @@ export function estimateOneRepMax(
   // A zero or negative load estimates nothing. Zero reps is a set that did not
   // happen; the row exists because it was prescribed, not because it was lifted.
   if (load <= 0 || reps <= 0) return null;
+
+  // A typo must not become a max. See MAX_PLAUSIBLE_LOAD_KG.
+  if (load > MAX_PLAUSIBLE_LOAD_KG) return null;
   if (rpe < MIN_RPE || rpe > MAX_RPE) return null;
 
   const repsToFailure = reps + (MAX_RPE - rpe);

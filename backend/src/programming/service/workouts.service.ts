@@ -315,6 +315,17 @@ export class WorkoutsService {
       )
       .orderBy(asc(workoutExercises.order), asc(sets.setNumber));
 
+    /** Resolve percentages here too, not only on the single-workout read.
+     *
+     * Review caught this: selecting `prescribed_percent` without resolving it
+     * meant the same set carried a `resolved_load` through `GET /workouts/:id`
+     * and a bare `75` through exercise history — two shapes for one row, which a
+     * client would have to special-case. Exercise history is scoped to one
+     * exercise, so this is a single max lookup rather than a per-set query. */
+    const maxForExercise = (await this.maxes.effectiveMaxesFor(athleteId, [exerciseId])).get(
+      exerciseId,
+    );
+
     const setsByWorkout = new Map<string, typeof setRows>();
     for (const set of setRows) {
       const bucket = setsByWorkout.get(set.workout_id);
@@ -327,7 +338,10 @@ export class WorkoutsService {
         workout_id: session.id,
         workout_name: session.name,
         date: session.date,
-        sets: setsByWorkout.get(session.id) ?? [],
+        sets: (setsByWorkout.get(session.id) ?? []).map((set) => ({
+          ...set,
+          resolved_load: resolvePrescribedLoad(set.prescribed_percent, maxForExercise ?? null),
+        })),
       })),
       limit,
       offset,

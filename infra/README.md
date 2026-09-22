@@ -249,7 +249,7 @@ aws logs get-log-events --profile liftoff --region us-east-2 \
   --query 'events[].message' --output text
 ```
 
-Expect `done: 18 tables, 5 views, 3 federations`. The task **fails loudly** on any other count rather than reporting success on a half-applied schema.
+Expect `done: 19 tables, 5 views, 3 federations`. The task **fails loudly** on any other count rather than reporting success on a half-applied schema.
 
 Two details that matter:
 

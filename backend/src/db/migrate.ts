@@ -69,10 +69,24 @@ async function main(): Promise<void> {
   const { tables, views, feds } = rows[0];
   console.log(`done: ${tables} tables, ${views} views, ${feds} federations`);
 
-  // Fail loudly rather than reporting success on a half-applied schema.
-  if (Number(tables) !== 18 || Number(views) !== 5 || Number(feds) === 0) {
+  /** Fail loudly rather than reporting success on a half-applied schema.
+   *
+   * ⚠️ **This count must be bumped with every migration that adds a table**, and
+   * nothing enforces that. Migration 0003 added `athlete_maxes` and this was left
+   * at 18, so the task would have applied the migration correctly and then thrown
+   * `unexpected final state: 19 tables` — reporting failure on a success, at the
+   * exact moment someone is running it to fix production.
+   *
+   * It survived two code reviews because local development runs `db:migrate`
+   * (drizzle-kit directly) and never this script; only the one-off ECS task uses
+   * it, and that is not exercised by CI. If a third table arrives and this is
+   * still a literal, consider deriving it from the schema instead. */
+  const EXPECTED_TABLES = 19;
+
+  if (Number(tables) !== EXPECTED_TABLES || Number(views) !== 5 || Number(feds) === 0) {
     throw new Error(
-      `unexpected final state: ${tables} tables, ${views} views, ${feds} federations`,
+      `unexpected final state: ${tables} tables (expected ${EXPECTED_TABLES}), ` +
+        `${views} views, ${feds} federations`,
     );
   }
 

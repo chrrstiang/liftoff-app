@@ -227,14 +227,3 @@ export async function assignWorkout(
     { athlete_ids: athleteIds, date },
   );
 }
-
-/** A `Date` as the local `YYYY-MM-DD` it represents on the user's calendar.
- *
- * `toISOString()` converts to UTC first, so 9pm on the 5th in New York becomes
- * the 6th. Reading the local getters avoids the conversion entirely.
- */
-export function toLocalDateString(date: Date): string {
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
-}

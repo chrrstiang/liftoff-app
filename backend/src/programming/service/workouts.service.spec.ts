@@ -754,6 +754,35 @@ describe('WorkoutsService', () => {
     const sourceFields = [{ name: 'Squat day', notes: 'heavy' }];
     const RELATIONSHIP = [{ id: 'rel' }];
 
+    /** ⚠️ The **source** branch, which had no coverage at all. Every other test
+     * here uses a caller who already authored the workout, so a refactor that
+     * weakened or dropped the `loadReadableWorkout` call would have passed the
+     * whole file. A stranger must be stopped at the source, before any target is
+     * even considered. */
+    it('refuses a caller who cannot read the source workout, before checking targets', async () => {
+      await build({
+        // The workout exists but belongs to someone else, and no relationship row
+        // makes the caller a co-coach of its athlete.
+        workouts: [[{ id: WORKOUT, athleteId: A2, coachId: 'someone-else' }]],
+        coach_athlete_relationships: [[]],
+      });
+
+      await expect(
+        service.assignWorkout(WORKOUT, { athlete_ids: [A1], date: '2026-10-05' }, COACH),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(harness.writes).toHaveLength(0);
+    });
+
+    it('404s a source workout that does not exist', async () => {
+      await build({ workouts: [[]] });
+
+      await expect(
+        service.assignWorkout(WORKOUT, { athlete_ids: [A1], date: '2026-10-05' }, COACH),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(harness.writes).toHaveLength(0);
+    });
     it("refuses when a target athlete is not on the caller's roster, writing nothing", async () => {
       await build({
         workouts: [readable, sourceFields],

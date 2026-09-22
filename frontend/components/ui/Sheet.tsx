@@ -1,5 +1,5 @@
 import { Check } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -144,8 +144,23 @@ export function MultiSelectSheet<T>({
   const { height } = useWindowDimensions();
   const [staged, setStaged] = useState<string[]>(selected);
 
+  /** ⚠️ Re-seed only on the **transition** into visible, not on every render
+   * while visible.
+   *
+   * `selected` is an array, and a caller passing a literal (`selected={[]}`,
+   * which is the natural thing to write) produces a new reference every render.
+   * With `selected` in the dependency list and no transition guard, any unrelated
+   * re-render while the sheet is open — a sibling query resolving, a background
+   * refetch — re-runs the effect and silently wipes whatever the user has already
+   * tapped, with no visual sign anything happened.
+   *
+   * Guarding here rather than asking every caller to hoist a stable constant:
+   * the trap is invisible at the call site, and the next caller would fall into
+   * it again. */
+  const wasVisible = useRef(false);
   useEffect(() => {
-    if (visible) setStaged(selected);
+    if (visible && !wasVisible.current) setStaged(selected);
+    wasVisible.current = visible;
   }, [visible, selected]);
 
   const toggle = (key: string) =>

@@ -95,10 +95,11 @@ function summary(row: AdherenceRow): string {
 function detail(row: AdherenceRow): string {
   if (row.sets_prescribed === 0) return "Nothing programmed in this window";
 
-  const sessions =
-    row.workouts_assigned === 1
-      ? `1 session`
-      : `${row.workouts_started} of ${row.workouts_assigned} sessions started`;
+  // Always report started-of-assigned, including when only one is assigned.
+  // Collapsing that case to "1 session" dropped exactly the signal this screen
+  // exists for: an athlete with one workout and nothing logged read as
+  // "1 session" rather than "0 of 1 sessions started".
+  const noun = row.workouts_assigned === 1 ? "session" : "sessions";
 
-  return `${row.sets_completed} of ${row.sets_prescribed} sets · ${sessions}`;
+  return `${row.sets_completed} of ${row.sets_prescribed} sets · ${row.workouts_started} of ${row.workouts_assigned} ${noun} started`;
 }

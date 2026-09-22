@@ -205,3 +205,36 @@ export async function addWorkoutExercise(
 export async function deleteWorkout(workoutId: string) {
   await api.delete(`/workouts/${workoutId}`);
 }
+
+/** Copies one workout onto several athletes at once.
+ *
+ * The 17-athletes-per-coach bottleneck: building the same session seventeen
+ * times is what sends a coach back to the spreadsheet.
+ *
+ * ⚠️ `date` is a **date-only** `YYYY-MM-DD` built from local calendar fields, not
+ * a `toISOString()`. Which day a session belongs to is a question about the
+ * lifter's calendar; sending a UTC timestamp files an evening assignment on the
+ * following day for anyone west of Greenwich. `createWorkout` above still sends a
+ * full ISO string and has exactly that bug.
+ */
+export async function assignWorkout(
+  workoutId: string,
+  athleteIds: string[],
+  date: string,
+) {
+  return api.post<{ assigned: number; workout_ids: string[] }>(
+    `/workouts/${workoutId}/assign`,
+    { athlete_ids: athleteIds, date },
+  );
+}
+
+/** A `Date` as the local `YYYY-MM-DD` it represents on the user's calendar.
+ *
+ * `toISOString()` converts to UTC first, so 9pm on the 5th in New York becomes
+ * the 6th. Reading the local getters avoids the conversion entirely.
+ */
+export function toLocalDateString(date: Date): string {
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}

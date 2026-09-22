@@ -14,6 +14,7 @@ import type { CreateWorkoutDto } from '../dto/create-workout.dto';
 import type { AddWorkoutExerciseDto } from '../dto/add-workout-exercise.dto';
 import type { UpdateSetDto } from '../dto/update-set.dto';
 import { resolveHistoryWindow, type HistoryQueryDto } from '../dto/history-query.dto';
+import type { AssignWorkoutDto } from '../dto/assign-workout.dto';
 import {
   assertReadableAthlete,
   historyVisibilityFilter,
@@ -769,6 +770,162 @@ export class WorkoutsService {
       }
 
       await tx.delete(workouts).where(eq(workouts.id, workoutId));
+    });
+  }
+
+  /** Copies one workout onto several athletes at once.
+   *
+   * **The bottleneck this exists for.** A coach with ~17 athletes writing a week
+   * by hand builds the same session seventeen times. That is the difference
+   * between this app being usable and the coach going back to the spreadsheet.
+   *
+   * Deliberately copies an existing *workout* rather than applying a template. A
+   * workout is a template exactly when `athlete_id` is null, and no UI path
+   * produces that -- the program screen is only ever reached *for* an athlete and
+   * always sends a concrete id -- so `GET /workouts/templates` is empty for
+   * everyone and an assign built on templates would have nothing to assign. A
+   * template source works here too, if one ever exists.
+   *
+   * Authorization is two separate questions:
+   *
+   *  - **the source** -- `loadReadableWorkout`, so the caller must already be able
+   *    to see it. A co-coach copying a colleague's session onto their own athletes
+   *    follows from the read rule settled in #35.
+   *  - **each target** -- `isActiveCoachOf`, for *every* athlete, before anything
+   *    is written. The 404 names the athlete rather than the workout, because the
+   *    caller demonstrably may read the workout.
+   *
+   * The whole assignment is one transaction: seventeen copies either all land or
+   * none do. A partial assignment is worse than a failed one -- the coach has no
+   * way to see which athletes were missed.
+   */
+  async assignWorkout(workoutId: string, dto: AssignWorkoutDto, callerId: string) {
+    // Authorize first; `loadReadableWorkout` returns ownership only, so the
+    // copyable fields are read after the caller has been cleared for them.
+    await loadReadableWorkout(this.db, workoutId, callerId);
+
+    const [source] = await this.db
+      .select({ name: workouts.name, notes: workouts.notes })
+      .from(workouts)
+      .where(eq(workouts.id, workoutId))
+      .limit(1);
+
+    // Duplicates in the body would otherwise create two copies for one athlete.
+    const athleteIds = [...new Set(dto.athlete_ids)];
+
+    // Every target is checked before any write. Checking inside the insert loop
+    // would still roll back, but the coach would be told "athlete 12 is not on
+    // your roster" only after eleven inserts had run.
+    for (const athleteId of athleteIds) {
+      if (!(await isActiveCoachOf(this.db, callerId, athleteId))) {
+        throw new NotFoundException(`Athlete with ID ${athleteId} could not be found`);
+      }
+    }
+
+    const exerciseRows = await this.db
+      .select({
+        id: workoutExercises.id,
+        exerciseId: workoutExercises.exerciseId,
+        displayName: workoutExercises.displayName,
+        order: workoutExercises.order,
+        notes: workoutExercises.notes,
+      })
+      .from(workoutExercises)
+      .where(eq(workoutExercises.workoutId, workoutId))
+      .orderBy(asc(workoutExercises.order));
+
+    const setRows = exerciseRows.length
+      ? await this.db
+          .select({
+            workoutExerciseId: sets.workoutExerciseId,
+            setNumber: sets.setNumber,
+            prescribedReps: sets.prescribedReps,
+            prescribedIntensity: sets.prescribedIntensity,
+            prescribedPercent: sets.prescribedPercent,
+            suggestedLoadMin: sets.suggestedLoadMin,
+            suggestedLoadMax: sets.suggestedLoadMax,
+          })
+          .from(sets)
+          .where(
+            inArray(
+              sets.workoutExerciseId,
+              exerciseRows.map((e) => e.id),
+            ),
+          )
+          .orderBy(asc(sets.setNumber))
+      : [];
+
+    // ⚠️ Note what is NOT selected: actual_load, actual_intensity, is_completed.
+    // Those are the source athlete's execution record. Copying them would hand
+    // every target a pre-filled log of work they have not done, and a coach
+    // reading adherence would see seventeen completed sessions.
+    const setsBySourceExercise = new Map<string, typeof setRows>();
+    for (const set of setRows) {
+      const bucket = setsBySourceExercise.get(set.workoutExerciseId);
+      if (bucket) bucket.push(set);
+      else setsBySourceExercise.set(set.workoutExerciseId, [set]);
+    }
+
+    return this.db.transaction(async (tx) => {
+      const created: string[] = [];
+
+      for (const athleteId of athleteIds) {
+        const [workout] = await tx
+          .insert(workouts)
+          .values({
+            name: source.name,
+            date: dto.date,
+            notes: source.notes,
+            athleteId,
+            // The assigning coach authors the copies, never the source's coach.
+            // Otherwise a co-coach assigning a colleague's session would create
+            // workouts they could not then edit -- loadProgrammableWorkout is
+            // authoring-only.
+            coachId: callerId,
+            isTemplate: false,
+          })
+          .returning({ id: workouts.id });
+
+        if (exerciseRows.length) {
+          const insertedExercises = await tx
+            .insert(workoutExercises)
+            .values(
+              exerciseRows.map((exercise) => ({
+                workoutId: workout.id,
+                exerciseId: exercise.exerciseId,
+                displayName: exercise.displayName,
+                order: exercise.order,
+                notes: exercise.notes,
+              })),
+            )
+            .returning({ id: workoutExercises.id, order: workoutExercises.order });
+
+          // Paired on `order` rather than by index, for the same reason
+          // createWorkout does: index pairing would silently mis-assign every set
+          // if `returning` ever stopped preserving input order.
+          const newIdByOrder = new Map(insertedExercises.map((row) => [row.order, row.id]));
+
+          const newSets = exerciseRows.flatMap((exercise) =>
+            (setsBySourceExercise.get(exercise.id) ?? []).map((set) => ({
+              workoutExerciseId: newIdByOrder.get(exercise.order)!,
+              setNumber: set.setNumber,
+              prescribedReps: set.prescribedReps,
+              prescribedIntensity: set.prescribedIntensity,
+              prescribedPercent: set.prescribedPercent,
+              suggestedLoadMin: set.suggestedLoadMin,
+              suggestedLoadMax: set.suggestedLoadMax,
+            })),
+          );
+
+          if (newSets.length) {
+            await tx.insert(sets).values(newSets);
+          }
+        }
+
+        created.push(workout.id);
+      }
+
+      return { assigned: created.length, workout_ids: created };
     });
   }
 }

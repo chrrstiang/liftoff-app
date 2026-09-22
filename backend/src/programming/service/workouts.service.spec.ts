@@ -737,4 +737,128 @@ describe('WorkoutsService', () => {
       expect(harness.writes).toHaveLength(0);
     });
   });
+
+  /** Bulk assign — the 17-athletes-per-coach bottleneck.
+   *
+   * The shared Drizzle double ignores `where`, so these assert *which checks ran*
+   * and *what was written*, not that a query was scoped. The scoping that matters
+   * (the roster check per target) is visible here as "nothing was written".
+   */
+  describe('assignWorkout', () => {
+    const WORKOUT = '55555555-5555-4555-8555-555555555555';
+    const COACH = '11111111-1111-4111-8111-111111111111';
+    const A1 = '22222222-2222-4222-8222-222222222222';
+    const A2 = '33333333-3333-4333-8333-333333333333';
+
+    const readable = [{ id: WORKOUT, athleteId: null, coachId: COACH }];
+    const sourceFields = [{ name: 'Squat day', notes: 'heavy' }];
+    const RELATIONSHIP = [{ id: 'rel' }];
+
+    it("refuses when a target athlete is not on the caller's roster, writing nothing", async () => {
+      await build({
+        workouts: [readable, sourceFields],
+        coach_athlete_relationships: [[]],
+      });
+
+      await expect(
+        service.assignWorkout(WORKOUT, { athlete_ids: [A1], date: '2026-10-05' }, COACH),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(harness.writes).toHaveLength(0);
+    });
+
+    /** ⚠️ Every target is checked before the first insert. Checking inside the
+     * loop would still roll back, but the coach would wait through eleven inserts
+     * to be told athlete twelve is not theirs. */
+    it('checks every athlete before writing any copy', async () => {
+      await build({
+        workouts: [readable, sourceFields],
+        // first target passes, second does not
+        coach_athlete_relationships: [RELATIONSHIP, []],
+      });
+
+      await expect(
+        service.assignWorkout(WORKOUT, { athlete_ids: [A1, A2], date: '2026-10-05' }, COACH),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(harness.writes).toHaveLength(0);
+    });
+
+    it('deduplicates repeated athlete ids rather than assigning twice', async () => {
+      await build({
+        // Third entry feeds the INSERT ... RETURNING; the double keys results by
+        // table and an insert draws from the same queue as a select.
+        workouts: [readable, sourceFields, [{ id: 'new-1' }]],
+        coach_athlete_relationships: [RELATIONSHIP],
+        workout_exercises: [[]],
+      });
+
+      const result = await service.assignWorkout(
+        WORKOUT,
+        { athlete_ids: [A1, A1, A1], date: '2026-10-05' },
+        COACH,
+      );
+
+      expect(result.assigned).toBe(1);
+    });
+
+    /** The copies are authored by the assigning coach, not the source's coach.
+     * `loadProgrammableWorkout` is authoring-only, so attributing them to the
+     * original author would create workouts the assigner could not then edit. */
+    it('attributes the copies to the assigning coach', async () => {
+      await build({
+        workouts: [readable, sourceFields, [{ id: 'new-1' }]],
+        coach_athlete_relationships: [RELATIONSHIP],
+        workout_exercises: [[]],
+      });
+
+      await service.assignWorkout(WORKOUT, { athlete_ids: [A1], date: '2026-10-05' }, COACH);
+
+      const insert = harness.writes.find((w) => w.op === 'insert' && w.table === 'workouts');
+      expect(insert!.values).toMatchObject({
+        coachId: COACH,
+        athleteId: A1,
+        date: '2026-10-05',
+        isTemplate: false,
+      });
+    });
+
+    /** ⚠️ The execution record must not travel. Copying actual_load /
+     * actual_intensity / is_completed would hand every target a pre-filled log of
+     * work they have not done, and a coach reading adherence would see seventeen
+     * completed sessions. */
+    it('copies the prescription but never the logged result', async () => {
+      await build({
+        workouts: [readable, sourceFields, [{ id: 'new-1' }]],
+        coach_athlete_relationships: [RELATIONSHIP],
+        workout_exercises: [
+          [{ id: 'we-1', exerciseId: 'ex-1', displayName: null, order: 0, notes: null }],
+          [{ id: 'new-we-1', order: 0 }],
+        ],
+        sets: [
+          [
+            {
+              workoutExerciseId: 'we-1',
+              setNumber: 1,
+              prescribedReps: 3,
+              prescribedIntensity: 'RPE 8',
+              prescribedPercent: 75,
+              suggestedLoadMin: null,
+              suggestedLoadMax: null,
+            },
+          ],
+        ],
+      });
+
+      await service.assignWorkout(WORKOUT, { athlete_ids: [A1], date: '2026-10-05' }, COACH);
+
+      const setInsert = harness.writes.find((w) => w.op === 'insert' && w.table === 'sets');
+      const values = setInsert!.values as Record<string, unknown>[];
+
+      expect(values[0]).toMatchObject({ prescribedReps: 3, prescribedPercent: 75 });
+      expect(values[0]).not.toHaveProperty('actualLoad');
+      expect(values[0]).not.toHaveProperty('actualIntensity');
+      expect(values[0]).not.toHaveProperty('isCompleted');
+    });
+  });
 });

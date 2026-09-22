@@ -3,15 +3,20 @@ import {
   Button,
   EmptyState,
   Input,
+  MultiSelectSheet,
   Screen,
   Section,
+  SelectSheet,
   Sheet,
   SheetRow,
   Text,
 } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchAthleteProfile } from "@/lib/api/athlete";
+import { describeApiError } from "@/lib/api/client";
+import { fetchRoster } from "@/lib/api/roster";
 import {
+  assignWorkout,
   createWorkout,
   fetchAthleteWorkouts,
   fetchTemplateWorkouts,
@@ -19,6 +24,7 @@ import {
 } from "@/lib/api/workouts";
 import { useTheme } from "@/theme/useTheme";
 import {
+  AthleteProfileView,
   ExerciseFormSet,
   ExerciseTemplate,
   SetTemplate,
@@ -26,11 +32,13 @@ import {
 } from "@/types";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { format, parseISO } from "date-fns";
 import { router, useLocalSearchParams } from "expo-router";
 import { CalendarDays, Check } from "lucide-react-native";
 import { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -42,6 +50,119 @@ type SelectedExercise = {
   exercise: ExerciseTemplate;
   selectedTemplate: { id: string; name: string; sets: SetTemplate[] };
 };
+
+/** Copying one session onto several athletes at once.
+ *
+ * **The bottleneck this exists for.** A coach with ~17 athletes writing a week by
+ * hand builds the same session seventeen times, which is what sends them back to
+ * the spreadsheet.
+ *
+ * Two sheets rather than three: the copies land on the **source workout's own
+ * date**, because the common case is one team training day assigned across the
+ * squad. A confirm step states the date out loud rather than letting it be a
+ * surprise, which is cheaper than a third picker for the rarer case.
+ */
+function AssignWorkoutFlow({ athleteId }: { athleteId: string }) {
+  const queryClient = useQueryClient();
+  const [pickingWorkout, setPickingWorkout] = useState(false);
+  const [source, setSource] = useState<{ id: string; name: string; date: string } | null>(null);
+
+  const { data: workouts } = useQuery({
+    queryKey: ["workouts", athleteId],
+    queryFn: () => fetchAthleteWorkouts(athleteId),
+  });
+
+  // Only fetched once a workout has been chosen; nothing needs the roster before.
+  const { data: roster } = useQuery({
+    queryKey: ["roster"],
+    queryFn: fetchRoster,
+    enabled: !!source,
+  });
+
+  const assign = useMutation({
+    mutationFn: ({ ids, date }: { ids: string[]; date: string }) =>
+      assignWorkout(source!.id, ids, date),
+    onSuccess: (result) => {
+      // Every target athlete's schedule changed, and the key is per-athlete, so
+      // a partial invalidation would leave stale lists behind whichever athlete
+      // the coach opens next.
+      void queryClient.invalidateQueries({ queryKey: ["workouts"] });
+      Alert.alert(
+        "Assigned",
+        `${source!.name} was added to ${result.assigned} ${result.assigned === 1 ? "athlete" : "athletes"}.`,
+      );
+      setSource(null);
+    },
+    onError: (error) => {
+      Alert.alert("Could not assign", describeApiError(error));
+      setSource(null);
+    },
+  });
+
+  // The source athlete is excluded: they already have this session, and copying
+  // it onto them would silently duplicate it.
+  const targets = (roster ?? []).filter((a) => a.athlete_id !== athleteId);
+
+  return (
+    <>
+      <Button
+        label="Assign a session to others"
+        variant="secondary"
+        block
+        disabled={assign.isPending}
+        onPress={() => setPickingWorkout(true)}
+      />
+
+      <SelectSheet<{ id: string; name: string; date: string }>
+        visible={pickingWorkout}
+        title="Which session"
+        items={workouts ?? []}
+        selected={null}
+        keyExtractor={(w) => w.id}
+        renderLabel={(w) => ({
+          title: w.name,
+          subtitle: format(parseISO(w.date), "EEEE d MMM"),
+        })}
+        emptyMessage="This athlete has no scheduled sessions to copy."
+        onCancel={() => setPickingWorkout(false)}
+        onCommit={(workout) => {
+          setPickingWorkout(false);
+          if (workout) setSource(workout);
+        }}
+      />
+
+      <MultiSelectSheet<AthleteProfileView>
+        visible={!!source}
+        title={source ? `Assign ${source.name}` : "Assign"}
+        items={targets}
+        selected={[]}
+        keyExtractor={(a) => a.athlete_id}
+        renderLabel={(a) => ({
+          title: `${a.first_name} ${a.last_name}`,
+          subtitle: `@${a.username}`,
+        })}
+        emptyMessage="No other athletes on your roster yet."
+        onCancel={() => setSource(null)}
+        onCommit={(ids) => {
+          if (!source || ids.length === 0) {
+            setSource(null);
+            return;
+          }
+
+          const date = source.date.slice(0, 10);
+          Alert.alert(
+            "Assign session",
+            `Add ${source.name} to ${ids.length} ${ids.length === 1 ? "athlete" : "athletes"} on ${format(parseISO(date), "EEEE d MMMM")}?`,
+            [
+              { text: "Cancel", style: "cancel", onPress: () => setSource(null) },
+              { text: "Assign", onPress: () => assign.mutate({ ids, date }) },
+            ],
+          );
+        }}
+      />
+    </>
+  );
+}
 
 const WeeklyWorkoutCard = ({ athleteId }: { athleteId: string }) => {
   const { colors } = useTheme();
@@ -592,11 +713,14 @@ export default function ProgramPage() {
 
       <View className="gap-3 px-6 pb-10 pt-8">
         {!isOwnProgram ? (
-          <Button
-            label="Add new workout"
-            block
-            onPress={() => setShowWorkoutModal(true)}
-          />
+          <>
+            <Button
+              label="Add new workout"
+              block
+              onPress={() => setShowWorkoutModal(true)}
+            />
+            <AssignWorkoutFlow athleteId={athleteId} />
+          </>
         ) : null}
 
         {/* The coach's route into an athlete's completed sessions, and an

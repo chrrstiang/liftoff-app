@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, isNull, lt } from 'drizzle-orm';
 import { DRIZZLE, type Database } from 'src/db/db.module';
+import { resolvePrescribedLoad } from './e1rm';
+import { MaxesService } from './maxes.service';
 import { athletes, coaches, exercises, sets, workoutExercises, workouts } from 'src/db/schema';
 import type { CreateWorkoutDto } from '../dto/create-workout.dto';
 import type { AddWorkoutExerciseDto } from '../dto/add-workout-exercise.dto';
@@ -29,7 +31,10 @@ import {
  */
 @Injectable()
 export class WorkoutsService {
-  constructor(@Inject(DRIZZLE) private readonly db: Database) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: Database,
+    private readonly maxes: MaxesService,
+  ) {}
 
   /** One workout with its exercises and sets, nested and ordered.
    *
@@ -81,6 +86,7 @@ export class WorkoutsService {
             set_number: sets.setNumber,
             prescribed_reps: sets.prescribedReps,
             prescribed_intensity: sets.prescribedIntensity,
+            prescribed_percent: sets.prescribedPercent,
             suggested_load_min: sets.suggestedLoadMin,
             suggested_load_max: sets.suggestedLoadMax,
             actual_load: sets.actualLoad,
@@ -104,6 +110,20 @@ export class WorkoutsService {
       else setsByExercise.set(set.workout_exercise_id, [set]);
     }
 
+    /** Percentage prescriptions resolve here rather than being stored, so a
+     * refreshed max re-scales work already written. One query for every exercise
+     * in the workout, not one per set.
+     *
+     * Templates have no athlete (`athlete_id` is null), so there is nobody whose
+     * max to resolve against — their percentages render unresolved, which is
+     * correct: a template is not for anyone yet. */
+    const maxes = workout.athlete_id
+      ? await this.maxes.effectiveMaxesFor(
+          workout.athlete_id,
+          exerciseRows.map((e) => e.exercise_id),
+        )
+      : new Map<string, number | null>();
+
     return {
       ...workout,
       workout_exercises: exerciseRows.map((row) => ({
@@ -114,7 +134,16 @@ export class WorkoutsService {
         order: row.order,
         notes: row.notes,
         exercise: { id: row.exercise_id, name: row.exercise_name },
-        sets: setsByExercise.get(row.id) ?? [],
+        sets: (setsByExercise.get(row.id) ?? []).map((set) => ({
+          ...set,
+          /** Null when the athlete has no max for this exercise yet. Not an
+           * error — the client renders "75% — no max yet". Prescribing
+           * percentages before there is data is a normal first block. */
+          resolved_load: resolvePrescribedLoad(
+            set.prescribed_percent,
+            maxes.get(row.exercise_id) ?? null,
+          ),
+        })),
       })),
     };
   }
@@ -266,6 +295,7 @@ export class WorkoutsService {
         set_number: sets.setNumber,
         prescribed_reps: sets.prescribedReps,
         prescribed_intensity: sets.prescribedIntensity,
+        prescribed_percent: sets.prescribedPercent,
         suggested_load_min: sets.suggestedLoadMin,
         suggested_load_max: sets.suggestedLoadMax,
         actual_load: sets.actualLoad,
@@ -553,6 +583,7 @@ export class WorkoutsService {
             setNumber: set.set_number,
             prescribedReps: set.prescribed_reps,
             prescribedIntensity: set.prescribed_intensity ?? null,
+            prescribedPercent: set.prescribed_percent ?? null,
             suggestedLoadMin: set.suggested_load_min ?? null,
             suggestedLoadMax: set.suggested_load_max ?? null,
           })),
@@ -633,6 +664,7 @@ export class WorkoutsService {
           setNumber: set.set_number,
           prescribedReps: set.prescribed_reps,
           prescribedIntensity: set.prescribed_intensity ?? null,
+          prescribedPercent: set.prescribed_percent ?? null,
           suggestedLoadMin: set.suggested_load_min ?? null,
           suggestedLoadMax: set.suggested_load_max ?? null,
         })),

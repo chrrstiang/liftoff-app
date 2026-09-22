@@ -40,7 +40,7 @@ Two rules that fall out of this and are easy to get wrong:
 
 The schema is **in the repo now**, as Drizzle:
 
-- `backend/src/db/schema.ts` — all 18 tables, hand-written rather than `drizzle-kit pull`ed, deliberately dropping the Supabase-isms (`users.id DEFAULT auth.uid()`, the trigger-populated email).
+- `backend/src/db/schema.ts` — all 19 tables, hand-written rather than `drizzle-kit pull`ed, deliberately dropping the Supabase-isms (`users.id DEFAULT auth.uid()`, the trigger-populated email).
 - `backend/src/db/migrations/` — `0000` tables, `0001` the five views as plain SQL (Drizzle does not model views).
 - `backend/src/db/seed-reference-data.sql` — federations, divisions, weight classes.
 
@@ -82,6 +82,7 @@ Feature-branch pushes skip e2e, so e2e breakage first surfaces at PR time. Run `
 - `docs/AUTHORIZATION.md` — who may reach what, per endpoint, with the code and test for each rule
 - `docs/SETUP.md` — running both halves locally
 - `infra/README.md` — deploying the API to ECS
+- `docs/MAXES-DESIGN.md` — derived maxes and percentage prescription: the decisions and why
 - `docs/REALTIME-MESSAGING-DESIGN.md` — design only, nothing built
 - `docs/archive/` — completed work kept for the traps it records, not current
 

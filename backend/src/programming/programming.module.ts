@@ -3,8 +3,10 @@ import { SupabaseModule } from 'src/supabase/supabase.module';
 import { WorkoutsController } from './controller/workouts.controller';
 import { SetsController } from './controller/sets.controller';
 import { ExercisesController } from './controller/exercises.controller';
+import { MaxesController } from './controller/maxes.controller';
 import { WorkoutsService } from './service/workouts.service';
 import { ExercisesService } from './service/exercises.service';
+import { MaxesService } from './service/maxes.service';
 
 /** Workouts, sets and the exercise library.
  *
@@ -13,7 +15,7 @@ import { ExercisesService } from './service/exercises.service';
  */
 @Module({
   imports: [SupabaseModule],
-  controllers: [WorkoutsController, SetsController, ExercisesController],
-  providers: [WorkoutsService, ExercisesService],
+  controllers: [WorkoutsController, SetsController, ExercisesController, MaxesController],
+  providers: [WorkoutsService, ExercisesService, MaxesService],
 })
 export class ProgrammingModule {}

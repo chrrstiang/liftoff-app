@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { DRIZZLE } from 'src/db/db.module';
 import { makeTestDb, type TestDb } from 'src/db/testing/db-mock';
+import { MaxesService } from './maxes.service';
 import { WorkoutsService } from './workouts.service';
 import type { CreateWorkoutDto } from '../dto/create-workout.dto';
 import { MAX_HISTORY_LIMIT, type HistoryQueryDto } from '../dto/history-query.dto';
@@ -35,7 +36,7 @@ describe('WorkoutsService', () => {
     harness = makeTestDb(script);
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [WorkoutsService, { provide: DRIZZLE, useValue: harness.db }],
+      providers: [WorkoutsService, MaxesService, { provide: DRIZZLE, useValue: harness.db }],
     }).compile();
 
     service = module.get<WorkoutsService>(WorkoutsService);

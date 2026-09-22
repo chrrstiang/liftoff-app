@@ -241,6 +241,9 @@ row would pass without it.
 | `GET /exercises` | `eq(createdBy, callerId)` | `exercises.service.ts:27` | `programming:212` | `programming:660` |
 | `POST /exercises` | caller must be a coach | `exercises.service.ts:49` | `programming:220` | `programming:660` |
 | `GET /exercises/templates` | `eq(createdBy, callerId)` | `exercises.service.ts:82` | `programming:271,280` | `programming:660` |
+| `GET /maxes?athlete_id=` | `assertReadableAthlete` → 404. **Wide**: the athlete, or any active coach | `maxes.service.ts` | `maxes.service.spec.ts` "404s a caller with no claim" | — **unit only** |
+| `PUT /maxes/:exerciseId` | `isActiveCoachOf` → 404, **then** the exercise must be in the caller's own library | `maxes.service.ts` | `maxes.service.spec.ts` "refuses the athlete", "refuses an exercise outside…" | — **unit only** |
+| `POST /maxes/refresh` | `isActiveCoachOf` → 404 | `maxes.service.ts` | `maxes.service.spec.ts` "refuses a caller who does not coach" | — **unit only** |
 
 `programming-access.ts` is the worked example the rest of the codebase should follow: the
 `sets → workout_exercises → workouts` walk is one joined query, not three lookups, so it
@@ -260,8 +263,23 @@ touching any of the three functions:
 | Action | Who | Enforced by |
 |---|---|---|
 | **Read** an athlete's sessions | the athlete, and **any active coach of them** — whoever authored the session | `assertReadableAthlete` (gate) + `historyVisibilityFilter` (row scope) + `loadReadableWorkout` (single workout) |
+| **Read** an athlete's maxes | the athlete, and **any active coach of them** | `assertReadableAthlete` |
 | **Change** a workout's structure | the **authoring coach only** | `loadProgrammableWorkout` |
+| **Set or refresh a max** | **any active coach**, never the athlete | `isActiveCoachOf` |
 | **Record what was lifted** (`actual_*`, `is_completed`) | the **athlete only**, or the owning coach on a template | `isPerformer` |
+
+⚠️ **Maxes read wide but write narrow, and the write rule is narrower than the read
+rule *in a different direction* from workouts.** An athlete may read their own
+maxes but may not set them: a max drives the percentages they are prescribed, so
+writing one is programming. Meanwhile any active coach may write, not only the one
+who authored the exercise — because unlike a workout, a max is a property of the
+athlete rather than of a coach's programming.
+
+⚠️ **The three `/maxes` routes are pinned by unit tests only.** There is no e2e
+coverage, so the anon case and the real-database join are unasserted. The unit
+specs mock Drizzle entirely, which means a column-name mistake in the
+`sets → workout_exercises → workouts` walk inside `loggedSetsFor` would not be
+caught. Same gap and same reason as `PATCH /athlete/profile`.
 
 Reading another coach's programming is coordination — a coach writing next week
 needs to know what the athlete actually did, including under someone else, and

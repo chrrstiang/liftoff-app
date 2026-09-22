@@ -1,8 +1,18 @@
-import { Button, EmptyState, Screen, Section, Sheet, SheetInput, Text } from "@/components/ui";
+import {
+  Button,
+  EmptyState,
+  Screen,
+  Section,
+  SelectSheet,
+  Sheet,
+  SheetInput,
+  Text,
+} from "@/components/ui";
 import { describeApiError } from "@/lib/api/client";
+import { fetchExercises } from "@/lib/api/exercises";
 import { fetchMaxes, refreshMaxes, setMaxOverride } from "@/lib/api/maxes";
 import { useTheme } from "@/theme/useTheme";
-import type { AthleteMax } from "@/types";
+import type { AthleteMax, Exercise } from "@/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { Stack, useLocalSearchParams } from "expo-router";
@@ -23,11 +33,31 @@ export default function MaxesScreen() {
 
   const [editing, setEditing] = useState<AthleteMax | null>(null);
   const [draft, setDraft] = useState("");
+  const [picking, setPicking] = useState(false);
 
-  const { data: maxes, isLoading } = useQuery({
+  const {
+    data: maxes,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["maxes", athleteId],
     queryFn: () => fetchMaxes(athleteId),
     enabled: !!athleteId,
+  });
+
+  /** The coach's own library, for pinning a max on an exercise the athlete has
+   * never logged.
+   *
+   * `GET /maxes` inner-joins `athlete_maxes`, so it only returns exercises that
+   * already have a row. Without this the screen could only ever edit maxes that
+   * already existed — and a coach who knows their athlete's meet squat before the
+   * athlete has logged a single set had no way in. Loaded lazily; nothing needs it
+   * until the picker opens. */
+  const { data: library } = useQuery({
+    queryKey: ["exercises"],
+    queryFn: fetchExercises,
+    enabled: picking,
   });
 
   const invalidate = () => {
@@ -98,6 +128,16 @@ export default function MaxesScreen() {
         <View className="py-16">
           <ActivityIndicator color={colors.primary} />
         </View>
+      ) : error ? (
+        /* A failed read must not render as "no maxes yet". An empty state here
+           would tell the coach their athlete has no numbers, when in fact the
+           request never arrived. */
+        <View className="min-h-72 flex-1 items-center justify-center gap-4 px-6 py-16">
+          <Text variant="body" tone="muted" className="text-center">
+            {describeApiError(error, "Could not load maxes.")}
+          </Text>
+          <Button label="Try again" variant="secondary" onPress={() => void refetch()} />
+        </View>
       ) : maxes && maxes.length > 0 ? (
         <Section label="Per exercise" className="mt-8 px-6">
           {maxes.map((max) => (
@@ -130,12 +170,12 @@ export default function MaxesScreen() {
           <EmptyState
             icon={Dumbbell}
             title="No maxes yet"
-            body="Maxes are estimated from logged sets that have both a load and an RPE. Refresh once this athlete has trained, or pin one by hand."
+            body="Maxes are estimated from logged sets that have both a load and an RPE. Refresh once this athlete has trained, or pin one now."
           />
         </View>
       )}
 
-      <View className="px-6 pb-10 pt-8">
+      <View className="gap-3 px-6 pb-10 pt-8">
         <Button
           label={refresh.isPending ? "Refreshing" : "Refresh from logged sets"}
           block
@@ -143,13 +183,65 @@ export default function MaxesScreen() {
           disabled={refresh.isPending}
           onPress={() => refresh.mutate()}
         />
+        <Button
+          label="Pin a max"
+          variant="secondary"
+          block
+          onPress={() => setPicking(true)}
+        />
       </View>
+
+      {/* Pinning against an exercise with no row yet. PATCH /maxes/:exerciseId
+          upserts, so it does not require one to exist. */}
+      <SelectSheet<Exercise>
+        visible={picking}
+        title="Pin a max"
+        items={library ?? []}
+        selected={null}
+        keyExtractor={(exercise) => exercise.id}
+        renderLabel={(exercise) => {
+          const existing = maxes?.find((m) => m.exercise_id === exercise.id);
+          return {
+            title: exercise.name,
+            // Showing the current value here stops a coach pinning over a number
+            // they did not know was already there.
+            subtitle:
+              existing?.effective_value != null
+                ? `${round(existing.effective_value)} kg`
+                : undefined,
+          };
+        }}
+        emptyMessage="Your exercise library is empty. Add an exercise to a workout first."
+        onCancel={() => setPicking(false)}
+        onCommit={(exercise) => {
+          setPicking(false);
+          if (!exercise) return;
+
+          const existing = maxes?.find((m) => m.exercise_id === exercise.id);
+          setEditing(
+            existing ?? {
+              exercise_id: exercise.id,
+              exercise_name: exercise.name,
+              effective_value: null,
+              override_value: null,
+              computed_value: null,
+              computed_at: null,
+              computed_from: null,
+            },
+          );
+          setDraft(existing?.override_value != null ? String(existing.override_value) : "");
+        }}
+      />
 
       <Sheet
         visible={!!editing}
         title={editing?.exercise_name ?? "Max"}
         onCancel={() => setEditing(null)}
-        onDone={saveOverride}
+        onDone={() => {
+          // Sheet's Done button has no disabled state, so the guard lives here.
+          if (override.isPending) return;
+          saveOverride();
+        }}
         doneLabel={override.isPending ? "Saving" : "Save"}
       >
         <SheetInput

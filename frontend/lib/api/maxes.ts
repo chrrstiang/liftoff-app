@@ -13,7 +13,7 @@ import type { AthleteMax } from "@/types";
  */
 
 export async function fetchMaxes(athleteId: string) {
-  return api.get<AthleteMax[]>(`/maxes?athlete_id=${athleteId}`);
+  return api.get<AthleteMax[]>(`/maxes?athlete_id=${encodeURIComponent(athleteId)}`);
 }
 
 /** Pins a coach override. `value: null` clears it and hands control back to the

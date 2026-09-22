@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -35,6 +36,23 @@ export class PrescribedSetDto {
   @IsString()
   @MaxLength(50)
   prescribed_intensity?: string;
+
+  /** Percentage of the athlete's max for this exercise.
+   *
+   * The resolved kg is deliberately not accepted or stored — it is computed on
+   * read against `athlete_maxes`, so refreshing a max re-scales every set
+   * prescribed against it. See docs/MAXES-DESIGN.md.
+   *
+   * Bounded at 200 rather than 100: overload work above an athlete's competition
+   * max is real programming (walkouts, partials, supramaximal holds). Above that
+   * it is a decimal-point error, and rejecting it here beats an unliftable number
+   * appearing on a screen three weeks later.
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(200)
+  prescribed_percent?: number;
 
   @IsOptional()
   @IsNumber()

@@ -16,10 +16,10 @@ it, because the reasoning is why the work was worth doing — not because the ho
 | 1 · Indexes + unique constraint | **merged** (#31) |
 | 4 · Workout and exercise history | **merged** (#33) |
 | 6 · Profile editing | **merged** (#32) |
-| — · Co-coach read visibility | this PR — see open question 6 |
-| 2 · Stored max + percentage prescription | not started — **next**, and the one that decides adoption |
-| 3 · Bulk assign | not started |
-| 5 · Auto-updating training max | not started, depends on 2 and 4 |
+| — · Co-coach read visibility | **merged** (#35) — see open question 6 |
+| **2+5** · Maxes + percentage prescription | **backend in review** — the two merged into one feature, see `MAXES-DESIGN.md` |
+| 3 · Bulk assign | not started — **next**, the last adoption decider |
+
 | 7 · Adherence view | not started |
 
 ---
@@ -89,6 +89,12 @@ The leapfrog is already in reach: `sets` stores `actual_load`, `prescribed_reps`
 `actual_intensity` on every logged set, so an e1RM (Epley/Brzycki) can be computed from work
 actually done and the training max can **update itself**. A spreadsheet structurally cannot do
 that — it has no idea what the athlete actually lifted.
+
+> **In review.** See `MAXES-DESIGN.md`. **Items 2 and 5 turned out to be one feature**, not
+> two: maxes are per-*variation* (a tempo squat at RPE 7 is not a comp squat at RPE 7), which
+> means roughly eight numbers per athlete — unmaintainable by hand at 17 athletes. What makes
+> per-variation maxes tractable is deriving them, so shipping item 2 without item 5 would have
+> delivered the burden without the relief.
 
 ### 3.2 Data disappears the day after it is logged
 
@@ -194,15 +200,16 @@ Ordered. Items 1-3 are the difference between "the coaches tried it and went bac
 and "the coaches stayed."
 
 1. ✅ **Indexes, plus the `(athlete_id, coach_id)` unique constraint.** Merged (#31). See 3.3, 3.4.
-2. **A stored max per athlete per lift, and percentage-based prescription.** The price of entry
-   against Sheets. See 3.1.
-3. **Bulk assign: one template to N athletes.** Templates already exist — `is_template` is
+2. 🔄 **A stored max per athlete per exercise, and percentage-based prescription.** Backend in
+   review. **Merged with item 5** — see 3.1 and `MAXES-DESIGN.md`. The price of entry against
+   Sheets.
+3. ⬅️ **Bulk assign: one template to N athletes.** **Next.** Templates already exist — `is_template` is
    derived from `athlete_id === null` at `workouts.service.ts:296` — but nothing applies one to
    a group. This is what makes 17:1 survivable.
 4. 🔄 **Workout and exercise history.** In review (#33). Required for coaching, and it feeds
    item 5. See 3.2.
-5. **Auto-updating training max from logged sets.** The leapfrog; the one thing Sheets cannot
-   do. See 3.1.
+5. 🔄 **Auto-updating training max from logged sets.** The leapfrog; the one thing Sheets
+   cannot do. **Merged into item 2** — they are the same feature.
 6. 🔄 **Profile editing.** In review (#32). Needed a new `PATCH /athlete/profile` after all —
    the athlete columns had no update path. See 3.5.
 7. **Coach-side adherence view** — who actually did the work. The coach's reason to open the app
@@ -241,11 +248,24 @@ e1RM work and the WebSocket work compete for the same weekend, e1RM wins.
    permits distinct coaches while still rejecting a duplicate pair.
 3. **What is a `team`?** A roster grouping, a leaderboard scope, a federation affiliation, or
    all three. The table exists and is empty of both rows and meaning.
-4. **Per-lift max, or per-exercise max?** Item 2 needs this. Probably the big three plus
-   variations, but the data model differs: a column on `athletes` does not generalize, a
-   separate `athlete_maxes` table does.
-5. **Does the coach set the training max, or does the app?** Item 5 implies the app computes
-   it, but coaches often want to override. Likely both, with the computed value as a suggestion.
+4. ~~**Per-lift max, or per-exercise max?**~~ **Answered 2026-09-22: per-exercise.** A parent-lift
+   model is not a simplification of the domain, it is a misreading of it — each variation has its
+   own difficulty and therefore its own max. A tempo squat at RPE 7 might be 130kg where a comp
+   squat at RPE 7 is 170kg, so resolving tempo work against a comp squat max hands the athlete a
+   number wrong by 40kg.
+
+   **The accepted cost:** `exercises.created_by` is NOT NULL, so libraries are per-coach and a
+   coach change leaves the new coach's rows with no history and no derived max. Rare, carried
+   across by an override, and the alternative was designing a canonical movement catalogue before
+   anyone knows which variations actually get programmed. Revisit when a coach leaves, or when
+   team leaderboards need lifts comparable across athletes.
+
+5. ~~**Does the coach set the training max, or does the app?**~~ **Answered 2026-09-22: both —
+   derived, with the coach able to pin an override.** The override is a *pin, not a seed*: it wins
+   until cleared, so a coach who knows the athlete's comp squat is 180 is not overruled by one
+   cautious session. Derivation is coach-triggered rather than automatic; a max that moved on
+   every logged set would re-scale Wednesday's squats because Monday was strong.
+
 6. ~~**Can co-coaches see each other's programming for a shared athlete?**~~
    **Answered 2026-09-20: yes for reads, no for writes.**
 

@@ -389,9 +389,77 @@ export const sets = pgTable(
     actualLoad: doublePrecision('actual_load'),
     actualIntensity: doublePrecision('actual_intensity'),
     isCompleted: boolean('is_completed'),
+    /** Percentage of the athlete's max for this exercise, when the coach
+     * prescribed one. The resolved kg is deliberately NOT stored: it is computed
+     * on read against `athlete_maxes`, so refreshing a max re-scales every set
+     * prescribed against it. See docs/MAXES-DESIGN.md section 2.3.
+     *
+     * A set has either this or hand-typed `suggested_load_*`, never both. This
+     * wins when present. */
+    prescribedPercent: doublePrecision('prescribed_percent'),
   },
   (table) => [
     // Sorted by set_number on every workout read (workouts.service.ts:94, 200).
     index('sets_workout_exercise_id_set_number_idx').on(table.workoutExerciseId, table.setNumber),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Maxes
+// ---------------------------------------------------------------------------
+
+/** One athlete's max for one exercise, which is what percentage prescription
+ * resolves against.
+ *
+ * **Keyed on `exercise_id`, not on a parent lift, and that is the domain talking
+ * rather than a shortcut.** Each squat variation has its own difficulty and
+ * therefore its own max — a tempo squat at RPE 7 might be 130kg where a comp squat
+ * at RPE 7 is 170kg. Resolving tempo work against a comp squat max would hand the
+ * athlete a number wrong by 40kg.
+ *
+ * The accepted cost: `exercises.created_by` is NOT NULL, so libraries are
+ * per-coach, and a coach change leaves the new coach's rows with no history and no
+ * derived max. Rare, and an override carries a number across by hand. See
+ * docs/MAXES-DESIGN.md section 2.1.
+ *
+ * **Effective max is `override_value ?? computed_value`.** An override is a pin
+ * rather than a seed: it wins until the coach clears it, so a coach who knows the
+ * athlete's comp squat is 180 is not overruled by a cautious session.
+ */
+export const athleteMaxes = pgTable(
+  'athlete_maxes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    athleteId: uuid('athlete_id')
+      .notNull()
+      .references(() => athletes.id),
+    exerciseId: uuid('exercise_id')
+      .notNull()
+      .references(() => exercises.id),
+    /** The coach's pinned number. Wins over anything derived. */
+    overrideValue: doublePrecision('override_value'),
+    /** Last derived e1RM. Only moves when something asks it to — a max that
+     * recomputed on every logged set would move Wednesday's squats because Monday
+     * was strong, which is instability rather than autoregulation. */
+    computedValue: doublePrecision('computed_value'),
+    computedAt: timestamp('computed_at', { withTimezone: true }),
+    /** Which set produced `computed_value`. This is what makes the number
+     * reviewable: "180kg, from 170x2 @ RPE 8 on 12 Oct" can be argued with, a bare
+     * 180 cannot. */
+    /** ⚠️ `onDelete: 'set null'` is load-bearing, not decoration. `DELETE
+     * /workouts/:id` deletes that workout's sets (workouts.service.ts:706), so
+     * without this a coach deleting a workout whose set happened to produce a max
+     * gets a foreign-key violation surfaced as a 500. Nulling is also the right
+     * semantics: the max is still a valid number, we just can no longer show
+     * which set produced it. */
+    computedFrom: uuid('computed_from').references(() => sets.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('athlete_maxes_athlete_id_idx').on(table.athleteId),
+    /** One row per athlete per exercise. Without this, a refresh racing an override
+     * write produces two rows and `?? ` silently picks whichever the query returns
+     * first. */
+    uniqueIndex('athlete_maxes_athlete_exercise_uniq').on(table.athleteId, table.exerciseId),
   ],
 );

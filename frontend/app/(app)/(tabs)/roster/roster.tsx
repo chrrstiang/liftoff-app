@@ -274,6 +274,16 @@ export default function RosterPage() {
             </Pressable>
           ) : null}
         </View>
+
+        {/* Only on the roster tab: adherence is about athletes you already
+            coach, and it would mean nothing beside a list of people to invite. */}
+        {selectedIndex === 0 ? (
+          <Button
+            label="Adherence"
+            variant="secondary"
+            onPress={() => router.push("/adherence")}
+          />
+        ) : null}
       </View>
 
       <FlatList

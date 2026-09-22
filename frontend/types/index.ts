@@ -5,6 +5,7 @@
  * guaranteed on each one.
  */
 
+export * from "./adherence";
 export * from "./coach";
 export * from "./conversation";
 export * from "./max";

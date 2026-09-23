@@ -558,8 +558,13 @@ identically. Three notes:
   groups; if one appears the inbox picks an arbitrary "other".
 - `unread_count` compares `created_at > last_read_at` — the timestamp tie/skew
   problem already written up in `REALTIME-MESSAGING-DESIGN.md` §5.
-- `media_url` on `SendMessageDto` is a bare `@IsString()` with no `@MaxLength`, the
-  one unbounded write on an otherwise carefully validated DTO.
+- ~~`media_url` on `SendMessageDto` is a bare `@IsString()` with no `@MaxLength`~~
+  — **Fixed.** Capped at 1024 and floored at 1. Not `@IsUrl`: it is a storage
+  *path*, handed to `supabase.storage.getPublicUrl` by `ChatBubble`, so a URL rule
+  would reject the exact value the client sends. The `@MinLength` is the more
+  interesting half — an empty string is not "no media", it is a message claiming to
+  carry an image and resolving to a broken one. `send-message.dto.spec.ts` is new
+  and pins all of it, including that a URL is not required.
 
 ### ~~Set logging read check predates #35~~ — FIXED
 

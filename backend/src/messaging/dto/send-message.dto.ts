@@ -18,7 +18,22 @@ export class SendMessageDto {
   })
   message_type?: 'text' | 'image' | 'video' | 'file';
 
+  /** A **storage path**, not a URL — `ChatBubble` hands it to
+   * `supabase.storage.getPublicUrl`, so `@IsUrl` would reject the exact value the
+   * client sends.
+   *
+   * ⚠️ Bounded because it was the one unbounded write on an otherwise carefully
+   * validated DTO: `content` is capped at 4000, this took a string of any length
+   * straight into a `text` column. 1024 is far past any real bucket key
+   * (`conversations/<uuid>/<uuid>.jpg` is under 90) while still being a bound.
+   *
+   * `@MinLength(1)` because an empty string is not "no media" — it is a message
+   * claiming to carry an image and resolving to a broken one. Omit the field
+   * instead; that is what `@IsOptional` is for.
+   */
   @IsOptional()
   @IsString()
+  @MinLength(1, { message: 'media_url should not be empty' })
+  @MaxLength(1024, { message: 'media_url must be shorter than or equal to 1024 characters' })
   media_url?: string;
 }

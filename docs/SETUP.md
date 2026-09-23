@@ -75,6 +75,10 @@ The two Supabase variables failing loudly at construction is deliberate — a fa
 node -e 'console.log(JSON.parse(Buffer.from(process.argv[1].split(".")[1],"base64url")).iss)' <token>
 ```
 
+`test/auth-claims.e2e-spec.ts` prints the live project's real `iss` when the e2e suite runs — but **in CI it comes out as `***/auth/v1`**, because GitHub masks the prefix: it is the `SUPABASE_PROJECT_URL` secret. That masking is the answer for this project, then — the issuer is that URL plus `/auth/v1`. Run the suite locally for the unmasked string.
+
+⚠️ **Setting it in production is three places, not one** — SSM parameter, then the IAM execution role, then the task definition, in that order. See `infra/README.md`; `SUPABASE_JWT_SECRET` is the worked example of what happens when only some of them are done.
+
 The guard logs which issuer it requires at startup, so a wrong value is diagnosable there rather than from a wave of 401s.
 
 Other commands:

@@ -88,7 +88,14 @@ describe('Supabase access token claims (e2e)', () => {
    * hardcoded. The guard does not derive it from `SUPABASE_PROJECT_URL` on
    * purpose — a custom auth domain or a trailing slash would 401 every request in
    * the environment, and nothing in CI reaches that code to catch it. So the
-   * suite reports the real value instead of a repo-side guess. */
+   * suite reports the real value instead of a repo-side guess.
+   *
+   * ⚠️ **In CI this prints `***\/auth\/v1`.** GitHub masks it because the prefix
+   * *is* the `SUPABASE_PROJECT_URL` secret — which is itself the answer for this
+   * project: the issuer is that URL plus `/auth/v1`. Run the suite locally to see
+   * the unmasked string, and do not conclude from one project that deriving it is
+   * safe generally. A custom auth domain is exactly the case that would not be
+   * caught here. */
   it('carries an iss, and reports it for SUPABASE_JWT_ISSUER', () => {
     const iss = claims().iss;
 

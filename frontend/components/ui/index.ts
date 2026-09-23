@@ -17,6 +17,7 @@ export {
 } from "./DataTable";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export { Field, type FieldProps } from "./Field";
+export { FormError, type FormErrorProps } from "./FormError";
 export { Input, type InputProps } from "./Input";
 export { Numeral, type NumeralProps, type NumeralSize } from "./Numeral";
 export { QueryError, type QueryErrorProps } from "./QueryError";

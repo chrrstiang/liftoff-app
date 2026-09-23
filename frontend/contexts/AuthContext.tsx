@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
+import { AuthFailure } from "@/lib/auth-errors";
 import { supabase } from "@/lib/supabase";
 import { Session, User } from "@supabase/supabase-js";
 import { ApiError, api, describeApiError } from "@/lib/api/client";
@@ -196,13 +197,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /** Signs up a new user with email and password */
   const signup = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email: email,
       password: password,
     });
 
+    /* Rethrown as-is rather than wrapped in a new Error: the wrapper kept the
+       message and dropped `code`, which is the only part the screens branch on.
+       Without it every failure reads as "check your credentials". */
     if (error) {
-      throw new Error("Failed to sign up: " + error.message);
+      throw error;
+    }
+
+    /* An existing address is reported as a *success* when email confirmation is
+       on — Supabase obfuscates it on purpose, and an empty `identities` array is
+       the only tell. Left unhandled, the user is bounced to create-profile with
+       no session and no explanation. */
+    if (data.user && data.user.identities?.length === 0) {
+      throw new AuthFailure("user_already_exists", "User already registered");
     }
   };
 
@@ -214,7 +226,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (error) {
-      throw new Error("Failed to login user: " + error.message);
+      throw error;
     }
   };
 

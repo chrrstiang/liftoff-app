@@ -51,7 +51,9 @@ app/
 
 Light/dark pairing (`bg-canvas dark:bg-canvas-dark`) lives **inside** the ui components. That's what stops the two themes drifting, which is how the app previously ended up with `bg-violet-500 dark:bg-red-700` on one button. A screen writing its own `dark:` colour variant is a smell.
 
-Primitives: `Screen` `Button` `Input` `Field` `Section` `SheetRow` `SheetInput` `Sheet`/`SelectSheet` `Chip` `Text` `Numeral` `DataTable` `Avatar` `EmptyState`.
+Primitives: `Screen` `Button` `Input` `Field` `Section` `SheetRow` `SheetInput` `Sheet`/`SelectSheet` `Chip` `Text` `Numeral` `DataTable` `Avatar` `EmptyState` `QueryError` `FormError`.
+
+The last two are the two ways a screen can fail. `QueryError` is a failed **read** — it replaces the content area and offers a retry. `FormError` is a failed **submit** — it sits under the fields and stays there, because an `Alert` is dismissed before the user can act on it, cannot hold a link, and covers the form they need to correct.
 
 Direction — **Uber's structure, Claude's surfaces**:
 

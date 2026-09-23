@@ -468,7 +468,12 @@ describe('Programming (e2e)', () => {
 
     it('400s when athlete_id is missing rather than listing everything', async () => {
       const res = await as(coach).get('/workouts').expect(400);
-      expect(res.body.message).toMatch(/athlete_id is required/);
+      // `message` is the array of per-field messages for a ValidationPipe
+      // failure, a string only for a manually thrown exception. This route used
+      // to hand-roll its own check and so returned the string form.
+      expect(res.body.message).toEqual(
+        expect.arrayContaining([expect.stringMatching(/athlete_id must be a UUID/)]),
+      );
     });
 
     it('400s on a malformed athlete_id', async () => {

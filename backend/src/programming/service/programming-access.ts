@@ -104,6 +104,39 @@ export function historyVisibilityFilter(athleteId: string) {
   return eq(workouts.athleteId, athleteId);
 }
 
+/** The read decision itself, on a workout whose owners are already in hand.
+ *
+ * ⚠️ **Split out because it was being written twice.** `updateSet` hand-rolled
+ * `athleteId === callerId || coachId === callerId` — the *authoring* coach only,
+ * the rule as it stood before #35 widened reads to any active coach. So a
+ * co-coach could open a workout (200) and then get a **404** on a set inside it,
+ * which reads as a broken app rather than a rule. Not a leak, since 404 is the
+ * more conservative answer, but the two paths disagreed about the same person,
+ * and that drift is exactly what #35 set out to remove.
+ *
+ * Everything that decides whether a caller may *see* a workout now goes through
+ * here, so the next widening is one edit rather than a search.
+ */
+export async function canReadWorkout(
+  db: Database,
+  workout: WorkoutOwners,
+  callerId: string,
+): Promise<boolean> {
+  if (workout.athleteId === callerId || workout.coachId === callerId) return true;
+
+  // The co-coach case. Costs a second query, and only for a caller who is neither
+  // the athlete nor the author — the common paths above return without it.
+  //
+  // **Templates are excluded**: a template has no `athlete_id` (it belongs solely
+  // to its coach), so there is no athlete to be a co-coach *of*, and this null
+  // guard is what stops `isActiveCoachOf` being asked a meaningless question.
+  if (workout.athleteId !== null) {
+    return isActiveCoachOf(db, callerId, workout.athleteId);
+  }
+
+  return false;
+}
+
 /** Loads a workout the caller may **read**: their own, one they authored, or one
  * belonging to an athlete they actively coach.
  *
@@ -111,10 +144,7 @@ export function historyVisibilityFilter(athleteId: string) {
  * Without it a co-coach would see another coach's session listed in history and
  * then get a 404 opening it, which reads as a broken app rather than a rule.
  *
- * **Templates are excluded from the co-coach case.** A template has no
- * `athlete_id` (it belongs solely to its coach), so there is no athlete to be a
- * co-coach *of*, and the null guard below is what stops `isActiveCoachOf` being
- * asked a meaningless question.
+ * The decision lives in `canReadWorkout`; this only adds the load and the 404.
  *
  * A caller with no claim on the workout gets a 404, not a 403 — the same choice
  * made for coach requests and conversations. A 403 confirms the id names a real
@@ -139,13 +169,7 @@ export async function loadReadableWorkout(
     throw new NotFoundException(`Workout with ID ${workoutId} could not be found`);
   }
 
-  if (workout.athleteId === callerId || workout.coachId === callerId) {
-    return workout;
-  }
-
-  // The co-coach case. Costs a second query, and only for a caller who is neither
-  // the athlete nor the author — the common paths above return without it.
-  if (workout.athleteId !== null && (await isActiveCoachOf(db, callerId, workout.athleteId))) {
+  if (await canReadWorkout(db, workout, callerId)) {
     return workout;
   }
 

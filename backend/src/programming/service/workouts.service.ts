@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, isNull, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
 import { DRIZZLE, type Database } from 'src/db/db.module';
 import { resolvePrescribedLoad } from './e1rm';
 import { MaxesService } from './maxes.service';
@@ -15,6 +15,10 @@ import type { AddWorkoutExerciseDto } from '../dto/add-workout-exercise.dto';
 import type { UpdateSetDto } from '../dto/update-set.dto';
 import { resolveHistoryWindow, type HistoryQueryDto } from '../dto/history-query.dto';
 import type { AssignWorkoutDto } from '../dto/assign-workout.dto';
+import {
+  MAX_SCHEDULED_WORKOUTS,
+  type ScheduledWorkoutsQueryDto,
+} from '../dto/scheduled-workouts-query.dto';
 import {
   assertReadableAthlete,
   historyVisibilityFilter,
@@ -161,9 +165,22 @@ export class WorkoutsService {
    * every coach's workouts while history showed only your own — which is why the
    * rule now lives in one named function instead of a `where` clause per query.
    */
-  async listAthleteWorkouts(athleteId: string, callerId: string) {
+  async listAthleteWorkouts(query: ScheduledWorkoutsQueryDto, callerId: string) {
+    const athleteId = query.athlete_id;
+
     // 404, not 403: a 403 here confirms which user ids are athletes.
     await assertReadableAthlete(this.db, athleteId, callerId);
+
+    /** ⚠️ Bounded on both axes, where this used to return everything forever.
+     *
+     * `from` comes from the **client's** local today. "Upcoming" is a question
+     * about the lifter's calendar, and the server's today is UTC — deriving it
+     * here would hide tonight's session from anyone west of Greenwich after 8pm,
+     * which is the same mistake the write path just had fixed. The UTC fallback
+     * is the best guess available when the client does not say.
+     */
+    const from = query.from ?? new Date().toISOString().slice(0, 10);
+    const limit = Math.min(query.limit ?? MAX_SCHEDULED_WORKOUTS, MAX_SCHEDULED_WORKOUTS);
 
     return this.db
       .select({
@@ -172,8 +189,9 @@ export class WorkoutsService {
         date: workouts.date,
       })
       .from(workouts)
-      .where(eq(workouts.athleteId, athleteId))
-      .orderBy(asc(workouts.date));
+      .where(and(eq(workouts.athleteId, athleteId), gte(workouts.date, from)))
+      .orderBy(asc(workouts.date))
+      .limit(limit);
   }
 
   /** An athlete's **past** workouts, newest first, one page at a time.

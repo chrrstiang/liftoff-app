@@ -419,16 +419,47 @@ describe('Programming (e2e)', () => {
     });
   });
 
+  /** ⚠️ This route returns **upcoming** sessions only, and defaults `from` to
+   * today. The fixtures here are dated in the past relative to whenever the suite
+   * runs, so every assertion has to pass an explicit `from`.
+   *
+   * A far-past constant rather than a future fixture date: a future date is a
+   * time bomb that passes until the day it does not, and this suite has already
+   * been bitten by fixtures that aged badly. */
   describe('GET /workouts', () => {
+    const FROM_ALL = 'from=2000-01-01';
+
     it('lets the athlete list their own workouts', async () => {
-      const res = await as(athlete).get(`/workouts?athlete_id=${athlete.userId}`).expect(200);
+      const res = await as(athlete)
+        .get(`/workouts?athlete_id=${athlete.userId}&${FROM_ALL}`)
+        .expect(200);
       expect(res.body.length).toBeGreaterThan(0);
       expect(res.body[0]).toMatchObject({ id: expect.any(String), name: expect.any(String) });
     });
 
     it('lets their coach list them', async () => {
-      const res = await as(coach).get(`/workouts?athlete_id=${athlete.userId}`).expect(200);
+      const res = await as(coach)
+        .get(`/workouts?athlete_id=${athlete.userId}&${FROM_ALL}`)
+        .expect(200);
       expect(res.body.length).toBeGreaterThan(0);
+    });
+
+    /** The bound itself: without `from`, past fixtures must not come back. */
+    it('excludes sessions before the from date', async () => {
+      const res = await as(athlete).get(`/workouts?athlete_id=${athlete.userId}`).expect(200);
+
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.every((w: { date: string }) => w.date >= '2026-08-21')).toBe(true);
+    });
+
+    it('rejects a from that is not a calendar date', async () => {
+      await as(athlete).get(`/workouts?athlete_id=${athlete.userId}&from=2026-02-31`).expect(400);
+    });
+
+    /** forbidNonWhitelisted: a misspelt parameter is a 400 rather than a silently
+     * ignored default, which is one of the things moving to a DTO buys. */
+    it('rejects an unknown query parameter', async () => {
+      await as(athlete).get(`/workouts?athlete_id=${athlete.userId}&limt=5`).expect(400);
     });
 
     it('404s for an unrelated user', async () => {
@@ -445,7 +476,13 @@ describe('Programming (e2e)', () => {
     });
 
     it('excludes templates, which belong to no athlete', async () => {
-      const res = await as(coach).get(`/workouts?athlete_id=${athlete.userId}`).expect(200);
+      // `from` matters here: without it the list is empty for past fixtures and
+      // `not.toContain` passes trivially, proving nothing about templates.
+      const res = await as(coach)
+        .get(`/workouts?athlete_id=${athlete.userId}&${FROM_ALL}`)
+        .expect(200);
+
+      expect(res.body.length).toBeGreaterThan(0);
       expect(res.body.map((w: { name: string }) => w.name)).not.toContain('E2E Template A');
     });
   });

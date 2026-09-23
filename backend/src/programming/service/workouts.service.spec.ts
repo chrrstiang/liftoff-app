@@ -6,6 +6,7 @@ import { MaxesService } from './maxes.service';
 import { WorkoutsService } from './workouts.service';
 import type { CreateWorkoutDto } from '../dto/create-workout.dto';
 import { MAX_HISTORY_LIMIT, type HistoryQueryDto } from '../dto/history-query.dto';
+import { MAX_SCHEDULED_WORKOUTS } from '../dto/scheduled-workouts-query.dto';
 
 /** WorkoutsService — the authorization rules and the payload invariants.
  *
@@ -422,7 +423,9 @@ describe('WorkoutsService', () => {
     it('lets the athlete read their own', async () => {
       await build({ workouts: [[{ id: WORKOUT, name: 'Squat day', date: '2026-08-20' }]] });
 
-      await expect(service.listAthleteWorkouts(ATHLETE, ATHLETE)).resolves.toHaveLength(1);
+      await expect(
+        service.listAthleteWorkouts({ athlete_id: ATHLETE }, ATHLETE),
+      ).resolves.toHaveLength(1);
     });
 
     it('lets an active coach read their athlete’s', async () => {
@@ -431,15 +434,33 @@ describe('WorkoutsService', () => {
         workouts: [[{ id: WORKOUT, name: 'Squat day', date: '2026-08-20' }]],
       });
 
-      await expect(service.listAthleteWorkouts(ATHLETE, COACH)).resolves.toHaveLength(1);
+      await expect(
+        service.listAthleteWorkouts({ athlete_id: ATHLETE }, COACH),
+      ).resolves.toHaveLength(1);
     });
 
     it('404s for anyone else', async () => {
       await build({ coach_athlete_relationships: [[]] });
 
-      await expect(service.listAthleteWorkouts(ATHLETE, STRANGER)).rejects.toThrow(
+      await expect(service.listAthleteWorkouts({ athlete_id: ATHLETE }, STRANGER)).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    /** ⚠️ The cap is applied in the service, not only in the DTO, so it holds for
+     * any future caller that does not arrive over HTTP. The mocked client ignores
+     * `limit`, so what this pins is that an over-large request is clamped rather
+     * than rejected — a caller asking for too much should get the maximum, not an
+     * error. */
+    it('clamps an over-large limit rather than rejecting it', async () => {
+      await build({ workouts: [[{ id: WORKOUT, name: 'Squat day', date: '2026-08-20' }]] });
+
+      await expect(
+        service.listAthleteWorkouts(
+          { athlete_id: ATHLETE, limit: MAX_SCHEDULED_WORKOUTS + 500 },
+          ATHLETE,
+        ),
+      ).resolves.toHaveLength(1);
     });
   });
 

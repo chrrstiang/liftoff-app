@@ -424,7 +424,7 @@ invisible from the screen. Now bounded 1–10, so the rejection happens where th
 user can still fix it. Half-point RPE still works, which is pinned by a test —
 powerlifters use it constantly and an integer bound would have quietly broken it.
 
-### 12. `GET /workouts?athlete_id=` is unbounded
+### 12. ~~`GET /workouts?athlete_id=` is unbounded~~ — FIXED
 
 `listAthleteWorkouts` has no limit and no date floor — every workout an athlete has
 ever been assigned, forever.
@@ -437,8 +437,25 @@ The two history routes were built with a proper envelope (`before`, `limit` capp
 at 50, `has_more`) precisely because unbounded reads do not survive a season. This
 route predates that and was never revisited.
 
-**Fix:** the same envelope, or — better for the home screen — an endpoint returning
-just the next scheduled workout, which is all the caller wants.
+**Fixed** with a date floor rather than the history envelope. The home screen wants
+*upcoming* work, not a page of history, so a `before`/`has_more` cursor would have
+been the wrong shape: `ScheduledWorkoutsQueryDto` takes an optional `from`
+(`YYYY-MM-DD`, defaulting to today) and an optional `limit` capped at
+`MAX_SCHEDULED_WORKOUTS = 100`. The service filters `date >= from`, orders ascending
+and applies the cap itself, so the bound holds for non-HTTP callers too.
+
+The client sends its **local** today via `toLocalDateString`, matching the rule from
+finding 5 — a UTC floor would hide the evening's own session. `home.tsx` no longer
+filters or sorts: the server returns upcoming sessions oldest-first, so "next" is
+`workouts[0]`.
+
+The controller's hand-rolled UUID regex is gone with the DTO taking over, which also
+means `forbidNonWhitelisted` now makes a misspelt `?limt=5` a 400 instead of a
+silently unbounded read.
+
+⚠️ The e2e fixtures seed workouts at a fixed past date, so the new default floor made
+two assertions return empty. They pass `from=2000-01-01` now rather than a future
+date — a future date is a time bomb that passes until the day it does not.
 
 ### 13. A coach↔athlete relationship cannot be ended
 

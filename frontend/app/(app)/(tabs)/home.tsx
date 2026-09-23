@@ -13,7 +13,7 @@ import { fetchAthleteWorkouts } from "@/lib/api/workouts";
 import { useTheme } from "@/theme/useTheme";
 import { CoachRequest } from "@/types";
 import { useQuery } from "@tanstack/react-query";
-import { format, isToday, isTomorrow, parseISO, startOfToday } from "date-fns";
+import { format, isToday, isTomorrow, parseISO } from "date-fns";
 import { router } from "expo-router";
 import { Bell, CalendarDays } from "lucide-react-native";
 import { useState } from "react";
@@ -48,13 +48,10 @@ export default function HomePage() {
     queryFn: fetchAthleteRequests,
   });
 
-  // workout to display on card
-  const nextWorkout = workouts
-    ?.filter((workout) => {
-      const workoutDate = parseISO(workout.date);
-      return workoutDate >= startOfToday();
-    })
-    .sort((a, b) => parseISO(a.date).getTime() - parseISO(b.date).getTime())[0];
+  // The server returns only upcoming sessions, oldest first, so "next" is simply
+  // the first one. The client-side date filter that used to live here existed
+  // because this endpoint returned an athlete's entire history.
+  const nextWorkout = workouts?.[0];
 
   const getWorkoutDateText = (dateString: string) => {
     const date = parseISO(dateString);

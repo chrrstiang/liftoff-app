@@ -22,9 +22,23 @@ export async function fetchWorkoutById(workoutId: string) {
   return api.get<Workout>(`/workouts/${workoutId}`);
 }
 
+/** An athlete's **upcoming** sessions, oldest first.
+ *
+ * ⚠️ Bounded server-side now. This used to return every workout the athlete had
+ * ever been assigned, and callers filtered client-side to find what was next —
+ * hundreds of rows over a season, downloaded to render one card.
+ */
 export async function fetchAthleteWorkouts(athleteId: string) {
+  // `from` is the caller's own local today. The server falls back to UTC today
+  // without it, which would hide tonight's session from anyone west of Greenwich
+  // after 8pm — the read-side twin of the write bug fixed in #47.
+  const params = new URLSearchParams({
+    athlete_id: athleteId,
+    from: toLocalDateString(new Date()),
+  });
+
   return api.get<{ id: string; name: string; date: string }[]>(
-    `/workouts?athlete_id=${athleteId}`,
+    `/workouts?${params.toString()}`,
   );
 }
 

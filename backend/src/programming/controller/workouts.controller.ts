@@ -17,6 +17,7 @@ import type { RequestWithUser } from 'src/common/types/request.interface';
 import { WorkoutsService } from '../service/workouts.service';
 import { CreateWorkoutDto } from '../dto/create-workout.dto';
 import { AssignWorkoutDto } from '../dto/assign-workout.dto';
+import { ScheduledWorkoutsQueryDto } from '../dto/scheduled-workouts-query.dto';
 import { AddWorkoutExerciseDto } from '../dto/add-workout-exercise.dto';
 import { HistoryQueryDto } from '../dto/history-query.dto';
 
@@ -58,23 +59,23 @@ export class WorkoutsController {
     return this.workoutsService.listWorkoutHistory(query, req.user.id);
   }
 
-  /** An athlete's assigned workouts. `athlete_id` is required and authorized
-   * against the caller — omitting it does not fall back to "everything". */
+  /** An athlete's **upcoming** assigned sessions.
+   *
+   * ⚠️ Bounded, where this used to return every workout ever assigned. Both
+   * callers — the home card and the program screen — render what is coming up,
+   * and both filtered client-side to get there. Over a season that is hundreds of
+   * rows downloaded to draw a single card, on the screen users open most.
+   *
+   * The hand-rolled validation is gone with it. A DTO brings `forbidNonWhitelisted`
+   * (a misspelt `?limt=` is now a 400 rather than a silently ignored default) and
+   * bounds `limit` before it reaches SQL — the same reasoning `HistoryQueryDto`
+   * records.
+   */
   @Get()
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
-  async list(@Req() req: RequestWithUser, @Query('athlete_id') athleteId?: string) {
-    if (!athleteId) {
-      throw new BadRequestException('athlete_id is required');
-    }
-
-    // Validated by hand rather than with ParseUUIDPipe, which does not apply to
-    // an optional query parameter without also rejecting its absence.
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(athleteId)) {
-      throw new BadRequestException('athlete_id must be a UUID');
-    }
-
-    return this.workoutsService.listAthleteWorkouts(athleteId, req.user.id);
+  async list(@Query() query: ScheduledWorkoutsQueryDto, @Req() req: RequestWithUser) {
+    return this.workoutsService.listAthleteWorkouts(query, req.user.id);
   }
 
   @Get(':id')

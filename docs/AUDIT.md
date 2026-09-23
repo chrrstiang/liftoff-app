@@ -171,8 +171,23 @@ running container picks the schema up on its next query.
 **Before the next deploy:** run the migrate task from `infra/README.md`. Migration
 first, then deploy; the reverse is an outage.
 
-**Worth fixing properly**, because it recurs with every migration and fails as a
-production 500 rather than a red check.
+**Fixed in the pipeline.** `deploy.yml` now builds a migration image, runs the
+one-off task, and **fails the deploy** if it exits non-zero — before the service
+rolls, so a failed migration leaves the currently running code untouched rather
+than shipping over a schema that cannot serve it.
+
+It runs on every deploy rather than only when `migrations/` changed. `migrate.ts`
+is idempotent, so a no-op costs a minute, and "did the diff touch migrations" is
+exactly the kind of detection that is wrong once and silently wrong forever after.
+
+⚠️ **The deploy role needed two new permissions for this** (`ecs:RunTask` +
+`ecs:DescribeTasks`, scoped to the `liftoff-migrate` family, and
+`logs:GetLogEvents` on the one log group). `infra/iam/github-deploy-role.json` is
+updated and validates clean through Access Analyzer, but **applying it to the live
+role is a manual step** — see the PR for the command. Until it is applied, deploys
+fail at the migration step, which is the safe direction but does block deploying.
+
+The original reasoning, kept because it is why this was worth doing:
 
 Everything needed already exists and is *deliberately* manual: `src/db/migrate.ts`
 applies the chain and the seed, is idempotent, and is the script the one-off ECS

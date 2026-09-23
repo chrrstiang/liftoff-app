@@ -35,6 +35,14 @@ concurrency:
 env:
   AWS_REGION: us-east-2
   ECR_REPOSITORY: liftoff-api
+  MIGRATE_TASK_DEFINITION: infra/ecs/migrate-task-definition.json
+  # The Express-created task security group, and the subnets it runs in. The SG
+  # matters: it is the group RDS already allows 5432 from. assignPublicIp is
+  # ENABLED because these are public subnets with no NAT -- without a public IP
+  # the task cannot reach ECR or Secrets Manager, and fails to pull with a
+  # timeout that reads like a permissions problem.
+  MIGRATE_SUBNETS: subnet-02e9c4e514b8401f2,subnet-0d64329de8e00d6fc,subnet-03e806a6c9e72865a
+  MIGRATE_SECURITY_GROUP: sg-0810b04a7ff54199a
   # The Express Mode APIs take a service ARN, not cluster + name.
   ECS_SERVICE_ARN: arn:aws:ecs:us-east-2:582908772109:service/default/liftoff-api
   ECS_TASK_DEFINITION: infra/ecs/task-definition.json
@@ -97,6 +105,69 @@ jobs:
           docker push "$IMAGE"
           echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # ⚠️ **Migrations run BEFORE the service rolls, and a failure stops the
+      # deploy.** Without this the pipeline shipped code to a database that did
+      # not have its tables yet: merging the maxes work auto-deployed code
+      # selecting `sets.prescribed_percent` against an RDS with no such column,
+      # and nothing went red -- `/health` deliberately does not touch the
+      # database, so the rollout verified happily over a broken API.
+      #
+      # It runs on every deploy rather than only when `migrations/` changed.
+      # `migrate.ts` is idempotent (Drizzle records applied migrations, the seed
+      # upserts), so a no-op costs a minute, and "did the diff touch migrations"
+      # is exactly the kind of detection that is wrong once and silently wrong
+      # forever after.
+      #
+      # Separate image from the API: that one is `npm ci --omit=dev` and ships
+      # only dist/ -- no .sql files.
+      - name: Build and push the migration image
+        if: steps.config.outputs.configured == 'true'
+        id: migrate_image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ inputs.image_tag || github.sha }}
+        run: |
+          IMAGE="$REGISTRY/$ECR_REPOSITORY:migrate-$TAG"
+          docker build -f backend/Dockerfile.migrate -t "$IMAGE" ./backend
+          docker push "$IMAGE"
+          echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Apply migrations
+        if: steps.config.outputs.configured == 'true'
+        env:
+          IMAGE: ${{ steps.migrate_image.outputs.uri }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import json, os
+          d = json.load(open(os.environ['MIGRATE_TASK_DEFINITION']))
+          for c in d['containerDefinitions']:
+              c['image'] = os.environ['IMAGE']
+          json.dump(d, open('/tmp/migrate-taskdef.json', 'w'))
+          PY
+
+          ARN=$(aws ecs register-task-definition             --cli-input-json file:///tmp/migrate-taskdef.json             --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "registered $ARN"
+
+          TASK=$(aws ecs run-task --cluster default --task-definition "$ARN"             --launch-type FARGATE             --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNETS],securityGroups=[$MIGRATE_SECURITY_GROUP],assignPublicIp=ENABLED}"             --query 'tasks[0].taskArn' --output text)
+          echo "running $TASK"
+
+          aws ecs wait tasks-stopped --cluster default --tasks "$TASK"
+
+          # The log is the useful part whether it passed or failed, so print it
+          # before deciding. `|| true` because a task that died before the log
+          # driver attached has no stream, and that must not mask the exit code.
+          aws logs get-log-events --log-group-name /ecs/liftoff-api             --log-stream-name "migrate/migrate/${TASK##*/}"             --query 'events[].message' --output text || true
+
+          EXIT=$(aws ecs describe-tasks --cluster default --tasks "$TASK"             --query 'tasks[0].containers[0].exitCode' --output text)
+
+          if [ "$EXIT" != "0" ]; then
+            echo "::error title=Migration failed::The migrate task exited $EXIT. The service was NOT rolled, so the currently running code is unchanged."
+            exit 1
+          fi
+          echo "migrations applied"
 
       # Express Mode manages the service, load balancer and scaling, but a custom
       # task definition is still how SUPABASE_SECRET_KEY and DATABASE_URL get

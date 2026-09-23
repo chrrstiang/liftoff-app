@@ -166,7 +166,13 @@ function AssignWorkoutFlow({ athleteId }: { athleteId: string }) {
   );
 }
 
-const WeeklyWorkoutCard = ({ athleteId }: { athleteId: string }) => {
+/** The athlete's scheduled work, from today forward.
+ *
+ * ⚠️ **Not a week, despite the old name.** `fetchAthleteWorkouts` returns every
+ * upcoming session oldest-first, capped server-side, so there is no week
+ * boundary here and never was — the heading read as the first week of a block
+ * for every athlete, in every week of every block. */
+const UpcomingSessions = ({ athleteId }: { athleteId: string }) => {
   const { colors } = useTheme();
   const {
     data: workoutData,
@@ -220,7 +226,7 @@ const WeeklyWorkoutCard = ({ athleteId }: { athleteId: string }) => {
   }
 
   return (
-    <Section label="Week 1" className="mt-6 px-6">
+    <Section label="Upcoming" className="mt-6 px-6">
       {workoutData.map(
         (
           { id, name, date }: { id: string; name: string; date: string },
@@ -730,7 +736,7 @@ export default function ProgramPage() {
         ) : null}
       </View>
 
-      <WeeklyWorkoutCard athleteId={athleteId} />
+      <UpcomingSessions athleteId={athleteId} />
 
       <View className="gap-3 px-6 pb-10 pt-8">
         {!isOwnProgram ? (

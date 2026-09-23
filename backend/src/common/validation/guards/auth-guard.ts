@@ -2,6 +2,7 @@ import {
   Injectable,
   CanActivate,
   ExecutionContext,
+  HttpException,
   UnauthorizedException,
   Logger,
 } from '@nestjs/common';
@@ -23,10 +24,38 @@ import { RequestWithUser } from 'src/common/types/request.interface';
 const REQUIRED_ALG = 'HS256';
 
 /** Every Supabase access token carries `aud: "authenticated"`, anonymous sign-ins
- * included. Checked only when the claim is present, so a future token shape that
- * drops it does not lock everyone out.
+ * included.
+ *
+ * ⚠️ **Absence is now a rejection.** This used to be checked only when the claim
+ * was present, on the reasoning that a future token shape dropping it should not
+ * lock everyone out. That reasoning inverts the purpose of the check: a forged or
+ * mis-scoped token simply omits the claim and sails through the branch that was
+ * meant to stop it. A claim that is always set is exactly the kind you require.
+ *
+ * The e2e suite verifies real Supabase tokens against this guard on every PR to
+ * `main`, so the shape change this was hedging against fails CI rather than
+ * production.
  */
 const EXPECTED_AUDIENCE = 'authenticated';
+
+/** The `iss` claim Supabase puts on an access token is
+ * `https://<project-ref>.supabase.co/auth/v1`.
+ *
+ * ⚠️ **Read from its own variable rather than derived from `SUPABASE_PROJECT_URL`,
+ * deliberately.** Deriving it would be one line, and it would be a guess: a custom
+ * auth domain, a trailing slash, or any drift between the two strings presents as
+ * *every authenticated request in the environment returning 401*, with nothing in
+ * CI to catch it first — the e2e job does not set `SUPABASE_JWT_SECRET`, so it
+ * exercises the remote fallback and never reaches this code at all.
+ *
+ * So it is opt-in, and it is exact. Until `SUPABASE_JWT_ISSUER` is set, `iss` goes
+ * unchecked and the signature is what refuses a token from another project — which
+ * it already did, since a different project has a different secret. This claim
+ * check is the control that keeps holding if a secret is ever shared or reused.
+ *
+ * To set it: decode any access token from the project and copy `iss` verbatim.
+ */
+const ISSUER_VAR = 'SUPABASE_JWT_ISSUER';
 
 /** Startup mode is logged once per process, not once per guard instance — Nest
  * builds one JwtAuthGuard per module that uses it, which would otherwise be six
@@ -44,6 +73,7 @@ interface JwtHeader {
 interface SupabaseJwtClaims {
   sub?: string;
   exp?: number;
+  iss?: string;
   aud?: string | string[];
   email?: string;
   phone?: string;
@@ -81,11 +111,17 @@ export class JwtAuthGuard implements CanActivate {
    */
   private readonly jwtSecret: string | undefined;
 
+  /** The exact `iss` to require, or undefined to skip the check. See `ISSUER_VAR`
+   * for why this is configured rather than computed. */
+  private readonly expectedIssuer: string | undefined;
+
   constructor(
     private supabaseService: SupabaseService,
     private configService: ConfigService,
   ) {
     this.jwtSecret = this.configService.get<string>('SUPABASE_JWT_SECRET')?.trim() || undefined;
+
+    this.expectedIssuer = this.configService.get<string>(ISSUER_VAR)?.trim() || undefined;
 
     if (!modeLogged) {
       modeLogged = true;
@@ -94,6 +130,15 @@ export class JwtAuthGuard implements CanActivate {
           ? 'Verifying JWTs locally (HS256). SUPABASE_JWT_SECRET is set.'
           : 'SUPABASE_JWT_SECRET is not set — falling back to a remote supabase.auth.getUser() ' +
               'call on every authenticated request. Set it to verify locally.',
+      );
+
+      // Logged so a wrong value is diagnosable from startup rather than from a
+      // wave of 401s. The issuer is a public URL, not a secret.
+      this.logger.log(
+        this.expectedIssuer
+          ? `Requiring iss = ${this.expectedIssuer}.`
+          : `${ISSUER_VAR} is not set — the iss claim is not checked. The signature still ` +
+              'refuses a token from another project; set it to check the claim too.',
       );
     }
   }
@@ -161,7 +206,14 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid token');
     }
 
-    if (claims.aud !== undefined && !this.audienceMatches(claims.aud)) {
+    if (claims.aud === undefined || !this.audienceMatches(claims.aud)) {
+      throw new UnauthorizedException('Invalid token');
+    }
+
+    /* Skipped entirely when unconfigured. See ISSUER_VAR: an issuer this process
+       guessed would be a lockout waiting for the first environment that does not
+       match it, and nothing in CI reaches this line to catch that. */
+    if (this.expectedIssuer !== undefined && claims.iss !== this.expectedIssuer) {
       throw new UnauthorizedException('Invalid token');
     }
 
@@ -186,6 +238,13 @@ export class JwtAuthGuard implements CanActivate {
 
       return data.user;
     } catch (error: unknown) {
+      /* The `throw` above lands here, and rethrowing it as
+         `Token validation failed: Invalid token` was the guard wrapping its own
+         exception. Anything already an HttpException is a decision this method
+         made; only a genuine failure of the call itself needs describing. */
+      if (error instanceof HttpException) {
+        throw error;
+      }
       if (error instanceof Error) {
         throw new UnauthorizedException(`Token validation failed: ${error.message}`);
       }

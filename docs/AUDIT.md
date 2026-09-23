@@ -527,13 +527,25 @@ The local HS256 path is genuinely well built — rejects `alg: none`, compares w
 **missing** `exp` as invalid rather than "never expires", and reports every failure
 identically. Three notes:
 
-- **`iss` is never verified.** Standard defence, one comparison.
-- **`aud` is only checked when present**, so a token with no audience claim passes.
-  Supabase always sets one, which is an argument for rejecting its absence.
-- **`verifyWithSupabase` double-wraps its own exception** — it throws
-  `UnauthorizedException('Invalid token')` inside a `try` whose `catch` matches it
-  and rethrows as `Token validation failed: Invalid token`. Cosmetic, fallback path
-  only.
+- ~~**`iss` is never verified.** Standard defence, one comparison.~~ **Fixed, and
+  it is not one comparison — the comparand is the problem.** Deriving the issuer
+  from `SUPABASE_PROJECT_URL` is the obvious implementation and it is a guess: a
+  custom auth domain or a trailing slash presents as *every authenticated request
+  in the environment returning 401*, and **nothing in CI would catch it**, because
+  the e2e job does not set `SUPABASE_JWT_SECRET` and therefore exercises the remote
+  fallback, never reaching this code. So the check reads an explicit
+  `SUPABASE_JWT_ISSUER` and is skipped when that is unset. ⚠️ **It is off until
+  someone sets it** — decode any access token from the project and copy `iss`
+  verbatim. Until then the signature is still what refuses a token from another
+  project; the claim check is the control that keeps holding if a secret is ever
+  shared or reused.
+- ~~**`aud` is only checked when present**~~ — **Fixed.** The branch was skipped by
+  exactly the token that most wanted to skip it. Supabase sets `aud` on every access
+  token, anonymous sign-ins included, which is what makes it requirable.
+- ~~**`verifyWithSupabase` double-wraps its own exception**~~ — **Fixed.** An
+  `HttpException` is now rethrown untouched, so the fallback path reports `Invalid
+  token` rather than `Token validation failed: Invalid token`. A genuine transport
+  failure still gets described, since that one is not a decision the guard made.
 
 ### Messaging
 

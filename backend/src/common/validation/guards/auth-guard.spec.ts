@@ -236,6 +236,19 @@ describe('JwtAuthGuard', () => {
       expect(request.user.id).toBe('user-1');
     });
 
+    /** ⚠️ **Absence used to pass.** The check ran only when `aud` was present, so
+     * the token that most wanted to skip it — one whose audience is wrong or
+     * missing — was the one that did. Supabase sets this on every access token,
+     * anonymous sign-ins included, which is exactly what makes it requirable. */
+    it('rejects a token with no aud claim, rather than skipping the check', async () => {
+      const { aud: _aud, ...withoutAud } = baseClaims;
+      const { context } = contextFor(
+        `Bearer ${sign({ ...withoutAud, exp: Math.floor(Date.now() / 1000) + 3600 })}`,
+      );
+
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+    });
+
     it('rejects a token with no sub claim', async () => {
       const { sub: _sub, ...withoutSub } = baseClaims;
       const { context } = contextFor(
@@ -256,6 +269,64 @@ describe('JwtAuthGuard', () => {
 
       await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
     });
+
+    /** `iss` is checked only when `SUPABASE_JWT_ISSUER` names one, which is why
+     * every test above — none of which set it — passes without an `iss` claim.
+     * That is the documented default, not an oversight: see `ISSUER_VAR`. */
+    it('ignores iss when no expected issuer is configured', async () => {
+      const { context } = contextFor(`Bearer ${validToken({ iss: 'https://elsewhere/auth/v1' })}`);
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+    });
+  });
+
+  /** The issuer check, which a second Supabase project would otherwise only fail
+   * on its signature. That is one control; this is the one that keeps holding if
+   * a secret is ever shared between projects or reused from an old one. */
+  describe('issuer verification (SUPABASE_JWT_ISSUER set)', () => {
+    const ISSUER = 'https://abcdefgh.supabase.co/auth/v1';
+
+    let guard: JwtAuthGuard;
+
+    beforeEach(async () => {
+      guard = await build({ SUPABASE_JWT_SECRET: SECRET, SUPABASE_JWT_ISSUER: ISSUER });
+    });
+
+    it('accepts a token issued by the configured project', async () => {
+      const { context, request } = contextFor(`Bearer ${validToken({ iss: ISSUER })}`);
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(request.user.id).toBe('user-1');
+    });
+
+    /** Validly signed by *this* secret and still refused, which is the whole
+     * point: the signature cannot distinguish projects that share one. */
+    it('rejects a correctly signed token issued by another project', async () => {
+      const { context } = contextFor(
+        `Bearer ${validToken({ iss: 'https://zyxwvuts.supabase.co/auth/v1' })}`,
+      );
+
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('rejects a token with no iss claim', async () => {
+      const { context } = contextFor(`Bearer ${validToken()}`);
+
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+    });
+
+    /** Configured by copy-paste, so surrounding whitespace is the likely typo and
+     * it would otherwise present as every request in the environment being
+     * unauthorized. */
+    it('trims the configured issuer', async () => {
+      const padded = await build({
+        SUPABASE_JWT_SECRET: SECRET,
+        SUPABASE_JWT_ISSUER: `  ${ISSUER}  `,
+      });
+      const { context } = contextFor(`Bearer ${validToken({ iss: ISSUER })}`);
+
+      await expect(padded.canActivate(context)).resolves.toBe(true);
+    });
   });
 
   describe('remote fallback (SUPABASE_JWT_SECRET unset)', () => {
@@ -275,11 +346,25 @@ describe('JwtAuthGuard', () => {
       expect(request.user).toBe(remoteUser);
     });
 
-    it('rejects when Supabase reports an error', async () => {
+    /** The message matters, not just the type. This path threw
+     * `UnauthorizedException('Invalid token')` inside a `try` whose own `catch`
+     * matched it and rethrew it as `Token validation failed: Invalid token` — the
+     * guard wrapping its own exception. */
+    it('rejects when Supabase reports an error, without wrapping its own exception', async () => {
       mockGetUser.mockResolvedValue({ data: { user: null }, error: { message: 'bad jwt' } });
       const { context } = contextFor('Bearer any-opaque-token');
 
       await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      await expect(guard.canActivate(context)).rejects.toThrow('Invalid token');
+    });
+
+    /** A real failure of the call — the network, a paused project — still gets
+     * described, because that one is not a decision this guard made. */
+    it('describes a thrown transport error rather than swallowing it', async () => {
+      mockGetUser.mockRejectedValue(new Error('fetch failed'));
+      const { context } = contextFor('Bearer any-opaque-token');
+
+      await expect(guard.canActivate(context)).rejects.toThrow(/Token validation failed/);
     });
 
     it('does not verify locally, so a token this process could not have signed still goes remote', async () => {

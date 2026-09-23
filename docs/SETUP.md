@@ -61,11 +61,25 @@ npm run start:dev        # nest start --watch → http://0.0.0.0:8000
 | `SUPABASE_SECRET_KEY` | **yes** | the **service-role** key — same, the app will not boot |
 | `DATABASE_URL` | **yes** locally | or the `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE` set, which is what ECS uses since RDS manages the password in Secrets Manager |
 | `SUPABASE_JWT_SECRET` | recommended | with it, `JwtAuthGuard` verifies tokens locally with HMAC; without it every authenticated request falls back to a network call to Supabase |
+| `SUPABASE_JWT_ISSUER` | recommended | the exact `iss` on the project's access tokens, e.g. `https://<ref>.supabase.co/auth/v1`. When set, `JwtAuthGuard` requires it; when unset the claim is not checked. Read it off a real token rather than assembling it — see below |
 | `PORT` / `HOST` | no | default `8000` / `0.0.0.0` |
 
 The two Supabase variables failing loudly at construction is deliberate — a fast, obvious failure beats a server that boots and then 500s on every authenticated request.
 
 ⚠️ **`SUPABASE_SECRET_KEY` is the service-role key.** Never log it, and never move it into anything prefixed `EXPO_PUBLIC_`.
+
+**`SUPABASE_JWT_ISSUER` is opt-in on purpose, and it is not derived from `SUPABASE_PROJECT_URL`.** Assembling it looks obvious and is a guess — a custom auth domain or a trailing slash makes *every authenticated request in that environment* return 401, and nothing in CI would catch it first: the e2e job does not set `SUPABASE_JWT_SECRET`, so it exercises the remote fallback and never reaches the local verifier. Get the value by signing in and decoding the access token:
+
+```bash
+# the middle segment of the JWT, base64url-decoded
+node -e 'console.log(JSON.parse(Buffer.from(process.argv[1].split(".")[1],"base64url")).iss)' <token>
+```
+
+`test/auth-claims.e2e-spec.ts` prints the live project's real `iss` when the e2e suite runs — but **in CI it comes out as `***/auth/v1`**, because GitHub masks the prefix: it is the `SUPABASE_PROJECT_URL` secret. That masking is the answer for this project, then — the issuer is that URL plus `/auth/v1`. Run the suite locally for the unmasked string.
+
+⚠️ **Setting it in production is three places, not one** — SSM parameter, then the IAM execution role, then the task definition, in that order. See `infra/README.md`; `SUPABASE_JWT_SECRET` is the worked example of what happens when only some of them are done.
+
+The guard logs which issuer it requires at startup, so a wrong value is diagnosable there rather than from a wave of 401s.
 
 Other commands:
 

@@ -186,7 +186,7 @@ Three traps:
 
 ## Known issues
 
-- **The two profile forms disagree about the gender options, and `edit-profile.tsx` is the correct one.** `create-profile.tsx` renders `["Male", "Female", "Other"]`; the DTO and the Postgres enum are `Male | Female | Gender-fluid`, so "Other" 400s on submit (a confirmed bug, `docs/ARCHITECTURE.md` §7). `edit-profile.tsx` renders the real enum. Don't "align" them by copying the signup screen's list.
+- ~~**The two profile forms disagree about the gender options.**~~ **Fixed.** Both import `GENDERS` from `types/user.ts` now. It is a `const` assertion, so `Gender` is the union and not `string` — a fourth spelling does not compile. Keep it in step with `genderEnum` in `backend/src/db/schema.ts`, which is the actual source of truth.
 - **Date of birth has no unset state.** It initialises to `new Date()`, so the row always shows today and `handleSubmit`'s `!dateOfBirth` check can never fail. A user can submit today as their birth date. It is also not editable afterwards — `edit-profile.tsx` deliberately leaves it out.
 - **`onCreateWorkout` takes an `isTemplate` flag that is silently dropped.** Both call sites in `program/[athleteId].tsx` pass one, but the parent handler declares three parameters and TypeScript allows the narrower signature. `createWorkout()` has no such field either, so template-derived and custom workouts persist identically.
 - `isLoading` in create-profile is set and cleared synchronously inside the fetch effects, so it's effectively always `false` during those reads. Don't build a spinner on it.

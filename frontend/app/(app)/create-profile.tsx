@@ -12,6 +12,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { api, describeApiError } from "@/lib/api/client";
 import { supabase } from "@/lib/supabase";
+import { GENDERS } from "@/types";
 import type { Division, Federation, Profile, WeightClass } from "@/types";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { router } from "expo-router";
@@ -249,7 +250,7 @@ export default function CreateProfile() {
 
         <Section label="Gender" className="mt-8">
           <View className="flex-row gap-2 py-3">
-            {["Male", "Female", "Other"].map((option) => (
+            {GENDERS.map((option) => (
               <Chip
                 key={option}
                 label={option}

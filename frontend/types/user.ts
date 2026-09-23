@@ -1,5 +1,24 @@
 /** User profile shapes. */
 
+/** The `gender` Postgres enum, verbatim.
+ *
+ * ⚠️ **Declared once because the two profile forms disagreed about it.**
+ * `create-profile.tsx` offered `["Male", "Female", "Other"]` while the enum and
+ * `CreateUserDto` are these three, so a user who picked "Other" got a 400 on the
+ * last step of signup — the first screen a new account ever sees, and the one
+ * place a validation failure reads as "this app is broken" rather than "fix this
+ * field". `edit-profile.tsx` had it right and carried a comment saying so.
+ *
+ * Copying the correct array into the second screen would have left the same drift
+ * one edit away. Both import this now. It is a const assertion so `Gender` is the
+ * union rather than `string`, which is what stops a fourth spelling compiling.
+ *
+ * Keep in step with `genderEnum` in `backend/src/db/schema.ts`.
+ */
+export const GENDERS = ["Male", "Female", "Gender-fluid"] as const;
+
+export type Gender = (typeof GENDERS)[number];
+
 /** The POST /users/profile request body.
  *
  * Mirrors CreateUserDto on the backend. The backend runs with

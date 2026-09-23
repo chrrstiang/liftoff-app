@@ -239,14 +239,18 @@ Local dates are walked by **calendar-field arithmetic**, never by adding
 That is what keeps a 17:00 practice at 17:00 across a transition rather than
 drifting to 16:00.
 
-### Bounds, enforced in the DTO
+### Bounds
 
-Not discovered in production:
+Enforced at the boundary rather than discovered in production, each in the layer
+that can actually see it:
 
-- an end date is **required** for a recurring series
-- the span may not exceed **52 weeks**
-- the expansion may not exceed **500 occurrences** — a fat-fingered daily series
-  across five years is otherwise one request that writes a hundred thousand rows
+- an end date is **required** for a recurring series — in the DTO, which can see a
+  missing field
+- the span may not exceed **52 weeks** — in `recurrence.ts`, because it is
+  cross-field date math a property decorator cannot do; surfaced as a 400. This is
+  the *only* size bound needed: seven weekdays across 52 weeks is 365 occurrences,
+  and 365 rows in one insert is not a problem. An explicit occurrence cap was
+  drafted and dropped as unreachable
 - all occurrences are inserted in **one transaction** with their participant rows
 
 ## Authorization
@@ -366,7 +370,7 @@ relationship" as a hole — better to leave it visibly absent than half-built.
 | `POST` | `/events` | One-off or a series. `recurrence` present → expands to N rows sharing a `series_id`, plus participant rows for every current team athlete, in one transaction. Response returns the created occurrences |
 | `GET` | `/events` | `?team_id=` required, `?from=` / `?to=` window required. Returns scheduled **and** canceled events — the client renders canceled differently |
 | `GET` | `/events/:eventId` | Event plus participants |
-| `PATCH` | `/events/:eventId` | `?scope=this` (default) or `?scope=future`. `future` updates every event in the series with `starts_at >= this one`. Coach only |
+| `PATCH` | `/events/:eventId` | `?scope=this` (default) or `?scope=future`. `future` updates every event in the series with `starts_at >= this one`, and **rejects time changes** — see below. Coach only |
 | `POST` | `/events/:eventId/cancel` | Sets `status: 'canceled'`. A distinct route rather than a PATCH field, so cancellation is one auditable call and cannot be a side effect of editing a title |
 | `POST` | `/events/:eventId/participants` | Body `{ user_id }`. Must be a team athlete |
 | `DELETE` | `/events/:eventId/participants/:userId` | |
@@ -378,6 +382,18 @@ than making it fast.
 `?scope=future` is the standard calendar affordance and covers the note's open
 question about editing a series. `scope=all` is deliberately omitted: editing a
 practice that already happened rewrites history, and no UI asks for it.
+
+⚠️ **`scope=future` rejects `starts_at` / `ends_at` with a 400.** Those columns
+hold absolute instants, so writing one value across every future occurrence would
+collapse the whole series onto a single datetime — a data-destroying edit dressed
+as a convenience. Moving one practice is `scope=this`; changing the time of a
+whole series means cancelling it and creating a new one. Only `title`, `location`
+and `notes` propagate.
+
+`POST /events/:eventId/cancel` cancels **one** occurrence, with no scope
+parameter. Cancelling the remainder of a series (a semester ending early) is a
+real need and is deliberately not built here — it would need the same
+future-scope semantics as PATCH, and there is no screen for it yet.
 
 Errors keep the one shape every endpoint uses:
 `{ statusCode, message, timestamp, path, method }`.
@@ -460,7 +476,7 @@ module, exactly as `e1rm.spec.ts` sits beside `e1rm.ts`:
   bug halfway through a semester
 - a series spanning no DST change produces evenly spaced instants
 - multiple weekdays come back in chronological order
-- an expansion over the 500-occurrence cap throws rather than returning a huge list
+- a maximal daily series over the full 52 weeks yields exactly 365 occurrences
 
 `backend/src/teams/service/events.service.spec.ts`:
 

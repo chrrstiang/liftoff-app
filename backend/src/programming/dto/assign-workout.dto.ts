@@ -36,11 +36,11 @@ export class AssignWorkoutDto {
    * `@IsDateString({ strict: true })` rejects a well-formed impossible date like
    * `2026-02-31` that would otherwise reach Postgres as a 500.
    *
-   * `POST /workouts` takes a full `@IsDateString()` and is fed
-   * `Date.toISOString()` by the client, which means a workout written at 9pm
-   * Eastern is stored on the following UTC day. This route does not repeat that:
-   * "which day does this session belong to" is a question about the lifter's
-   * calendar, not about UTC.
+   * This route was written this way because `POST /workouts` was not: it took a
+   * full `@IsDateString()` and was fed `Date.toISOString()`, so a workout written
+   * at 9pm Eastern was stored on the following UTC day. That has since been fixed
+   * and both routes now agree — "which day does this session belong to" is a
+   * question about the lifter's calendar, not about UTC.
    */
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be of the form YYYY-MM-DD' })
   @IsDateString({ strict: true }, { message: 'date must be a real calendar date' })

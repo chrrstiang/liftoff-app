@@ -227,3 +227,21 @@ export async function assignWorkout(
     { athlete_ids: athleteIds, date },
   );
 }
+
+/** A `Date` as the `YYYY-MM-DD` it represents on the **user's own calendar**.
+ *
+ * ⚠️ Not `toISOString().slice(0, 10)`. That converts to UTC first, so 9pm on the
+ * 5th in New York becomes the 6th — and since `workouts.date` is a Postgres
+ * `date`, the timestamp is then truncated to that wrong day and the workout is
+ * silently filed against it. The coach's own screen still shows the 5th, because
+ * it renders with `toLocaleDateString`, so nothing looks wrong at either end.
+ *
+ * Reading the local getters avoids the conversion entirely. Which day a session
+ * belongs to is a question about the lifter's calendar, not about UTC —
+ * `history-query.dto.ts` makes the same argument from the read side.
+ */
+export function toLocalDateString(date: Date): string {
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}

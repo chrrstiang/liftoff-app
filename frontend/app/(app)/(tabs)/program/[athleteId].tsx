@@ -21,6 +21,7 @@ import {
   createWorkout,
   fetchAthleteWorkouts,
   fetchTemplateWorkouts,
+  toLocalDateString,
   type CreateWorkoutBody,
 } from "@/lib/api/workouts";
 import { useTheme } from "@/theme/useTheme";
@@ -358,7 +359,7 @@ function WorkoutModal({
       };
     });
 
-    onCreateWorkout(workoutName, workoutDate.toISOString(), exercises, true);
+    onCreateWorkout(workoutName, toLocalDateString(workoutDate), exercises, true);
     console.log("📋 [UI] Template workout creation initiated");
     setSelectedTemplate(null);
     setSelectedExercises([]);
@@ -398,7 +399,7 @@ function WorkoutModal({
       })),
     }));
 
-    onCreateWorkout(workoutName, workoutDate.toISOString(), exercises, false);
+    onCreateWorkout(workoutName, toLocalDateString(workoutDate), exercises, false);
     console.log("💪 [UI] Custom workout creation initiated");
     setWorkoutName("");
     setWorkoutDate(new Date());

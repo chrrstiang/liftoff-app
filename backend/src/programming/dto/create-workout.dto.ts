@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -108,7 +109,26 @@ export class CreateWorkoutDto {
   @MaxLength(100)
   name: string;
 
-  @IsDateString()
+  /** The calendar day this session belongs to, as `YYYY-MM-DD`.
+   *
+   * ⚠️ **Date-only, and both decorators are load-bearing.** This used to be a
+   * bare `@IsDateString()`, which accepts a full timestamp — and the client sent
+   * one, via `toISOString()`. Postgres then truncated it to the **UTC** day, so a
+   * coach in US Eastern writing at 9pm on the 5th had the workout stored on the
+   * 6th. Their own screen showed the 5th (`toLocaleDateString`), so nothing
+   * looked wrong at either end; the athlete simply saw it on the wrong day.
+   *
+   * `@Matches` pins the shape so a timestamp is rejected rather than silently
+   * reinterpreted. `@IsDateString({ strict: true })` then rejects a well-formed
+   * impossible date like `2026-02-31`, which would otherwise reach Postgres and
+   * come back as a 500. `AssignWorkoutDto.date` and `HistoryQueryDto.before`
+   * already do exactly this.
+   *
+   * Tightening this alone would have turned a silent wrong-day into a 400 — the
+   * client had to stop sending a timestamp in the same change.
+   */
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be of the form YYYY-MM-DD' })
+  @IsDateString({ strict: true }, { message: 'date must be a real calendar date' })
   date: string;
 
   /** Null or omitted creates a template belonging to the calling coach. */

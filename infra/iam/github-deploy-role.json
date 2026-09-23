@@ -53,6 +53,36 @@
       "Resource": "*"
     },
     {
+      "_comment": [
+        "Running the one-off migration task before the service rolls. Without",
+        "these the deploy ships code to a database that may not have its tables",
+        "-- which is exactly what happened when the maxes work auto-deployed.",
+        "",
+        "RunTask is scoped to the liftoff-migrate family only, so this cannot be",
+        "used to run arbitrary task definitions. DescribeTasks and the log read",
+        "are how the workflow decides pass or fail: a migrate task that fails",
+        "must stop the deploy rather than let it roll over a broken schema."
+      ],
+      "Sid": "RunTheMigrationTaskOnly",
+      "Effect": "Allow",
+      "Action": ["ecs:RunTask", "ecs:DescribeTasks"],
+      "Resource": [
+        "arn:aws:ecs:us-east-2:582908772109:task-definition/liftoff-migrate:*",
+        "arn:aws:ecs:us-east-2:582908772109:task/default/*"
+      ]
+    },
+    {
+      "_comment": [
+        "Reading the migrate task's own output. Scoped to the one log group the",
+        "task writes to; the workflow prints it whether the task passed or",
+        "failed, because a failure with no log is unactionable."
+      ],
+      "Sid": "ReadMigrationTaskLogs",
+      "Effect": "Allow",
+      "Action": ["logs:GetLogEvents"],
+      "Resource": ["arn:aws:logs:us-east-2:582908772109:log-group:/ecs/liftoff-api:*"]
+    },
+    {
       "Sid": "RollTheExpressServiceToTheNewImage",
       "Effect": "Allow",
       "Action": [

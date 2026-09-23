@@ -330,7 +330,7 @@ Same applies to `exercise_templates`, which has no producer either.
 
 ## 🟡 Correctness and data integrity
 
-### 8. A reject racing an accept leaves the athlete on the roster
+### 8. ~~A reject racing an accept leaves the athlete on the roster~~ — FIXED
 
 `coach-requests.service.ts` → `respondToRequest` reads `request.status` **outside**
 the transaction, then inside guards only the UPDATE with `where status = 'pending'`.
@@ -342,8 +342,13 @@ still runs and inserts the relationship. Result: a request marked `rejected` wit
 an **active coach↔athlete relationship beside it** — the athlete declined and is
 on the roster anyway.
 
-**Fix:** check the UPDATE's row count and skip the insert when it is 0, so the
-compare-and-swap gates both writes rather than only the first.
+**Fixed.** The UPDATE now `.returning()`s, and an empty result short-circuits the
+transaction — so the compare-and-swap gates both writes rather than only the
+first. Whoever answered first wins; the loser is dropped silently rather than
+fighting over it.
+
+Pinned by a test that was **verified to fail without the fix**, which for a race
+matters more than usual: a test that only describes the sequence proves nothing.
 
 ### 9. Duplicate pending invites are possible under a race
 

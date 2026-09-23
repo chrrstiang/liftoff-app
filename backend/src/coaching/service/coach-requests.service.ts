@@ -139,10 +139,34 @@ export class CoachRequestsService {
     }
 
     await this.db.transaction(async (tx) => {
-      await tx
+      /** ⚠️ The UPDATE is a compare-and-swap, and its result must gate the INSERT.
+       *
+       * `request.status` was read **outside** this transaction. The UPDATE was
+       * already guarded by `status = 'pending'`, so it correctly did nothing if
+       * someone else had responded first — but the INSERT below was guarded by
+       * that stale variable instead, and ran anyway.
+       *
+       * The losing sequence: two responses race, the **reject** commits first and
+       * flips the row to `rejected`, then the accept's UPDATE matches **0 rows**
+       * and its `status === 'accepted'` branch inserts the relationship regardless.
+       * Result: a request marked `rejected` sitting beside an **active**
+       * coach↔athlete relationship. The athlete declined and was on the roster
+       * anyway — and there is no way to leave a roster.
+       *
+       * Reading the row count is what makes the compare-and-swap gate both writes
+       * rather than only the first.
+       */
+      const updated = await tx
         .update(coachRequests)
         .set({ status, updatedAt: new Date() })
-        .where(and(eq(coachRequests.id, requestId), eq(coachRequests.status, 'pending')));
+        .where(and(eq(coachRequests.id, requestId), eq(coachRequests.status, 'pending')))
+        .returning({ id: coachRequests.id });
+
+      if (updated.length === 0) {
+        // Someone else resolved it between our read and this write. Their answer
+        // stands; ours is dropped silently rather than fighting over it.
+        return;
+      }
 
       if (status === 'accepted') {
         await tx

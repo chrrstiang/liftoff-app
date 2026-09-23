@@ -250,7 +250,7 @@ Two corrections to this finding, found while fixing it:
 - **The two history screens were already correct**, using `isError` rather than
   `error`. My original scan grepped for the wrong idiom and undercounted them.
 
-### 5. Workouts created in the evening are filed a day late
+### 5. ~~Workouts created in the evening are filed a day late~~ — FIXED
 
 The core programming flow has a timezone bug, and it is the mirror of one the
 history code was written to avoid.
@@ -276,10 +276,14 @@ in the wrong day for anyone west of Greenwich."* The read path was made careful;
 the write path was not. `POST /workouts/:id/assign` (#38) does it correctly and is
 the model to copy.
 
-**Fix:** send a date-only `YYYY-MM-DD` built from the picker's **local** fields,
-and tighten the DTO to `@Matches(/^\d{4}-\d{2}-\d{2}$/)` as `before` and
-`AssignWorkoutDto.date` already are. Both halves — tightening only the DTO turns a
-silent wrong-day into a 400.
+**Fixed, both halves in one change** — which was the point. The client now sends
+a date-only `YYYY-MM-DD` built from the picker's **local** calendar fields via
+`toLocalDateString`, and the DTO is tightened to `@Matches(/^\d{4}-\d{2}-\d{2}$/)`
+plus `@IsDateString({ strict: true })`, matching `before` and `AssignWorkoutDto.date`.
+
+Tightening only the server would have converted a silent wrong-day into a 400 on
+every workout creation; changing only the client would have left the hole open for
+the next caller.
 
 ### 6. There is no password reset, and signup makes the lockout easy
 

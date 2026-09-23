@@ -13,8 +13,8 @@ features:
 1. ~~**Any signed-in user can DM any other user.**~~ **Fixed** — creation now
    requires an active coach/athlete relationship, and athlete search is coach-only.
    A block list is still unscoped.
-2. **A returning user on a bad connection is dropped into the signup form** — and
-   if they fill it in, it 400s on the primary key and they are stuck.
+2. ~~**A returning user on a bad connection is dropped into the signup form.**~~
+   **Fixed** — the gate now holds on an unknown profile instead of guessing.
 3. **Production is very likely broken right now.** Merging tonight's PRs
    auto-deployed code that needs migration 0003, and nothing in the deploy
    pipeline applies migrations. The workout detail screen and all of maxes are
@@ -85,7 +85,7 @@ Still worth scoping separately: **a block list**. This makes unsolicited contact
 impossible between strangers; it does not give anyone a way out of a conversation
 they no longer want.
 
-### 2. A returning user on a bad connection is sent to create-profile — and gets stuck
+### 2. ~~A returning user on a bad connection is sent to create-profile~~ — FIXED
 
 `contexts/AuthContext.tsx:51` initialises `isProfileComplete` to `false`, and
 `loadProfile` deliberately does not set it on a non-404 failure. The intent is
@@ -110,10 +110,15 @@ not upsert — so submitting the form against an existing row fails on the prima
 key and surfaces as a 400 reading `23505 - Key (id)=(…) already exists`. The user
 is on a screen they cannot leave and cannot complete.
 
-**Fix:** make the state tri-valued (`true | false | null` for "not yet known") and
-have the gate hold the loading screen, or show a reachability error with a retry,
-while it is `null`. The distinction the comment reaches for only exists if
-"unknown" is representable.
+**Fixed.** `isProfileComplete` is now `boolean | null`, starting at `null`, and a
+non-404 failure leaves it there. The gate checks `=== null` **explicitly** — the
+subtlety being that `null` is falsy, so every existing `!isProfileComplete` would
+otherwise have gone on treating unknown as incomplete and TypeScript would not
+have said a word.
+
+While it is null the gate **holds** rather than routing, and if there is a known
+cause it shows a reachability error with a retry instead of an indefinite spinner.
+Holding is always recoverable; routing to create-profile is not.
 
 ### 3. Deploying now would ship code against a database that lacks its tables
 

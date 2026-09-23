@@ -1,5 +1,5 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, ilike, inArray } from 'drizzle-orm';
 import { DRIZZLE, type Database } from 'src/db/db.module';
 import { coaches, exerciseDefaultSetTemplates, exerciseTemplates, exercises } from 'src/db/schema';
 
@@ -38,12 +38,48 @@ export class ExercisesService {
   async createExercise(name: string, callerId: string) {
     await this.assertCoach(callerId);
 
-    const [created] = await this.db
-      .insert(exercises)
-      .values({ name, createdBy: callerId })
-      .returning({ id: exercises.id, name: exercises.name });
+    /** ⚠️ Idempotent on name, rather than erroring.
+     *
+     * A coach typing "Back Squat" into the workout builder when they already have
+     * one means "use that one" — they are not asking to create a second. Before
+     * the unique index they *got* a second, and with maxes keyed on `exercise_id`
+     * that quietly split their athlete's squat max in two.
+     *
+     * Returning the existing row is friendlier than a 400 and is what was meant.
+     * The index is what makes it safe under a race: two concurrent creates cannot
+     * both insert, and the loser falls into the same lookup below.
+     *
+     * Case-insensitive to match the index — "back squat" is not a new lift.
+     */
+    const [existing] = await this.db
+      .select({ id: exercises.id, name: exercises.name })
+      .from(exercises)
+      .where(and(eq(exercises.createdBy, callerId), ilike(exercises.name, name)))
+      .limit(1);
 
-    return created;
+    if (existing) return existing;
+
+    try {
+      const [created] = await this.db
+        .insert(exercises)
+        .values({ name, createdBy: callerId })
+        .returning({ id: exercises.id, name: exercises.name });
+
+      return created;
+    } catch (error) {
+      // Lost a race against another create. The winner's row is what both
+      // callers wanted, so return it rather than failing the second one.
+      if (isUniqueViolation(error)) {
+        const [winner] = await this.db
+          .select({ id: exercises.id, name: exercises.name })
+          .from(exercises)
+          .where(and(eq(exercises.createdBy, callerId), ilike(exercises.name, name)))
+          .limit(1);
+
+        if (winner) return winner;
+      }
+      throw error;
+    }
   }
 
   private async assertCoach(callerId: string): Promise<void> {
@@ -131,4 +167,10 @@ export class ExercisesService {
 
     return [...byExercise.values()];
   }
+}
+
+/** Postgres `unique_violation`. Narrowed by code rather than message, since
+ * messages are localised and change between versions. */
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
 }

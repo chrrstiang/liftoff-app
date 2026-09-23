@@ -293,7 +293,30 @@ export const exercises = pgTable(
       .references(() => coaches.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('exercises_created_by_idx').on(table.createdBy)],
+  (table) => [
+    index('exercises_created_by_idx').on(table.createdBy),
+    /** One exercise of a given name per coach, case-insensitively.
+     *
+     * ⚠️ **This became load-bearing when maxes arrived.** Nothing stopped a coach
+     * ending up with three rows called "Back Squat" — created on three different
+     * days from the workout builder, each with its own uuid. Harmless while an
+     * exercise was just a label; now `athlete_maxes` keys on `exercise_id`, so
+     * those three rows accumulate **three separate squat maxes** for the same
+     * athlete doing the same lift, and a percentage prescription resolves against
+     * whichever duplicate the coach happened to pick that week.
+     *
+     * The per-exercise decision (roadmap Q4) accepted fragmentation as the price
+     * of modelling variations that genuinely differ — a tempo squat is not a comp
+     * squat. It did not accept it for accidental duplicates of the same one.
+     *
+     * `lower(name)` because "Back Squat" and "back squat" are the same lift to
+     * everyone except a byte comparison.
+     */
+    uniqueIndex('exercises_created_by_lower_name_uniq').on(
+      table.createdBy,
+      sql`lower(${table.name})`,
+    ),
+  ],
 );
 
 export const exerciseTemplates = pgTable(

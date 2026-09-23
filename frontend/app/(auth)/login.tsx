@@ -1,28 +1,35 @@
-import { Button, Input, Screen, Text } from "@/components/ui";
+import { Button, FormError, Input, Screen, Text } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
+import { describeAuthError, validateCredentials } from "@/lib/auth-errors";
 import { Link } from "expo-router";
 import { useState } from "react";
-import { Alert, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
+  const [formError, setFormError] = useState<string | null>(null);
   const { login } = useAuth();
 
   async function handleSignIn() {
+    /* No length rule here — only presence. An account made before the signup
+       minimum existed still has a short password, and refusing to submit it
+       would lock its owner out of their own app. */
+    const problems = validateCredentials({ email, password });
+    setFieldErrors(problems);
+    setFormError(null);
+    if (Object.keys(problems).length > 0) return;
+
     setSubmitting(true);
     try {
-      await login(email, password);
+      await login(email.trim(), password);
       // No manual navigation: the auth gate in app/_layout.tsx owns the
       // redirect, and pushing here would race it.
     } catch (error) {
       console.error("Login failed:", error);
-      Alert.alert(
-        "Login Failed",
-        "Please check your credentials and try again.",
-        [{ text: "OK", style: "cancel" }],
-      );
+      setFormError(describeAuthError(error, "Could not sign you in. Try again in a moment."));
     } finally {
       setSubmitting(false);
     }
@@ -50,6 +57,7 @@ export default function Login() {
             textContentType="emailAddress"
             value={email}
             onChangeText={setEmail}
+            error={fieldErrors.email}
           />
 
           <Input
@@ -61,8 +69,13 @@ export default function Login() {
             textContentType="password"
             value={password}
             onChangeText={setPassword}
+            error={fieldErrors.password}
           />
         </View>
+
+        {formError ? (
+          <FormError message={formError} />
+        ) : null}
 
         <Button
           label="Sign in"

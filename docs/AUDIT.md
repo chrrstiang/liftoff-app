@@ -287,23 +287,38 @@ the next caller.
 
 ### 6. There is no password reset, and signup makes the lockout easy
 
-No `resetPasswordForEmail`, no "forgot password" link, no recovery route anywhere.
-Compounding it:
+**The three ways in are fixed. The way out is not** — see the deep-link note below.
 
-- **No confirm-password field**, so a typo at signup is silent.
-- **No client-side validation** — the placeholder promises "At least 8 characters"
-  and nothing enforces it; Supabase's own default minimum is 6.
-- **Both screens show the same generic error** for everything. Supabase
-  distinguishes `User already registered`, so a returning user who forgot they had
-  an account is told their *password* is wrong and goes off guessing passwords
-  instead of logging in.
+~~**No confirm-password field**, so a typo at signup is silent.~~ **Fixed.**
 
-Net effect: mistype your password at signup and your only recovery is a second
-account on a different email.
+~~**No client-side validation**~~ — **Fixed.** `lib/auth-errors.ts` holds
+`validateCredentials`, and the placeholder that promised "At least 8 characters"
+is now generated from the `MIN_PASSWORD_LENGTH` that enforces it. The length rule
+runs at **signup only**: an account made before it existed still has a short
+password, and refusing to submit one would lock its owner out of their own app.
 
-**Note before scoping it:** `app.json` currently has **no `scheme`** — magic-link
+~~**Both screens show the same generic error**~~ — **Fixed.** `AuthContext` was
+wrapping every `AuthError` in `new Error("Failed to sign up: " + …)`, which kept the
+message and dropped `code` — the only part worth branching on. Both now rethrow
+as-is, and `describeAuthError` maps `user_already_exists`, `invalid_credentials`,
+`email_not_confirmed`, `weak_password` and the rate limit to their own sentences.
+The signup screen puts a **"Go to sign in"** link inside the already-registered
+message, which is the whole point: the user who hits it is one tap from the thing
+they actually wanted.
+
+⚠️ **One trap found while fixing it.** Signing up with an address that already
+exists returns **no error at all** when email confirmation is on — Supabase
+obfuscates it deliberately to stop user enumeration, and an empty `identities`
+array on the returned user is the only tell. Unhandled, that user was bounced to
+create-profile with no session and no explanation. `AuthContext` now raises an
+`AuthFailure` for it.
+
+**Still open: the reset flow itself.** `app.json` has **no `scheme`** — magic-link
 auth was removed and nothing calls `makeRedirectUri` — so a reset deep link needs
-that added back and the Supabase redirect allowlist updated. Not a one-hour job.
+that added back, a native rebuild, *and* an entry in the Supabase dashboard's
+redirect allowlist. The last one is not something the repo can do. Until then a
+forgotten password is still unrecoverable; the fixes above only stop you creating
+one by accident.
 
 ### 7. Workout templates cannot be created from the app at all
 

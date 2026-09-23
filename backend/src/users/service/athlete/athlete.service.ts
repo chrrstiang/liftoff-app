@@ -1,4 +1,10 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { User } from '@supabase/supabase-js';
 import { and, eq, ilike, ne, notInArray, or } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
@@ -7,6 +13,7 @@ import {
   athletes,
   coachAthleteRelationships,
   coachRequests,
+  coaches,
   divisions,
   federations,
   users,
@@ -322,6 +329,18 @@ export class AthleteService {
    * database, which is a listing endpoint nobody asked for.
    */
   async searchAthletes(query: string, callerId: string, limit = 20) {
+    // ⚠️ Coach-only, and this is the second half of closing the conversation
+    // hole. `callerId` was previously used only to *exclude* athletes the caller
+    // had already invited -- it never established that the caller was a coach at
+    // all. So any signed-in user could enumerate every athlete's name, username,
+    // federation and weight class, and the ids this returns were step one of
+    // opening an unsolicited thread with any of them.
+    //
+    // `POST /exercises` and `POST /workouts` both gate on being a coach already;
+    // this is the same rule, and it matches the UI -- the Roster tab that calls
+    // this is behind `Tabs.Protected guard={profile.is_coach}`.
+    await this.assertCoach(callerId);
+
     const term = query.trim();
     if (!term) return [];
 
@@ -373,5 +392,24 @@ export class AthleteService {
         ),
       )
       .limit(Math.min(limit, 50));
+  }
+  /** Only a coach may search the athlete directory.
+   *
+   * 403 rather than 404 deliberately, and it is the exception to this codebase's
+   * 404-over-403 rule rather than a violation of it: that rule protects the
+   * existence of a *resource* the caller has no claim on. Here there is no
+   * resource in the request at all -- the caller is being told something about
+   * their own account, which they already know.
+   */
+  private async assertCoach(callerId: string): Promise<void> {
+    const [isCoach] = await this.db
+      .select({ id: coaches.id })
+      .from(coaches)
+      .where(eq(coaches.id, callerId))
+      .limit(1);
+
+    if (!isCoach) {
+      throw new ForbiddenException('Only a coach can search athletes');
+    }
   }
 }

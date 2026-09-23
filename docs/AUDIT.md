@@ -372,7 +372,7 @@ race or simply asked twice — from their side those are the same thing.
 Verified against local Postgres: re-inviting after a rejection is still allowed,
 a second *pending* invitation for the same pair is refused.
 
-### 10. Duplicate exercise names split an athlete's max
+### 10. ~~Duplicate exercise names split an athlete's max~~ — FIXED
 
 `exercises` has no uniqueness on `(created_by, name)` and `createExercise` inserts
 without checking, so one coach's library can hold three rows called "Back Squat".
@@ -385,9 +385,26 @@ week.
 The per-exercise decision (roadmap Q4) accepted fragmentation as a cost for
 genuinely different *variations* — not for accidental duplicates of one.
 
-**Fix:** a unique index on `(created_by, lower(name))`, preceded by a dedupe
-migration exactly like the `coach_athlete_relationships` one in #31. Cheaper half:
-surface existing matches in the exercise picker before offering "create new".
+**Fixed**, both halves:
+
+1. A unique index on `(created_by, lower(name))` — case-insensitive, because
+   "back squat" is not a new lift.
+2. `createExercise` is now **idempotent on name**: a coach typing one they already
+   have gets that row back rather than a second one, which is what they meant.
+   A lost race returns the winner's row, since that is the same outcome both
+   callers wanted.
+
+⚠️ **The migration is a merge, not a delete.** Three rows called "Back Squat" may
+each be referenced by workouts, templates and maxes, so deleting two would either
+violate the foreign keys or orphan real training data. It picks the oldest as
+keeper, repoints `workout_exercises`, `exercise_templates` and `athlete_maxes`,
+then deletes the losers. `athlete_maxes` is repointed **last and behind a conflict
+guard**, since it is the only one of the three carrying a uniqueness rule of its
+own — an athlete holding a max against two duplicates would otherwise violate it.
+
+Verified against local Postgres with duplicates that were genuinely referenced,
+including the two-maxes collision: 3 exercises → 1, every reference repointed, the
+colliding max resolved to the keeper's.
 
 ### 11. `actual_load` has no upper bound
 

@@ -214,7 +214,7 @@ transaction (`coach-requests.service.ts:141`), never from client input.
 
 | Endpoint | Rule enforced | Where | Outsider assertion | Anon |
 |---|---|---|---|---|
-| `POST /conversations` | server owns membership; self-chat is 400 | `conversations.service.ts:50,91` | `coaching:373` (client `sender_id` rejected) | `coaching:477` |
+| `POST /conversations` | **an active coach/athlete relationship between the two, either direction** → 404. Server owns membership; self-chat is 400 | `conversations.service.ts` | `coaching:373` (client `sender_id` rejected) | `coaching:477` |
 | `GET /conversations` | `eq(conversationMembers.userId, callerId)` | `conversations.service.ts:148` | `coaching:413,424` | `coaching:477` |
 | `GET /conversations/:id/messages` | `assertMember` → 404 | `conversations.service.ts:158` | `coaching:387` | `coaching:477` |
 | `POST /conversations/:id/messages` | `assertMember` → 404 | `conversations.service.ts:193` | `coaching:390,394` | `coaching:477` |

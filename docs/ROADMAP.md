@@ -245,9 +245,12 @@ e1RM work and the WebSocket work compete for the same weekend, e1RM wins.
 
 ## 6. Open questions
 
-1. **When is the next training-block or semester boundary?** Migration should happen at one,
-   not mid-block. Still no date — but **answered in the loose sense on 2026-09-20: months,
-   not weeks.**
+1. ~~**When is the next training-block or semester boundary?**~~ **Answered 2026-09-23:
+   target ~30 days, so approximately 2026-10-23.**
+
+   That is the date everything else schedules backwards from. What it buys, concretely: the
+   audit's blocking findings get fixed first, then on-device testing, and only after that does
+   anything below the line start.
 
    That is the scoping answer that matters most, and it changes the plan: there is room to
    build item 2 properly rather than cutting corners, to fix the `create-profile.tsx` bugs

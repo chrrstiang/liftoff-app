@@ -1,10 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { User } from '@supabase/supabase-js';
 import { eq } from 'drizzle-orm';
 import { AthleteService } from './athlete.service';
 import { DRIZZLE } from 'src/db/db.module';
 import { athletes } from 'src/db/schema';
+import { makeTestDb, type TestDb } from 'src/db/testing/db-mock';
 
 /** Tests for the `?data=` sparse-fieldset compiler.
  *
@@ -315,5 +316,65 @@ describe('AthleteService - updateOwnProfile', () => {
       'Federation not found',
     );
     expect(updateCalls).toHaveLength(0);
+  });
+});
+
+/** Who may search the athlete directory.
+ *
+ * ⚠️ This was ungated. `callerId` was used only to *exclude* athletes the caller
+ * had already invited — it never established that the caller was a coach — so any
+ * signed-in user could enumerate every athlete's name, username, federation and
+ * weight class. The ids it returns were also step one of opening an unsolicited
+ * conversation with any of them, which is the other half of the same hole.
+ */
+describe('AthleteService - searchAthletes', () => {
+  const COACH = '11111111-1111-4111-8111-111111111111';
+  const NOT_A_COACH = '22222222-2222-4222-8222-222222222222';
+
+  let harness: TestDb;
+  let service: AthleteService;
+
+  async function build(script: Parameters<typeof makeTestDb>[0]) {
+    harness = makeTestDb(script);
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [AthleteService, { provide: DRIZZLE, useValue: harness.db }],
+    }).compile();
+
+    service = module.get<AthleteService>(AthleteService);
+  }
+
+  it('refuses a caller with no coaches row', async () => {
+    await build({ coaches: [[]] });
+
+    await expect(service.searchAthletes('smith', NOT_A_COACH)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('allows a coach', async () => {
+    await build({ coaches: [[{ id: COACH }]], users: [[]] });
+
+    await expect(service.searchAthletes('smith', COACH)).resolves.toEqual([]);
+  });
+
+  /** ⚠️ The coach check must come **before** the empty-term short-circuit.
+   * Otherwise a non-coach probing with an empty query gets a clean `[]` rather
+   * than a refusal, which tells them the endpoint is open to them and is exactly
+   * the kind of thing that gets "optimised" back the wrong way later. */
+  it('checks the caller is a coach before short-circuiting on an empty term', async () => {
+    await build({ coaches: [[]] });
+
+    await expect(service.searchAthletes('   ', NOT_A_COACH)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('issues no writes', async () => {
+    await build({ coaches: [[{ id: COACH }]], users: [[]] });
+
+    await service.searchAthletes('smith', COACH);
+
+    expect(harness.writes).toHaveLength(0);
   });
 });

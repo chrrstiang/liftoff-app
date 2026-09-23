@@ -1,7 +1,13 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { DRIZZLE, type Database } from 'src/db/db.module';
-import { conversationMembers, conversations, messages, users } from 'src/db/schema';
+import {
+  coachAthleteRelationships,
+  conversationMembers,
+  conversations,
+  messages,
+  users,
+} from 'src/db/schema';
 
 /** Conversations and messages.
  *
@@ -16,6 +22,48 @@ import { conversationMembers, conversations, messages, users } from 'src/db/sche
 @Injectable()
 export class ConversationsService {
   constructor(@Inject(DRIZZLE) private readonly db: Database) {}
+
+  /** True when these two users are in an **active** coach/athlete relationship,
+   * in either direction.
+   *
+   * Bidirectional on purpose, and that is why this is not
+   * `isActiveCoachOf` from `programming-access.ts`: that answers "is A the coach
+   * of B", which is the right question for programming and the wrong one here.
+   * A coach messaging their athlete and an athlete messaging their coach are the
+   * same conversation, and neither side should have to be the one to start it.
+   *
+   * `pending` deliberately does not count, matching `isActiveCoachOf`: an
+   * unaccepted invite is not a relationship, and treating it as one would make
+   * "send an invite" a way to open a channel to someone who has not agreed to it.
+   *
+   * ⚠️ This gates **creation only**. Conversations that already exist keep
+   * working through `assertMember`, so tightening this rule cannot cut anyone off
+   * from a thread they are already in -- including one created before the rule
+   * existed, or one that outlives the relationship that justified it.
+   */
+  private async areCoached(a: string, b: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: coachAthleteRelationships.id })
+      .from(coachAthleteRelationships)
+      .where(
+        and(
+          eq(coachAthleteRelationships.status, 'active'),
+          or(
+            and(
+              eq(coachAthleteRelationships.coachId, a),
+              eq(coachAthleteRelationships.athleteId, b),
+            ),
+            and(
+              eq(coachAthleteRelationships.coachId, b),
+              eq(coachAthleteRelationships.athleteId, a),
+            ),
+          ),
+        ),
+      )
+      .limit(1);
+
+    return Boolean(row);
+  }
 
   /** True when the caller is a member. The single gate every other method uses. */
   private async assertMember(conversationId: string, callerId: string): Promise<void> {
@@ -58,6 +106,14 @@ export class ConversationsService {
       .limit(1);
 
     if (!participant) {
+      throw new NotFoundException(`User with ID ${participantId} could not be found`);
+    }
+
+    // ⚠️ The check this method existed without. Everything downstream of a
+    // conversation is correctly gated on membership -- but membership itself was
+    // created on demand for any two user ids, so `assertMember` was guarding a
+    // door the caller had already walked through.
+    if (!(await this.areCoached(callerId, participantId))) {
       throw new NotFoundException(`User with ID ${participantId} could not be found`);
     }
 

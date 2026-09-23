@@ -10,9 +10,9 @@ where that happened, it says so.
 Three items would change what a real user experiences, and none of them are
 features:
 
-1. **Any signed-in user can DM any other user.** No relationship check on
-   conversation creation, and athlete search is not coach-gated either. On an app
-   for ~50 students with no block and no report, this is a safety question.
+1. ~~**Any signed-in user can DM any other user.**~~ **Fixed** — creation now
+   requires an active coach/athlete relationship, and athlete search is coach-only.
+   A block list is still unscoped.
 2. **A returning user on a bad connection is dropped into the signup form** — and
    if they fill it in, it 400s on the primary key and they are stuck.
 3. **Production is very likely broken right now.** Merging tonight's PRs
@@ -42,7 +42,7 @@ in those PRs and are listed separately at the end so the record is complete.
 
 ## 🔴 Fix before real users
 
-### 1. Any signed-in user can DM any other user
+### 1. ~~Any signed-in user can DM any other user~~ — FIXED
 
 `messaging/service/conversations.service.ts` → `createConversation` checks two
 things: that you are not messaging yourself, and that the target exists. **There
@@ -70,11 +70,20 @@ Unsolicited messaging between students, with no block and no report, is a safety
 question rather than a missing feature, and it needs answering before the app is
 in real hands rather than after.
 
-**Fix:** require an active `coach_athlete_relationships` row in
-`createConversation` — a handful of lines reusing `isActiveCoachOf`, and it
-matches the product as described ("athletes message their coach"). Add
-`assertCoach` to `searchAthletes` while you are there; it closes the chain at its
-source and costs two lines. A block list is worth scoping separately.
+**Fixed.** `createConversation` now requires an active relationship between the
+two users in **either** direction — a bidirectional check rather than
+`isActiveCoachOf`, because a coach messaging their athlete and an athlete
+messaging their coach are the same conversation and neither side should have to
+be the one to start it. `searchAthletes` now asserts the caller is a coach,
+closing the chain at its source.
+
+The gate is on **creation only**: existing conversations keep working through
+`assertMember`, so the tightening cannot cut anyone off from a thread they are
+already in — including one that outlives the relationship that justified it.
+
+Still worth scoping separately: **a block list**. This makes unsolicited contact
+impossible between strangers; it does not give anyone a way out of a conversation
+they no longer want.
 
 ### 2. A returning user on a bad connection is sent to create-profile — and gets stuck
 

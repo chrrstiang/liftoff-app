@@ -464,15 +464,42 @@ linked, permanently. On a university team that means a graduating coach keeps re
 access to every athlete's training indefinitely — and #35 widened what that access
 covers.
 
-### 14. Set logging has no optimistic update, and it is the most frequent action
+### 14. ~~Set logging has no optimistic update, and it is the most frequent action~~ — FIXED
 
-`workout/[workoutId].tsx:426` — `updateSetMutation` has only `onSuccess`, which
-invalidates the whole workout. So every logged set costs a round trip **plus a full
-refetch** before the UI moves, 20+ times a session, on gym wifi.
+*The heading overstated it, and fixing it turned up something worse.* The UI **did**
+move immediately — but through `localWorkout`, a `useState` mirror of the query
+data, not through the cache. That shadow copy is what made the real bugs:
 
-The tell is the inconsistency: `addExerciseMutation` directly below it **is**
-optimistic with snapshot and rollback. Adding an exercise feels instant; logging a
-set does not. The pattern to copy is in the same file.
+- **A failed save looked saved.** `updateSetMutation` had no `onError`, so nothing
+  ever put `localWorkout` back. The set stayed on screen, ticked and filled in, and
+  the athlete found out days later when their coach asked where the numbers were.
+- **`onSuccess` invalidated the whole workout after every set**, and the refetch ran
+  through a `useEffect` that overwrote `localWorkout` wholesale. A set typed while
+  that refetch was in flight was reverted under the athlete's hands.
+- **`addExerciseMutation`'s optimistic update was invisible.** It wrote to the query
+  cache correctly, with a snapshot and rollback — but the screen rendered from
+  `localWorkout`, so nothing appeared until the refetch landed and the effect copied
+  it across. The code that looked like the pattern to copy was itself dead.
+- `handleUpdateSet` called `mutateAsync` with no `catch`, so every failure was also
+  an unhandled rejection.
+
+**Fixed** by deleting `localWorkout` and making the query cache the single source of
+truth. `updateSetMutation` gets `onMutate` / `onSuccess` / `onError`, and a failure
+now raises an `Alert` as well as rolling back.
+
+Two details worth keeping:
+
+- **Rollback is per-set, not a whole-workout snapshot.** An athlete tapping through
+  a superset can have two saves in flight; restoring a snapshot on one failure would
+  silently discard the other's edit.
+- **`onSuccess` merges the response, it does not assign it.** `PATCH /sets/:id`
+  returns only the five columns it writes, so replacing the set would drop
+  `prescribed_reps` and the resolved load. The `api.patch<Set>` annotation claims
+  otherwise and is wrong.
+
+The per-set `invalidateQueries` is gone with it: the cache already holds the
+server's own answer, so re-downloading the workout 20+ times a session bought
+nothing.
 
 ---
 

@@ -2,6 +2,7 @@ import { Button, DataTable, EmptyState, Input, QueryError, Screen, Section, Shee
 import { ExerciseHistorySheet } from "@/components/ExerciseHistorySheet";
 import { useAuth } from "@/contexts/AuthContext";
 import { createExercise } from "@/lib/api/exercises";
+import { describeApiError } from "@/lib/api/client";
 import { fetchWorkoutById, updateSet } from "@/lib/api/workouts";
 import { useTheme } from "@/theme/useTheme";
 import {
@@ -15,9 +16,10 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
 import { Dumbbell, Plus } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   useWindowDimensions,
@@ -391,34 +393,69 @@ export default function WorkoutDetails() {
   const { workoutId } = useLocalSearchParams<{ workoutId: string }>();
   const queryClient = useQueryClient();
   const { colors } = useTheme();
-  const [localWorkout, setLocalWorkout] = useState<Workout | null>(null);
   const [showAddExerciseModal, setShowAddExerciseModal] = useState(false);
   const { user } = useAuth();
+
+  const workoutKey = ["workout", workoutId];
 
   // fetching workout by id
   const {
     data: workout,
     isLoading,
-    isSuccess,
     error: workoutError,
     refetch: refetchWorkout,
   } = useQuery<Workout>({
-    queryKey: ["workout", workoutId],
+    queryKey: workoutKey,
     queryFn: () => fetchWorkoutById(workoutId),
   });
 
-  // update local state with workout data
-  useEffect(() => {
-    if (isSuccess) {
-      setLocalWorkout(workout);
-    }
-  }, [isSuccess, workout]);
+  /** Rewrites one set inside the cached workout, leaving everything else alone. */
+  const patchCachedSet = (setId: string, patch: Partial<Set>) => {
+    queryClient.setQueryData<Workout>(workoutKey, (old) => {
+      if (!old) return old;
 
-  // mutation handling for set logging
+      return {
+        ...old,
+        workout_exercises: old.workout_exercises.map((we) => ({
+          ...we,
+          sets: we.sets.map((s) => (s.id === setId ? { ...s, ...patch } : s)),
+        })),
+      };
+    });
+  };
+
+  /* Set logging is the app's most frequent action — 20+ times a session, on gym
+     wifi, from a phone balanced on a bench. It has to land instantly and it has
+     to be honest when it doesn't.
+
+     Rollback is per-set rather than a whole-workout snapshot on purpose: an
+     athlete tapping through a superset can have two saves in flight, and
+     restoring a snapshot would silently discard the other one's edit. */
   const updateSetMutation = useMutation({
     mutationFn: (updatedSet: Set) => updateSet(updatedSet),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workout", workoutId] });
+    onMutate: async (updatedSet) => {
+      await queryClient.cancelQueries({ queryKey: workoutKey });
+
+      const previous = queryClient
+        .getQueryData<Workout>(workoutKey)
+        ?.workout_exercises.flatMap((we) => we.sets)
+        .find((s) => s.id === updatedSet.id);
+
+      patchCachedSet(updatedSet.id, updatedSet);
+      return { previous };
+    },
+    /* The server returns only the five columns it writes, so this merges rather
+       than replaces — assigning the response would drop prescribed_reps and the
+       resolved load off the set. */
+    onSuccess: (saved) => {
+      if (saved?.id) patchCachedSet(saved.id, saved);
+    },
+    onError: (error, updatedSet, context) => {
+      if (context?.previous) patchCachedSet(updatedSet.id, context.previous);
+
+      /* Without this the set stays on screen looking saved, and the athlete
+         finds out it wasn't days later when their coach asks. */
+      Alert.alert("Not saved", describeApiError(error, "Could not save that set."));
     },
   });
 
@@ -427,17 +464,14 @@ export default function WorkoutDetails() {
     mutationFn: (exerciseData: ExerciseFormData) =>
       createExercise(exerciseData),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workout", workoutId] });
+      queryClient.invalidateQueries({ queryKey: workoutKey });
       setShowAddExerciseModal(false);
     },
     onMutate: async (newExercise) => {
-      await queryClient.cancelQueries({ queryKey: ["workout", workoutId] });
-      const previousWorkout = queryClient.getQueryData<Workout>([
-        "workout",
-        workoutId,
-      ]);
+      await queryClient.cancelQueries({ queryKey: workoutKey });
+      const previousWorkout = queryClient.getQueryData<Workout>(workoutKey);
 
-      queryClient.setQueryData<Workout>(["workout", workoutId], (old) => {
+      queryClient.setQueryData<Workout>(workoutKey, (old) => {
         if (!old) return old;
 
         return {
@@ -472,30 +506,14 @@ export default function WorkoutDetails() {
     },
     onError: (error, newExercise, context) => {
       if (context?.previousWorkout) {
-        queryClient.setQueryData(
-          ["workout", workoutId],
-          context.previousWorkout,
-        );
+        queryClient.setQueryData(workoutKey, context.previousWorkout);
       }
-      console.error("Error adding exercise", error);
+      Alert.alert("Not saved", describeApiError(error, "Could not add that exercise."));
     },
   });
 
-  const handleUpdateSet = async (updatedSet: Partial<Set>) => {
-    if (!localWorkout) return;
-
-    const updatedWorkout = {
-      ...localWorkout,
-      workout_exercises: localWorkout.workout_exercises.map((we) => ({
-        ...we,
-        sets: we.sets.map((s) =>
-          s.id === updatedSet.id ? { ...s, ...updatedSet } : s,
-        ),
-      })),
-    };
-
-    setLocalWorkout(updatedWorkout);
-    await updateSetMutation.mutateAsync(updatedSet as Set);
+  const handleUpdateSet = (updatedSet: Partial<Set>) => {
+    updateSetMutation.mutate(updatedSet as Set);
   };
 
   const handleSaveExercise = (exerciseData: ExerciseFormData) => {
@@ -504,8 +522,8 @@ export default function WorkoutDetails() {
       ...exerciseData,
       workout_id: workoutId,
       created_by: user?.id,
-      order: localWorkout?.workout_exercises?.length
-        ? localWorkout?.workout_exercises?.length + 1
+      order: workout?.workout_exercises?.length
+        ? workout.workout_exercises.length + 1
         : 1,
     };
 
@@ -537,7 +555,7 @@ export default function WorkoutDetails() {
     );
   }
 
-  const exercises = localWorkout?.workout_exercises ?? [];
+  const exercises = workout?.workout_exercises ?? [];
 
   return (
     <Screen scroll>
@@ -572,7 +590,7 @@ export default function WorkoutDetails() {
               workoutExercise={workoutExercise}
               // From the workout, not from useAuth: a coach reading this screen is
               // looking at their athlete's log, not their own.
-              athleteId={localWorkout?.athlete_id}
+              athleteId={workout?.athlete_id}
               onUpdateSet={handleUpdateSet}
             />
           ))

@@ -1,6 +1,7 @@
 import {
   Button,
   Chip,
+  QueryError,
   Screen,
   Section,
   SelectSheet,
@@ -98,7 +99,12 @@ export default function EditProfile() {
   // The athlete row's current ids, which are what the athlete patch is diffed
   // against. `fetchAthleteProfile` returns resolved names instead, and a name
   // cannot be turned back into an id unambiguously.
-  const { data: competing, isLoading: loadingCompeting } = useQuery({
+  const {
+    data: competing,
+    isLoading: loadingCompeting,
+    error: competingError,
+    refetch: refetchCompeting,
+  } = useQuery({
     queryKey: ["athlete", "competing", user?.id],
     queryFn: () => fetchAthleteCompeting(user!.id),
     enabled: Boolean(user?.id) && isAthlete,
@@ -277,6 +283,22 @@ export default function EditProfile() {
       </Text>
     </View>
   );
+
+  /* Failing silently here is worse than elsewhere: the form would render with
+     federation, division and weight class blank, and saving would then look like
+     the user clearing them rather than the app never having loaded them. */
+  if (isAthlete && competingError) {
+    return (
+      <Screen>
+        <View className="px-6 pt-4">{header}</View>
+        <QueryError
+          error={competingError}
+          onRetry={() => void refetchCompeting()}
+          fallback="Could not load your competing details."
+        />
+      </Screen>
+    );
+  }
 
   if (isAthlete && loadingCompeting) {
     return (

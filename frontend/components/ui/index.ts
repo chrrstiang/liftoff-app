@@ -19,6 +19,7 @@ export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export { Field, type FieldProps } from "./Field";
 export { Input, type InputProps } from "./Input";
 export { Numeral, type NumeralProps, type NumeralSize } from "./Numeral";
+export { QueryError, type QueryErrorProps } from "./QueryError";
 export { Screen, type ScreenProps } from "./Screen";
 export { Section, type SectionProps } from "./Section";
 export {

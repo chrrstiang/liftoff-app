@@ -205,7 +205,7 @@ changed in the diff — loud beats silent.
 
 ## 🟠 Will bite during the team migration
 
-### 4. A failed read is indistinguishable from empty data, on eight screens
+### 4. ~~A failed read is indistinguishable from empty data~~ — FIXED
 
 **Eight of the eleven screens that run a `useQuery` have no error branch.** Only
 `history/workout/[workoutId].tsx` did; `maxes/[athleteId].tsx` and
@@ -233,9 +233,22 @@ Affected: `conversations/conversations.tsx`, `home.tsx`, `program/[athleteId].ts
 `roster/roster.tsx`, `conversations/[conversationId].tsx`, `edit-profile.tsx`,
 `roster/[athleteId].tsx`, `workout/[workoutId].tsx`.
 
-**Fix:** one `QueryState` wrapper in `components/ui` taking `isLoading` / `error` /
-`isEmpty` and rendering spinner, error-with-retry, or empty state. Eight screens,
-one component, and the next screen cannot repeat it.
+**Fixed.** A `QueryError` component in `components/ui`, wired into every screen
+that reads. Seven gained an error branch they did not have; one
+(`roster/[athleteId].tsx`) had one that was *misleading* rather than missing.
+
+Two corrections to this finding, found while fixing it:
+
+- **`roster/[athleteId].tsx` did handle errors** — it rendered *"Athlete not found
+  — may have been removed from your roster"* for **any** error, so a moment of bad
+  wifi told a coach their athlete was gone. That is the same lie in different
+  clothes. It now distinguishes a real 404 from everything else.
+- **`program/[athleteId].tsx` did not render the empty state on failure** — its
+  guard was `isLoading || !workoutData`, and `!workoutData` is true on failure
+  too, so a failed request produced a **spinner that never resolved**. Different
+  failure, equally bad.
+- **The two history screens were already correct**, using `isError` rather than
+  `error`. My original scan grepped for the wrong idiom and undercounted them.
 
 ### 5. Workouts created in the evening are filed a day late
 

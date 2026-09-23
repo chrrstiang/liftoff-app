@@ -1,4 +1,4 @@
-import { Avatar, EmptyState, Screen, Text } from "@/components/ui";
+import { Avatar, EmptyState, QueryError, Screen, Text } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchConversations } from "@/lib/api/conversations";
 import { INBOX_POLL_MS } from "@/lib/api/polling";
@@ -35,7 +35,12 @@ export default function ConversationsScreen() {
    * inbox does not need to update while the app is backgrounded, and polling from
    * the background is how you drain a phone battery for no user-visible benefit.
    */
-  const { data: conversations, isLoading } = useQuery({
+  const {
+    data: conversations,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["conversations", user?.id],
     queryFn: fetchConversations,
     refetchInterval: INBOX_POLL_MS,
@@ -124,13 +129,25 @@ export default function ConversationsScreen() {
           conversations?.length ? undefined : styles.grow
         }
         ListEmptyComponent={
-          <View className="flex-1 py-16">
-            <EmptyState
-              icon={MessageCircle}
-              title="No conversations yet"
-              body="Messages with your coach or athletes will show up here."
+          /* Error before empty: a failed inbox read used to render "No
+             conversations yet", which is indistinguishable from the truth and
+             wrong. This one polls every 30s, so a transient failure recovers on
+             its own — the retry is for the case where it does not. */
+          error ? (
+            <QueryError
+              error={error}
+              onRetry={() => void refetch()}
+              fallback="Could not load your conversations."
             />
-          </View>
+          ) : (
+            <View className="flex-1 py-16">
+              <EmptyState
+                icon={MessageCircle}
+                title="No conversations yet"
+                body="Messages with your coach or athletes will show up here."
+              />
+            </View>
+          )
         }
       />
     </Screen>

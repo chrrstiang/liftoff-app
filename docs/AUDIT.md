@@ -607,9 +607,12 @@ each other rather than separately.
 - `MaxesService.setOverride` returns `const [view] = …` typed as `MaxView`. The row
   exists because the upsert just wrote it, but the type is a lie if the read ever
   comes back empty.
-- The **"Week 1"** heading on the program screen (`program/[athleteId].tsx:202`) is
-  hardcoded and bears no relationship to anything — it is wrong for every athlete
-  past their first week.
+- ~~The **"Week 1"** heading on the program screen is hardcoded~~ — **Fixed**, and
+  finding 12 made it worse on the way past: `fetchAthleteWorkouts` now returns
+  every *upcoming* session rather than a season of history, so the heading was
+  wrong twice — not the first week, and not a week. It reads **"Upcoming"**, and
+  the component called `WeeklyWorkoutCard` is now `UpcomingSessions`, since the
+  name was the other half of the same false claim.
 - **No workout-level completion** — only `sets.is_completed`. No streak, no "done",
   no way to distinguish skipped from not-started. Item 7 aggregates sets to work
   around it; a column would be cheaper but needs a decision about what completion

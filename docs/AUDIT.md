@@ -596,8 +596,14 @@ each other rather than separately.
   Storage policy on that bucket, which I cannot read from the repo.** If the bucket
   permits any authenticated user to write any key, a caller can overwrite another
   user's avatar. **Worth checking that policy before anything else in this section.**
-- `contentType` is hardcoded to `image/jpeg` while the extension comes from the
-  picked URI, so a PNG is stored announcing itself as a JPEG.
+- ~~`contentType` is hardcoded to `image/jpeg` while the extension comes from the
+  picked URI~~ — **Fixed**, and the sibling was worse. `uploadImageMessage` built
+  `` `image/${fileExt}` ``, which turns the commonest extension of all into
+  `image/jpg` — a string that is not a MIME type at all (`image/jpeg` is; `jpg` is
+  the DOS-era filename and was never registered). Both now share an extension→MIME
+  map, lowercased, because the iOS picker hands back `.HEIC` in caps. Both buckets
+  serve the stored content type, so a wrong one is what the browser and the
+  `expo-image` cache see.
 
 ### Smaller things
 

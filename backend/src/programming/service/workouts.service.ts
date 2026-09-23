@@ -21,6 +21,7 @@ import {
 } from '../dto/scheduled-workouts-query.dto';
 import {
   assertReadableAthlete,
+  canReadWorkout,
   historyVisibilityFilter,
   isActiveCoachOf,
   isPerformer,
@@ -735,9 +736,12 @@ export class WorkoutsService {
       throw new NotFoundException(`Set with ID ${setId} could not be found`);
     }
 
-    // Read access first, so a stranger cannot distinguish "not yours" from
-    // "does not exist".
-    if (!(owners.athleteId === callerId || owners.coachId === callerId)) {
+    /* Read access first, so a stranger cannot distinguish "not yours" from "does
+       not exist" — and through `canReadWorkout`, so this agrees with
+       `loadReadableWorkout` about who a co-coach is. It used to test the
+       authoring coach alone, which gave a co-coach a 404 here and a 200 on the
+       workout containing the set. */
+    if (!(await canReadWorkout(this.db, owners, callerId))) {
       throw new NotFoundException(`Set with ID ${setId} could not be found`);
     }
 

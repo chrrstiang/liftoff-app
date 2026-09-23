@@ -26,6 +26,8 @@ describe('WorkoutsService', () => {
   const COACH = '11111111-1111-4111-8111-111111111111';
   const ATHLETE = '22222222-2222-4222-8222-222222222222';
   const STRANGER = '33333333-3333-4333-8333-333333333333';
+  /** A second active coach of the same athlete, who did not author the workout. */
+  const CO_COACH = '77777777-7777-4777-8777-777777777777';
   const EXERCISE = '44444444-4444-4444-8444-444444444444';
   const WORKOUT = '55555555-5555-4555-8555-555555555555';
   const SET = '66666666-6666-4666-8666-666666666666';
@@ -241,6 +243,9 @@ describe('WorkoutsService', () => {
 
   describe('updateSet', () => {
     const assigned = { id: WORKOUT, athleteId: ATHLETE, coachId: COACH };
+    /** Only its presence matters: `db-mock` ignores `where`, so one scripted row
+     * is what "an active relationship exists" means. */
+    const ACTIVE_RELATIONSHIP = [{ id: 'rel' }];
 
     it('lets the athlete log their own set', async () => {
       await build({
@@ -279,11 +284,47 @@ describe('WorkoutsService', () => {
     });
 
     /** A 404 rather than a 403, so a stranger cannot use the status code to
-     * confirm that a set id is real. */
+     * confirm that a set id is real.
+     *
+     * Scripting **no** relationship row is what "not a coach of this athlete"
+     * means here — the mocked client ignores `where`, so presence is the whole
+     * signal. */
     it('404s for a caller with no claim on the set', async () => {
-      await build({ sets: [[assigned]] });
+      await build({ sets: [[assigned]], coach_athlete_relationships: [[]] });
 
       await expect(service.updateSet(SET, { actual_load: 100 }, STRANGER)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    /** ⚠️ **The drift this fix exists for.**
+     *
+     * `loadReadableWorkout` admits any active coach of the athlete, but
+     * `updateSet` used to test the authoring coach alone. So a co-coach opened
+     * the workout (200) and then got a **404** on a set inside it — the app
+     * telling the same person that a set both does and does not exist.
+     *
+     * The right answer is the 403 the authoring coach already gets: they may see
+     * this set, they may not write what the athlete lifted. A 404 here leaks
+     * nothing, which is why it survived; it just was not true. */
+    it('403s a co-coach rather than pretending the set does not exist', async () => {
+      await build({
+        sets: [[assigned]],
+        coach_athlete_relationships: [ACTIVE_RELATIONSHIP],
+      });
+
+      await expect(service.updateSet(SET, { actual_load: 100 }, CO_COACH)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(harness.writes).toHaveLength(0);
+    });
+
+    /** A template has no athlete, so there is no athlete to be a co-coach *of*.
+     * Another coach stays at the 404 however many relationships they hold. */
+    it('404s another coach on a template, without consulting relationships', async () => {
+      await build({ sets: [[{ id: WORKOUT, athleteId: null, coachId: COACH }]] });
+
+      await expect(service.updateSet(SET, { actual_load: 100 }, CO_COACH)).rejects.toThrow(
         NotFoundException,
       );
     });

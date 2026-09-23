@@ -1065,6 +1065,29 @@ describe('Programming (e2e)', () => {
       expect(res.body.message).toBe('Only the coach who owns this workout can change it');
     });
 
+    /** ⚠️ **The drift audit finding 12's sibling turned up.**
+     *
+     * `updateSet` tested the *authoring* coach alone — the rule as it stood
+     * before reads were widened — so a co-coach could open this workout (200)
+     * and get a **404** on a set inside it. Same person, same request, two
+     * answers about whether the set exists.
+     *
+     * The 403 is the honest one. They demonstrably can read this workout; the
+     * tests above prove it, so the status reveals nothing they could not already
+     * see. Only the athlete records what the athlete lifted.
+     *
+     * The set id is read from the API rather than the database, so this breaks
+     * if the nesting shape changes rather than silently testing a stale id.
+     */
+    it('403s a co-coach logging a set, rather than 404ing on the same workout it shows them', async () => {
+      const opened = await as(coach).get(`/workouts/${theirWorkoutId}`).expect(200);
+      const setId = opened.body.workout_exercises[0].sets[0].id;
+
+      const res = await as(coach).patch(`/sets/${setId}`, { actual_load: 100 }).expect(403);
+
+      expect(res.body.message).toBe('Only the athlete performing this workout can log a set');
+    });
+
     /** Widening coach reads must not have widened the athlete's powers either. The
      * athlete may log what they lifted (`isPerformer`) but never restructure the
      * prescription they were given — an athlete who can rewrite `prescribed_reps`

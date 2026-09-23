@@ -549,13 +549,25 @@ identically. Three notes:
 - `media_url` on `SendMessageDto` is a bare `@IsString()` with no `@MaxLength`, the
   one unbounded write on an otherwise carefully validated DTO.
 
-### Set logging read check predates #35
+### ~~Set logging read check predates #35~~ — FIXED
 
-`updateSet` tests `athleteId === callerId || coachId === callerId` — the *authoring*
-coach only — where `loadReadableWorkout` now also admits any active coach. So a
-co-coach gets a **404** on a set and a **403** on the workout containing it. Not a
-leak (it is the more conservative answer) but the two paths disagree about the same
-person, which is the drift #35 set out to remove.
+**Promoted out of this tier on the way past.** It was filed as polish because it
+is not a leak — 404 is the more conservative answer — but with three coaches on
+one roster it is a functional bug, not a nicety: a co-coach opened a workout
+(200) and got a **404** on a set inside it. Same person, same session, two
+answers about whether the set exists.
+
+`updateSet` tested `athleteId === callerId || coachId === callerId` — the
+*authoring* coach only, the rule as it stood before #35 widened reads. The check
+now goes through a new `canReadWorkout`, which `loadReadableWorkout` also uses,
+so there is one read decision rather than two copies of one. A co-coach gets the
+same **403** the authoring coach already got: they may see the set, they may not
+write what the athlete lifted.
+
+Pinned at both levels — a unit test (verified red without the fix: 
+`NotFoundException` where `ForbiddenException` was expected) and an e2e case that
+opens the workout as the co-coach first, so the two answers are asserted against
+each other rather than separately.
 
 ### Image upload
 

@@ -406,12 +406,23 @@ Verified against local Postgres with duplicates that were genuinely referenced,
 including the two-maxes collision: 3 exercises → 1, every reference repointed, the
 colliding max resolved to the keeper's.
 
-### 11. `actual_load` has no upper bound
+### 11. ~~`actual_load` has no upper bound~~ — FIXED
 
-`UpdateSetDto` bounds it at `Min(0)` with no ceiling. #36 stopped an implausible
-value *propagating into a max*, but the logged set still stores 1000kg and history
-still displays it as though it happened. Bounding the DTO is the root fix; #36 only
-stopped the blast radius.
+`UpdateSetDto` bounded it at `Min(0)` with no ceiling. #36 stopped an implausible
+value *propagating into a max*, but the logged set still stored 1000kg and history
+still displayed it as though it happened.
+
+**Fixed** — bounded by the same `MAX_PLAUSIBLE_LOAD_KG` the coach's manual override
+uses, so the two ways a number can end up describing a lift cannot disagree about
+what is plausible.
+
+**And a second one found while fixing it:** `actual_intensity` had the same shape
+— `Min(0)`, no ceiling — which *disagreed with the domain*. `estimateOneRepMax`
+already refuses anything outside 1–10, so a logged RPE of 0 or 47 was accepted,
+stored, rendered in history as "@0", and contributed nothing, for reasons
+invisible from the screen. Now bounded 1–10, so the rejection happens where the
+user can still fix it. Half-point RPE still works, which is pinned by a test —
+powerlifters use it constantly and an integer bound would have quietly broken it.
 
 ### 12. `GET /workouts?athlete_id=` is unbounded
 

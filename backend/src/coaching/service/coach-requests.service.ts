@@ -95,12 +95,29 @@ export class CoachRequestsService {
       throw new BadRequestException('An invitation is already pending for this athlete');
     }
 
-    const [created] = await this.db
-      .insert(coachRequests)
-      .values({ athleteId, coachId: callerId, status: 'pending' })
-      .returning({ id: coachRequests.id });
+    try {
+      const [created] = await this.db
+        .insert(coachRequests)
+        .values({ athleteId, coachId: callerId, status: 'pending' })
+        .returning({ id: coachRequests.id });
 
-    return created;
+      return created;
+    } catch (error) {
+      /** ⚠️ The check above is a check-then-insert, so two concurrent invites for
+       * the same pair both pass it. A partial unique index now backs it
+       * (`coach_requests_one_pending_per_pair_uniq`, scoped to `pending` so a
+       * re-invite after a rejection is still allowed).
+       *
+       * Catching 23505 here turns what would otherwise surface as an opaque 500
+       * into the same message the check produces — the caller should not be able
+       * to tell whether they lost a race or simply asked twice, because from
+       * their side those are the same thing.
+       */
+      if (isUniqueViolation(error)) {
+        throw new BadRequestException('An invitation is already pending for this athlete');
+      }
+      throw error;
+    }
   }
 
   /** The invited athlete accepts or declines.
@@ -230,4 +247,10 @@ export class CoachRequestsService {
         ),
       );
   }
+}
+
+/** Postgres `unique_violation`. Narrowed by code rather than by message, because
+ * messages are localised and change between versions. */
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
 }

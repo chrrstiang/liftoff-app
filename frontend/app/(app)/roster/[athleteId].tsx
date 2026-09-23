@@ -2,6 +2,7 @@ import {
   Avatar,
   Button,
   EmptyState,
+  QueryError,
   Screen,
   Section,
   SheetRow,
@@ -9,7 +10,7 @@ import {
 } from "@/components/ui";
 import { fetchAthleteProfile } from "@/lib/api/athlete";
 import { createConversation } from "@/lib/api/conversations";
-import { describeApiError } from "@/lib/api/client";
+import { ApiError, describeApiError } from "@/lib/api/client";
 import { useTheme } from "@/theme/useTheme";
 import { AthleteProfileView } from "@/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -54,6 +55,7 @@ export default function AthleteDetails() {
     data: athleteData,
     isLoading,
     error,
+    refetch,
   } = useQuery<AthleteProfileView>({
     queryKey: ["athlete", athleteId],
     queryFn: () =>
@@ -71,7 +73,11 @@ export default function AthleteDetails() {
     );
   }
 
-  if (error) {
+  /* ⚠️ A 404 and a dropped connection are different answers and must not share a
+     screen. This previously showed "Athlete not found — may have been removed
+     from your roster" for *any* error, so a moment of bad wifi told a coach their
+     athlete was gone. Only a real 404 means that. */
+  if (error instanceof ApiError && error.statusCode === 404) {
     return (
       <Screen>
         <View className="flex-1 py-16">
@@ -83,6 +89,18 @@ export default function AthleteDetails() {
             onAction={() => router.back()}
           />
         </View>
+      </Screen>
+    );
+  }
+
+  if (error) {
+    return (
+      <Screen>
+        <QueryError
+          error={error}
+          onRetry={() => void refetch()}
+          fallback="Could not load this athlete."
+        />
       </Screen>
     );
   }

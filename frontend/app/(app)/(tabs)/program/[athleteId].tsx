@@ -4,6 +4,7 @@ import {
   EmptyState,
   Input,
   MultiSelectSheet,
+  QueryError,
   Screen,
   Section,
   SelectSheet,
@@ -166,7 +167,12 @@ function AssignWorkoutFlow({ athleteId }: { athleteId: string }) {
 
 const WeeklyWorkoutCard = ({ athleteId }: { athleteId: string }) => {
   const { colors } = useTheme();
-  const { data: workoutData, isLoading } = useQuery({
+  const {
+    data: workoutData,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["workouts", athleteId],
     queryFn: async () => fetchAthleteWorkouts(athleteId),
   });
@@ -177,6 +183,20 @@ const WeeklyWorkoutCard = ({ athleteId }: { athleteId: string }) => {
     });
     return dateName;
   };
+
+  /* ⚠️ Must precede the loading branch. `!workoutData` is true on failure as
+     well as while loading, so a failed request previously rendered a spinner
+     that never resolved — a coach staring at an athlete's program, waiting for
+     something that was never going to arrive. */
+  if (error) {
+    return (
+      <QueryError
+        error={error}
+        onRetry={() => void refetch()}
+        fallback="Could not load this program."
+      />
+    );
+  }
 
   if (isLoading || !workoutData) {
     return (

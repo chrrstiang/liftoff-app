@@ -11,7 +11,13 @@ import {
 } from "react-native";
 import { useAuth } from "@/contexts/AuthContext";
 import { MessageBubble } from "@/components/ChatBubble";
-import { Avatar, EmptyState, Screen, Text } from "@/components/ui";
+import {
+  Avatar,
+  EmptyState,
+  QueryError,
+  Screen,
+  Text,
+} from "@/components/ui";
 import { useTheme } from "@/theme/useTheme";
 import { useLocalSearchParams, router } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -69,6 +75,8 @@ export default function Conversation() {
   const {
     data: messages,
     isLoading,
+    error: messagesError,
+    refetch: refetchMessages,
     isRefetching,
     refetch,
   } = useQuery({
@@ -229,6 +237,18 @@ export default function Conversation() {
   const currentConversation = conversations?.find(
     (conversation) => conversation.conversation_id === conversationId
   );
+
+  if (messagesError) {
+    return (
+      <Screen>
+        <QueryError
+          error={messagesError}
+          onRetry={() => void refetchMessages()}
+          fallback="Could not load this conversation."
+        />
+      </Screen>
+    );
+  }
 
   if (isLoading) {
     return (

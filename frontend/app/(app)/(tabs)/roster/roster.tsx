@@ -1,4 +1,4 @@
-import { Avatar, Button, EmptyState, Screen, Text } from "@/components/ui";
+import { Avatar, Button, EmptyState, QueryError, Screen, Text } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
 import { searchAthletes } from "@/lib/api/athlete";
 import { fetchRoster, sendInvite } from "@/lib/api/roster";
@@ -129,6 +129,7 @@ export default function RosterPage() {
     isLoading,
     isRefetching,
     refetch,
+    error: rosterError,
   } = useQuery<AthleteProfileView[]>({
     queryKey: ["roster", userId],
     // The `as unknown as` cast is gone: fetchRoster is typed now, because the API
@@ -143,7 +144,12 @@ export default function RosterPage() {
   // exists; what is still narrow is the search itself — it needs 3+ characters,
   // returns at most 20, and excludes anyone already active or pending on this
   // coach's roster.
-  const { data: searchResults = [], isLoading: isSearching } = useQuery({
+  const {
+    data: searchResults = [],
+    isLoading: isSearching,
+    error: searchError,
+    refetch: refetchSearch,
+  } = useQuery({
     queryKey: ["userSearch", debouncedQuery],
     queryFn: () => searchAthletes(debouncedQuery),
     enabled: selectedIndex === 1 && debouncedQuery.length >= 3 && !!userId,
@@ -318,6 +324,23 @@ export default function RosterPage() {
           ) : undefined
         }
         ListEmptyComponent={
+          /* ⚠️ The error branch precedes the empty state. Without it a failed
+             request rendered "No athletes yet" to a coach with seventeen — the
+             app asserting something false rather than admitting it could not
+             ask. Scoped per tab, since each has its own query. */
+          (selectedIndex === 0 ? rosterError : searchError) ? (
+            <QueryError
+              error={selectedIndex === 0 ? rosterError : searchError}
+              onRetry={() =>
+                void (selectedIndex === 0 ? refetch() : refetchSearch())
+              }
+              fallback={
+                selectedIndex === 0
+                  ? "Could not load your roster."
+                  : "Could not search athletes."
+              }
+            />
+          ) : (
           <View className="flex-1 py-16">
             <EmptyState
               icon={Users}
@@ -341,6 +364,7 @@ export default function RosterPage() {
               }
             />
           </View>
+          )
         }
       />
     </Screen>

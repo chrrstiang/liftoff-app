@@ -1,5 +1,12 @@
 import { NotificationModal } from "@/components/NotificationModal";
-import { Button, EmptyState, Screen, Section, Text } from "@/components/ui";
+import {
+  Button,
+  EmptyState,
+  QueryError,
+  Screen,
+  Section,
+  Text,
+} from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchAthleteRequests } from "@/lib/api/notifications";
 import { fetchAthleteWorkouts } from "@/lib/api/workouts";
@@ -26,7 +33,11 @@ export default function HomePage() {
   const isCoachOnly = !!profile?.is_coach && !profile?.is_athlete;
 
   // fetching workouts of athlete
-  const { data: workouts } = useQuery({
+  const {
+    data: workouts,
+    error: workoutsError,
+    refetch: refetchWorkouts,
+  } = useQuery({
     queryKey: ["workouts", user?.id],
     queryFn: () => fetchAthleteWorkouts(user!.id),
   });
@@ -87,7 +98,16 @@ export default function HomePage() {
         </Pressable>
       </View>
 
-      {nextWorkout ? (
+      {/* ⚠️ The error branch has to come before the empty state. Without it a
+          failed request rendered "Nothing scheduled" — telling an athlete their
+          coach had assigned nothing, when the request simply never arrived. */}
+      {workoutsError ? (
+        <QueryError
+          error={workoutsError}
+          onRetry={() => void refetchWorkouts()}
+          fallback="Could not load your workouts."
+        />
+      ) : nextWorkout ? (
         <Section label="Up next" className="mt-8 px-6">
           <View className="gap-1 py-4">
             <Text variant="overline" tone="muted">

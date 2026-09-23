@@ -1,13 +1,4 @@
-import {
-  Button,
-  DataTable,
-  EmptyState,
-  Input,
-  Screen,
-  Section,
-  Sheet,
-  Text,
-} from "@/components/ui";
+import { Button, DataTable, EmptyState, Input, QueryError, Screen, Section, Sheet, Text } from "@/components/ui";
 import { ExerciseHistorySheet } from "@/components/ExerciseHistorySheet";
 import { useAuth } from "@/contexts/AuthContext";
 import { createExercise } from "@/lib/api/exercises";
@@ -409,6 +400,8 @@ export default function WorkoutDetails() {
     data: workout,
     isLoading,
     isSuccess,
+    error: workoutError,
+    refetch: refetchWorkout,
   } = useQuery<Workout>({
     queryKey: ["workout", workoutId],
     queryFn: () => fetchWorkoutById(workoutId),
@@ -525,6 +518,21 @@ export default function WorkoutDetails() {
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color={colors.primary} />
         </View>
+      </Screen>
+    );
+  }
+
+  /* An athlete standing at the bar needs to know the difference between "this
+     workout is empty" and "your phone could not reach the server". Before this
+     they rendered the same. */
+  if (workoutError) {
+    return (
+      <Screen>
+        <QueryError
+          error={workoutError}
+          onRetry={() => void refetchWorkout()}
+          fallback="Could not load this workout."
+        />
       </Screen>
     );
   }

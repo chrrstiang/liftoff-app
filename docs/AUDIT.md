@@ -350,7 +350,7 @@ fighting over it.
 Pinned by a test that was **verified to fail without the fix**, which for a race
 matters more than usual: a test that only describes the sequence proves nothing.
 
-### 9. Duplicate pending invites are possible under a race
+### 9. ~~Duplicate pending invites are possible under a race~~ — FIXED
 
 `createRequest` check-then-inserts: it selects for an existing `pending` row, then
 inserts. Two concurrent invites for the same pair both pass. There is no unique
@@ -358,8 +358,19 @@ constraint to catch it — #31 put one on `coach_athlete_relationships` but
 deliberately not on `coach_requests`, because re-inviting after a rejection is
 legitimate.
 
-**Fix:** a *partial* unique index (`… WHERE status = 'pending'`) closes the race
-while still permitting re-invites.
+**Fixed** with a partial unique index on `(athlete_id, coach_id) WHERE status =
+'pending'`, plus a dedupe ahead of it so it can apply to a database that already
+holds duplicates. The dedupe keeps the **oldest** pending row per pair — the
+athlete has been looking at that invitation and their client holds its id, so
+keeping the newer one would invalidate a notification they are about to tap.
+
+The application check stays: it produces a far better message than a constraint
+violation. The database is now what makes it *true*. A lost race is caught as
+`23505` and reported as the same 400, so a caller cannot tell whether they lost a
+race or simply asked twice — from their side those are the same thing.
+
+Verified against local Postgres: re-inviting after a rejection is still allowed,
+a second *pending* invitation for the same pair is refused.
 
 ### 10. Duplicate exercise names split an athlete's max
 

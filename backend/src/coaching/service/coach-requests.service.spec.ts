@@ -128,4 +128,68 @@ describe('CoachRequestsService.respondToRequest', () => {
       NotFoundException,
     );
   });
+
+  /** The race the partial unique index exists for.
+   *
+   * `createRequest` check-then-inserts, so two concurrent invites for the same
+   * pair both pass the check. The database now refuses the second, and the point
+   * of catching it is that the caller cannot tell whether they lost a race or
+   * simply asked twice — from their side those are the same thing.
+   */
+  describe('createRequest, when the database refuses a duplicate', () => {
+    it('reports a lost race as the same 400 the check produces', async () => {
+      const harnessed = makeTestDb({
+        coaches: [[{ id: COACH }]],
+        athletes: [[{ id: ATHLETE }]],
+        coach_athlete_relationships: [[]],
+        coach_requests: [[]],
+      });
+
+      // Make the insert fail the way Postgres does.
+      const violation = Object.assign(new Error('duplicate key'), { code: '23505' });
+      const db = harnessed.db as unknown as Record<string, unknown>;
+      db.insert = () => {
+        throw violation;
+      };
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [CoachRequestsService, { provide: DRIZZLE, useValue: db }],
+      }).compile();
+
+      const svc = module.get<CoachRequestsService>(CoachRequestsService);
+
+      // One call only: the scripted results are a queue, so a second call would
+      // find the `coaches` lookup empty and fail on the wrong rule entirely.
+      await expect(svc.createRequest(ATHLETE, COACH)).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringMatching(/already pending/),
+      });
+    });
+
+    /** Anything that is not 23505 must keep propagating — swallowing every insert
+     * failure as "already pending" would hide real breakage behind a plausible
+     * message. */
+    it('rethrows an error that is not a unique violation', async () => {
+      const harnessed = makeTestDb({
+        coaches: [[{ id: COACH }]],
+        athletes: [[{ id: ATHLETE }]],
+        coach_athlete_relationships: [[]],
+        coach_requests: [[]],
+      });
+
+      const other = Object.assign(new Error('connection reset'), { code: '08006' });
+      const db = harnessed.db as unknown as Record<string, unknown>;
+      db.insert = () => {
+        throw other;
+      };
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [CoachRequestsService, { provide: DRIZZLE, useValue: db }],
+      }).compile();
+
+      const svc = module.get<CoachRequestsService>(CoachRequestsService);
+
+      await expect(svc.createRequest(ATHLETE, COACH)).rejects.toThrow(/connection reset/);
+    });
+  });
 });

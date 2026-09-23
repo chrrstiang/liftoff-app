@@ -20,6 +20,7 @@
  * See migration 0001_create_views.sql.
  */
 
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
@@ -165,6 +166,24 @@ export const coachRequests = pgTable(
     // a coach lists the ones they sent.
     index('coach_requests_athlete_id_idx').on(table.athleteId),
     index('coach_requests_coach_id_idx').on(table.coachId),
+    /** At most one **pending** invitation per coach/athlete pair.
+     *
+     * ⚠️ **Partial, and that is the whole design.** A plain unique on the pair
+     * would forbid re-inviting an athlete who previously declined, which is
+     * legitimate and expected -- people change their minds. Scoping the
+     * constraint to `status = 'pending'` prevents the duplicate without
+     * forbidding the history.
+     *
+     * #31 deliberately left this table alone for exactly that reason. What it
+     * did not close is the race: `createRequest` selects for an existing pending
+     * row and then inserts, so two concurrent invites for the same pair both
+     * pass the check. The application check stays -- it produces a far better
+     * message than a constraint violation -- but the database is now what makes
+     * it true.
+     */
+    uniqueIndex('coach_requests_one_pending_per_pair_uniq')
+      .on(table.athleteId, table.coachId)
+      .where(sql`${table.status} = 'pending'`),
   ],
 );
 

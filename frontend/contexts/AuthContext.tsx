@@ -31,7 +31,20 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   signup: (email: string, password: string) => Promise<void>;
-  isProfileComplete: boolean;
+  /** `null` means **not yet known** — the profile request has not succeeded and
+   * has not definitively 404'd.
+   *
+   * Three states rather than two, because two could not express the difference
+   * between "this user has no profile" and "we could not ask". The gate in
+   * `app/_layout.tsx` must hold rather than route while this is null; treating
+   * unknown as incomplete is what sent returning users to the signup form. */
+  isProfileComplete: boolean | null;
+  /** Why the last profile load failed, when it failed for a reason other than a
+   * 404. Null once a load succeeds. */
+  profileError: string | null;
+  /** Retries the profile load. Exposed so the gate can offer a retry rather than
+   * stranding the user on an error screen. */
+  reloadProfile: () => Promise<void>;
   /** The `userId` argument is now ignored — the API derives the caller from the
    * token. Kept in the signature so existing call sites still compile; it can go
    * once they stop passing it. */
@@ -48,7 +61,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isProfileComplete, setIsProfileComplete] = useState(false);
+  /** Starts as `null` — unknown — not `false`. See the type for why. */
+  const [isProfileComplete, setIsProfileComplete] = useState<boolean | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -69,10 +84,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * create one does not exist in RDS, so the API owns creation. That 404 is exactly
    * the "send them to create-profile" signal the gate in `app/_layout.tsx` needs.
    *
-   * Any *other* failure deliberately leaves `isProfileComplete` alone rather than
-   * setting it false. The old version treated every thrown error as "incomplete",
-   * so a dropped connection was indistinguishable from a missing profile and
-   * bounced the user out of their session mid-use.
+   * Any *other* failure leaves `isProfileComplete` as **null** — not false.
+   *
+   * ⚠️ This used to say it left the value "alone", which was true and not enough:
+   * the initial value was `false`, so on the **first** load — the common case, not
+   * the rare one — leaving it alone meant leaving it false, and the gate routed a
+   * returning user with a perfectly good profile to the create-profile form. From
+   * there `POST /users/profile` *inserts* rather than upserts, so filling the form
+   * in failed on the primary key and they were stuck on a screen they could
+   * neither leave nor complete.
+   *
+   * Three states fix it properly: the failure is now representable, the gate holds
+   * instead of guessing, and `profileError` gives the user something actionable
+   * rather than a redirect.
    */
   const loadProfile = useCallback(async (): Promise<boolean> => {
     try {
@@ -82,15 +106,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setProfile(data);
       setIsProfileComplete(data.is_profile_complete);
+      setProfileError(null);
       return data.is_profile_complete;
     } catch (error) {
+      // A 404 is a real answer: there is genuinely no profile row yet. That is
+      // the one failure that legitimately means "incomplete".
       if (error instanceof ApiError && error.statusCode === 404) {
         setProfile(null);
         setIsProfileComplete(false);
+        setProfileError(null);
         return false;
       }
 
-      console.error("Error loading profile:", describeApiError(error));
+      // Leave `isProfileComplete` as null: we do not know, and saying "false"
+      // here is the bug this whole shape exists to prevent.
+      const message = describeApiError(error, "Could not load your profile.");
+      console.error("Error loading profile:", message);
+      setProfileError(message);
       return false;
     }
   }, []);
@@ -111,6 +143,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     [loadProfile],
   );
+
+  /** Retry, for the gate's error screen. Clears the previous error first so a
+   * failed retry reads as a fresh failure rather than a stale one that never
+   * went away. */
+  const reloadProfile = useCallback(async () => {
+    setProfileError(null);
+    await loadProfile();
+  }, [loadProfile]);
 
   // listens to real-time auth updates in case of session expire or manual action
   useEffect(() => {
@@ -197,6 +237,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signup,
         isProfileComplete,
         fetchProfile,
+        profileError,
+        reloadProfile,
         session,
         checkProfileCompletion,
         user,

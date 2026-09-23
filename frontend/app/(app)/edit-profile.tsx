@@ -22,6 +22,7 @@ import {
   fetchWeightClasses,
 } from "@/lib/reference";
 import { useTheme } from "@/theme/useTheme";
+import { GENDERS } from "@/types";
 import type {
   AthleteCompetingPatch,
   Division,
@@ -32,18 +33,6 @@ import { router } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
-
-/** ⚠️ The **real** `gender` enum, which is not what create-profile offers.
- *
- * `create-profile.tsx` renders `["Male", "Female", "Other"]`, but `CreateUserDto`
- * and the Postgres enum are `Male | Female | Gender-fluid` — so picking "Other"
- * there 400s on submit. That is a recorded confirmed bug
- * (`docs/ARCHITECTURE.md` §7) and fixing the signup screen is not this change,
- * but there is no reason to copy it here: this screen sends values the API
- * accepts, and is currently the only way for a user who hit that bug to set a
- * gender at all.
- */
-const GENDERS = ["Male", "Female", "Gender-fluid"];
 
 const USERNAME_PATTERN = /^[a-z0-9._]+$/;
 

@@ -187,7 +187,7 @@ Deliberate, or unverified — not defects to fix on sight.
 
 ### Bugs, confirmed but not yet fixed
 
-- **Gender "Other" fails profile creation.** `create-profile.tsx` offers chips `["Male", "Female", "Other"]`, but `CreateUserDto` and the Postgres enum are `Male | Female | Gender-fluid`. Selecting "Other" returns a 400 on submit.
+- ~~**Gender "Other" fails profile creation.**~~ **Fixed 2026-09-23.** `create-profile.tsx` offered chips `["Male", "Female", "Other"]` while `CreateUserDto` and the Postgres enum are `Male | Female | Gender-fluid`, so selecting "Other" returned a 400 on the last step of signup. Both profile forms now import `GENDERS` from `types/user.ts`, declared once as a `const` assertion so the union type — not `string` — is what a fourth spelling would have to satisfy. Copying the correct array into the second screen would have left the same drift one edit away.
 - **Both template pickers are empty on a fresh database.** Nothing inserts into `exercise_templates` — no endpoint, no UI — and a workout template requires `athlete_id: null`, which no UI path produces, since the program screen always passes a concrete athlete id. `GET /workouts/templates` and `GET /exercises/templates` are correct and tested; they have no producers.
 - **`DELETE /workouts/:id` has no caller.** Built, guarded, tested, unreachable from the app.
 - **`onCreateWorkout` arity mismatch** in `program/[athleteId].tsx` — the child calls it with four arguments, the parent handler declares three.

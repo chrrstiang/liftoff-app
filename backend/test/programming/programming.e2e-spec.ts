@@ -417,6 +417,140 @@ describe('Programming (e2e)', () => {
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
     });
+
+    /** ⚠️ **The authorization claims a unit spec structurally cannot make.**
+     * `db-mock` ignores `where` entirely, so every scoping assertion below would
+     * pass in a service spec with the scoping deleted. These are the real ones.
+     */
+    describe('POST /workouts/:id/save-as-template', () => {
+      it('keeps a copy with the whole prescription and no athlete', async () => {
+        const { workoutId } = await createAssignedWorkout('E2E save source');
+
+        const saved = await as(coach)
+          .post(`/workouts/${workoutId}/save-as-template`, {})
+          .expect(201);
+
+        const list = await as(coach).get('/workouts/templates').expect(200);
+        const template = list.body.find((t: { id: string }) => t.id === saved.body.id);
+
+        expect(template).toBeDefined();
+        expect(template.name).toBe('E2E save source');
+        expect(template.workout_exercises).toHaveLength(1);
+        expect(template.workout_exercises[0].sets).toHaveLength(2);
+        expect(template.workout_exercises[0].sets[0]).toMatchObject({
+          set_number: 1,
+          prescribed_reps: 5,
+          prescribed_intensity: 'RPE 7',
+        });
+      });
+
+      /** The source is the athlete's scheduled session and must be untouched —
+       * this is a copy, not a move. */
+      it('leaves the source workout assigned to its athlete', async () => {
+        const { workoutId } = await createAssignedWorkout('E2E save leaves source');
+
+        await as(coach).post(`/workouts/${workoutId}/save-as-template`, {}).expect(201);
+
+        const source = await as(athlete).get(`/workouts/${workoutId}`).expect(200);
+        expect(source.body.athlete_id).toBe(athlete.userId);
+      });
+
+      it('takes a name and notes from the body when given', async () => {
+        const { workoutId } = await createAssignedWorkout('E2E save renamed');
+
+        const saved = await as(coach)
+          .post(`/workouts/${workoutId}/save-as-template`, {
+            name: 'E2E Upper A',
+            notes: 'library copy',
+          })
+          .expect(201);
+
+        const list = await as(coach).get('/workouts/templates').expect(200);
+        const template = list.body.find((t: { id: string }) => t.id === saved.body.id);
+
+        expect(template).toMatchObject({ name: 'E2E Upper A', notes: 'library copy' });
+      });
+
+      /** ⚠️ **The scoping claim.** A template belongs to the coach who saved it
+       * and nobody else — no co-coach widening, because a template has no athlete
+       * to be a co-coach of. */
+      it('does not put the template in another coach’s library', async () => {
+        const { workoutId } = await createAssignedWorkout('E2E save not shared');
+
+        const saved = await as(coach)
+          .post(`/workouts/${workoutId}/save-as-template`, {})
+          .expect(201);
+
+        const theirs = await as(stranger).get('/workouts/templates').expect(200);
+        expect(theirs.body.map((t: { id: string }) => t.id)).not.toContain(saved.body.id);
+      });
+
+      it('404s a caller with no claim on the source', async () => {
+        const { workoutId } = await createAssignedWorkout('E2E save stranger');
+
+        await as(stranger).post(`/workouts/${workoutId}/save-as-template`, {}).expect(404);
+      });
+
+      /** ⚠️ **This found a real hole.** `loadReadableWorkout` admits the athlete,
+       * so the first version of this endpoint let them through — and then
+       * `workouts.coach_id` is a foreign key into `coaches`, so it did not refuse
+       * them, it **500'd**. Reading your own session is not authoring a library
+       * entry.
+       *
+       * 403 rather than 404 because they demonstrably can read this workout. */
+      it('refuses the athlete, and does not 500 doing it', async () => {
+        const { workoutId } = await createAssignedWorkout('E2E save athlete');
+
+        const res = await as(athlete)
+          .post(`/workouts/${workoutId}/save-as-template`, {})
+          .expect(403);
+
+        expect(res.body.message).toMatch(/Only a coach/);
+      });
+
+      it('400s when the source is already a template', async () => {
+        const { workoutId } = await createAssignedWorkout('E2E save twice');
+        const saved = await as(coach)
+          .post(`/workouts/${workoutId}/save-as-template`, {})
+          .expect(201);
+
+        const res = await as(coach)
+          .post(`/workouts/${saved.body.id}/save-as-template`, {})
+          .expect(400);
+
+        expect(res.body.message).toMatch(/already a template/);
+      });
+
+      it('rejects a body that tries to set athlete_id or is_template', async () => {
+        const { workoutId } = await createAssignedWorkout('E2E save forbidden fields');
+
+        await as(coach)
+          .post(`/workouts/${workoutId}/save-as-template`, { athlete_id: null })
+          .expect(400);
+        await as(coach)
+          .post(`/workouts/${workoutId}/save-as-template`, { is_template: true })
+          .expect(400);
+      });
+
+      /** A whitespace-only name is a 400, not a silent fallback to the source's
+       * name. The DTO trims before validating; without that `@MinLength(1)`
+       * passes and the rename quietly does nothing. */
+      it('400s a whitespace-only name rather than silently keeping the old one', async () => {
+        const { workoutId } = await createAssignedWorkout('E2E save blank name');
+
+        const res = await as(coach)
+          .post(`/workouts/${workoutId}/save-as-template`, { name: '   ' })
+          .expect(400);
+
+        expect(res.body.message).toEqual(
+          expect.arrayContaining([expect.stringMatching(/name should not be empty/)]),
+        );
+      });
+
+      it('400s a malformed workout id rather than 500ing', async () => {
+        await as(coach).post('/workouts/im-fake/save-as-template', {}).expect(400);
+      });
+    });
   });
 
   /** ⚠️ This route returns **upcoming** sessions only, and defaults `from` to

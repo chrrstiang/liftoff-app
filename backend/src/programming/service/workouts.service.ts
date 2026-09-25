@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lt } from 'drizzle-orm';
 import { DRIZZLE, type Database } from 'src/db/db.module';
 import { resolvePrescribedLoad } from './e1rm';
 import { MaxesService } from './maxes.service';
@@ -15,6 +15,7 @@ import type { AddWorkoutExerciseDto } from '../dto/add-workout-exercise.dto';
 import type { UpdateSetDto } from '../dto/update-set.dto';
 import { resolveHistoryWindow, type HistoryQueryDto } from '../dto/history-query.dto';
 import type { AssignWorkoutDto } from '../dto/assign-workout.dto';
+import type { SaveAsTemplateDto } from '../dto/save-as-template.dto';
 import {
   MAX_SCHEDULED_WORKOUTS,
   type ScheduledWorkoutsQueryDto,
@@ -28,6 +29,7 @@ import {
   loadProgrammableWorkout,
   loadReadableWorkout,
   loadSetOwners,
+  templateVisibilityFilter,
 } from './programming-access';
 
 /** Workouts, their exercises, and set logging.
@@ -448,7 +450,7 @@ export class WorkoutsService {
         notes: workouts.notes,
       })
       .from(workouts)
-      .where(and(eq(workouts.coachId, callerId), isNull(workouts.athleteId)))
+      .where(templateVisibilityFilter(callerId))
       .orderBy(desc(workouts.createdAt));
 
     if (!templates.length) return [];
@@ -826,11 +828,7 @@ export class WorkoutsService {
     // copyable fields are read after the caller has been cleared for them.
     await loadReadableWorkout(this.db, workoutId, callerId);
 
-    const [source] = await this.db
-      .select({ name: workouts.name, notes: workouts.notes })
-      .from(workouts)
-      .where(eq(workouts.id, workoutId))
-      .limit(1);
+    const blueprint = await this.readCopyableWorkout(workoutId);
 
     // Duplicates in the body would otherwise create two copies for one athlete.
     const athleteIds = [...new Set(dto.athlete_ids)];
@@ -843,6 +841,118 @@ export class WorkoutsService {
         throw new NotFoundException(`Athlete with ID ${athleteId} could not be found`);
       }
     }
+
+    return this.db.transaction(async (tx) => {
+      const created: string[] = [];
+
+      for (const athleteId of athleteIds) {
+        const { id } = await insertWorkoutCopy(tx, blueprint, {
+          name: blueprint.source.name,
+          notes: blueprint.source.notes,
+          date: dto.date,
+          athleteId,
+          // The assigning coach authors the copies, never the source's coach.
+          // Otherwise a co-coach assigning a colleague's session would create
+          // workouts they could not then edit -- loadProgrammableWorkout is
+          // authoring-only.
+          coachId: callerId,
+        });
+
+        created.push(id);
+      }
+
+      return { assigned: created.length, workout_ids: created };
+    });
+  }
+
+  /** Saves an existing workout back as a template in the caller's library.
+   *
+   * ⚠️ **Server-side rather than the client reading the workout and POSTing it
+   * back**, for four reasons that compound:
+   *
+   *  1. `GET /workouts/:id` is lossy for this purpose. It collapses
+   *     `display_name` into `name` with a library-name fallback and resolves
+   *     percentages against the athlete's maxes, so a round trip pins a
+   *     `display_name` on every exercise that had none and bakes in one
+   *     athlete's numbers.
+   *  2. It has already been wrong once in exactly that way -- the client-side
+   *     copy in the program screen dropped `prescribed_percent` and the load
+   *     range, which is the whole prescription a template exists to preserve.
+   *  3. `createWorkout` validates every `exercise_id` against
+   *     `eq(exercises.createdBy, callerId)`. A co-coach who may *read* a
+   *     colleague's workout cannot re-POST it, because the exercises belong to
+   *     the other coach's library -- so the client path would 400 in a case the
+   *     read rule explicitly permits.
+   *  4. `assignWorkout` already is this function. A template is that same deep
+   *     copy with no athlete and no targets, and sharing the copy core is what
+   *     keeps "never copy the athlete's execution record" in one place.
+   *
+   * Authorized with `loadReadableWorkout`, the same as assigning: you may keep a
+   * copy of what you can already see, and the copy is authored by you.
+   *
+   * `date` is carried from the source. It is meaningless on a template, but the
+   * column is NOT NULL, `listTemplates` does not select it, and a template can
+   * never surface in a schedule or history read because both filter on
+   * `athlete_id`. Inventing `CURRENT_DATE` would be a fact that is no truer.
+   */
+  async saveAsTemplate(workoutId: string, dto: SaveAsTemplateDto, callerId: string) {
+    const owners = await loadReadableWorkout(this.db, workoutId, callerId);
+
+    /* Duplicating a template is a different feature, and silently minting near
+       identical library entries is worse than refusing. Neither entry point can
+       reach this, so it is a guard rather than a path. */
+    if (owners.athleteId === null) {
+      throw new BadRequestException('That workout is already a template');
+    }
+
+    /* ⚠️ **`loadReadableWorkout` admits the athlete, and that is not enough
+       here.** Reading your own session is not authoring a library entry: the
+       template library is the coach's, and `workouts.coach_id` is a foreign key
+       into `coaches`, so an athlete reaching this wrote a row that violated it —
+       a 500 rather than a refusal.
+
+       Checked by *excluding the athlete* rather than by re-asking whether the
+       caller is a coach. `loadReadableWorkout` has already established that they
+       are the athlete, the author, or an active co-coach; ruling out the first
+       leaves exactly the rule, and costs no second `isActiveCoachOf` round trip
+       for a fact that was just determined.
+
+       An athlete who is also this workout's authoring coach passes, which is
+       right — the two roles are independent booleans and self-coaching is
+       allowed.
+
+       403 rather than 404 because they demonstrably can read this workout; its
+       existence is not a secret from them. Same reasoning as
+       `loadProgrammableWorkout`. */
+    if (owners.athleteId === callerId && owners.coachId !== callerId) {
+      throw new ForbiddenException('Only a coach can save a workout as a template');
+    }
+
+    const blueprint = await this.readCopyableWorkout(workoutId);
+
+    return this.db.transaction(async (tx) =>
+      insertWorkoutCopy(tx, blueprint, {
+        name: dto.name ?? blueprint.source.name,
+        notes: dto.notes === undefined ? blueprint.source.notes : dto.notes,
+        date: blueprint.source.date,
+        athleteId: null,
+        coachId: callerId,
+      }),
+    );
+  }
+
+  /** Reads everything a copy needs, in the shape the copy wants it.
+   *
+   * Split out so `assignWorkout` and `saveAsTemplate` cannot drift about what
+   * travels. The reads are deliberately outside the transaction -- they are the
+   * source, which nothing in either operation writes to.
+   */
+  private async readCopyableWorkout(workoutId: string): Promise<WorkoutBlueprint> {
+    const [source] = await this.db
+      .select({ name: workouts.name, notes: workouts.notes, date: workouts.date })
+      .from(workouts)
+      .where(eq(workouts.id, workoutId))
+      .limit(1);
 
     const exerciseRows = await this.db
       .select({
@@ -880,76 +990,116 @@ export class WorkoutsService {
     // ⚠️ Note what is NOT selected: actual_load, actual_intensity, is_completed.
     // Those are the source athlete's execution record. Copying them would hand
     // every target a pre-filled log of work they have not done, and a coach
-    // reading adherence would see seventeen completed sessions.
-    const setsBySourceExercise = new Map<string, typeof setRows>();
+    // reading adherence would see seventeen completed sessions. A template built
+    // from a finished session would carry them too.
+    const setsBySourceExercise = new Map<string, CopyableSet[]>();
     for (const set of setRows) {
       const bucket = setsBySourceExercise.get(set.workoutExerciseId);
       if (bucket) bucket.push(set);
       else setsBySourceExercise.set(set.workoutExerciseId, [set]);
     }
 
-    return this.db.transaction(async (tx) => {
-      const created: string[] = [];
-
-      for (const athleteId of athleteIds) {
-        const [workout] = await tx
-          .insert(workouts)
-          .values({
-            name: source.name,
-            date: dto.date,
-            notes: source.notes,
-            athleteId,
-            // The assigning coach authors the copies, never the source's coach.
-            // Otherwise a co-coach assigning a colleague's session would create
-            // workouts they could not then edit -- loadProgrammableWorkout is
-            // authoring-only.
-            coachId: callerId,
-            isTemplate: false,
-          })
-          .returning({ id: workouts.id });
-
-        if (exerciseRows.length) {
-          const insertedExercises = await tx
-            .insert(workoutExercises)
-            .values(
-              exerciseRows.map((exercise) => ({
-                workoutId: workout.id,
-                exerciseId: exercise.exerciseId,
-                displayName: exercise.displayName,
-                order: exercise.order,
-                notes: exercise.notes,
-              })),
-            )
-            .returning({ id: workoutExercises.id, order: workoutExercises.order });
-
-          // Paired on `order` rather than by index, for the same reason
-          // createWorkout does: index pairing would silently mis-assign every set
-          // if `returning` ever stopped preserving input order.
-          const newIdByOrder = new Map(insertedExercises.map((row) => [row.order, row.id]));
-
-          const newSets = exerciseRows.flatMap((exercise) =>
-            (setsBySourceExercise.get(exercise.id) ?? []).map((set) => ({
-              workoutExerciseId: newIdByOrder.get(exercise.order)!,
-              setNumber: set.setNumber,
-              prescribedReps: set.prescribedReps,
-              prescribedIntensity: set.prescribedIntensity,
-              prescribedPercent: set.prescribedPercent,
-              suggestedLoadMin: set.suggestedLoadMin,
-              suggestedLoadMax: set.suggestedLoadMax,
-            })),
-          );
-
-          if (newSets.length) {
-            await tx.insert(sets).values(newSets);
-          }
-        }
-
-        created.push(workout.id);
-      }
-
-      return { assigned: created.length, workout_ids: created };
-    });
+    return { source, exerciseRows, setsBySourceExercise };
   }
+}
+
+/** The prescription of a workout, detached from who it was for. */
+interface CopyableSet {
+  workoutExerciseId: string;
+  setNumber: number;
+  /** `not null` in the schema, so this is `number` and not `number | null`.
+   * Widening it makes the copy's insert stop type-checking, which is the schema
+   * doing its job. */
+  prescribedReps: number;
+  prescribedIntensity: string | null;
+  prescribedPercent: number | null;
+  suggestedLoadMin: number | null;
+  suggestedLoadMax: number | null;
+}
+
+interface WorkoutBlueprint {
+  source: { name: string; notes: string | null; date: string };
+  exerciseRows: {
+    id: string;
+    exerciseId: string;
+    displayName: string | null;
+    /** Nullable in the schema, so the `order`-keyed pairing below can key on
+     * null. Pre-existing: `assignWorkout` has always worked this way, and
+     * `assertDistinctSetNumbers` only guards orders on the create path. Two
+     * exercises with a null order in one workout would collapse. */
+    order: number | null;
+    notes: string | null;
+  }[];
+  setsBySourceExercise: Map<string, CopyableSet[]>;
+}
+
+/** Writes one copy of a blueprint. Must be called inside a transaction.
+ *
+ * `athleteId: null` is what makes the copy a template, which is the only
+ * difference between assigning and saving to the library.
+ */
+async function insertWorkoutCopy(
+  tx: Database,
+  blueprint: WorkoutBlueprint,
+  target: {
+    name: string;
+    notes: string | null;
+    date: string;
+    athleteId: string | null;
+    coachId: string;
+  },
+): Promise<{ id: string }> {
+  const { exerciseRows, setsBySourceExercise } = blueprint;
+
+  const [workout] = await tx
+    .insert(workouts)
+    .values({
+      name: target.name,
+      date: target.date,
+      notes: target.notes,
+      athleteId: target.athleteId,
+      coachId: target.coachId,
+      isTemplate: target.athleteId === null,
+    })
+    .returning({ id: workouts.id });
+
+  if (exerciseRows.length) {
+    const insertedExercises = await tx
+      .insert(workoutExercises)
+      .values(
+        exerciseRows.map((exercise) => ({
+          workoutId: workout.id,
+          exerciseId: exercise.exerciseId,
+          displayName: exercise.displayName,
+          order: exercise.order,
+          notes: exercise.notes,
+        })),
+      )
+      .returning({ id: workoutExercises.id, order: workoutExercises.order });
+
+    // Paired on `order` rather than by index, for the same reason createWorkout
+    // does: index pairing would silently mis-assign every set if `returning` ever
+    // stopped preserving input order.
+    const newIdByOrder = new Map(insertedExercises.map((row) => [row.order, row.id]));
+
+    const newSets = exerciseRows.flatMap((exercise) =>
+      (setsBySourceExercise.get(exercise.id) ?? []).map((set) => ({
+        workoutExerciseId: newIdByOrder.get(exercise.order)!,
+        setNumber: set.setNumber,
+        prescribedReps: set.prescribedReps,
+        prescribedIntensity: set.prescribedIntensity,
+        prescribedPercent: set.prescribedPercent,
+        suggestedLoadMin: set.suggestedLoadMin,
+        suggestedLoadMax: set.suggestedLoadMax,
+      })),
+    );
+
+    if (newSets.length) {
+      await tx.insert(sets).values(newSets);
+    }
+  }
+
+  return { id: workout.id };
 }
 
 /** Rejects a payload whose set numbers or exercise orders collide.

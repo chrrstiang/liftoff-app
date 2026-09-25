@@ -1,5 +1,5 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import type { Database } from 'src/db/db.module';
 import { coachAthleteRelationships, sets, workoutExercises, workouts } from 'src/db/schema';
 
@@ -102,6 +102,27 @@ export async function assertReadableAthlete(
  */
 export function historyVisibilityFilter(athleteId: string) {
   return eq(workouts.athleteId, athleteId);
+}
+
+/** Which workouts are *this coach's templates*.
+ *
+ * A workout is a template exactly when it has no athlete. That rule is derived
+ * rather than stored — `workouts.is_template` is written but never read, because
+ * two sources of truth for "is this a template" is how the list ended up
+ * permanently empty in the first place (nothing wrote the boolean, so `= true`
+ * matched nothing, and the column was NULL on every row).
+ *
+ * Lives here rather than inline in `listTemplates` for the same reason
+ * `historyVisibilityFilter` does: it is a visibility rule, this file owns them,
+ * and `programming-access.spec.ts` can pin it by compiling it to SQL. A service
+ * spec cannot — `db-mock` ignores `where` entirely, so dropping either term would
+ * leave every unit test green while one coach's library leaked into another's.
+ */
+export function templateVisibilityFilter(coachId: string): SQL {
+  /* `and()` is typed `SQL | undefined` because it returns undefined when every
+     argument is. Both of these are concrete, so it never can here — and saying so
+     is what lets callers compile it without each asserting the same thing. */
+  return and(eq(workouts.coachId, coachId), isNull(workouts.athleteId))!;
 }
 
 /** The read decision itself, on a workout whose owners are already in hand.

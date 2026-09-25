@@ -17,6 +17,7 @@ import type { RequestWithUser } from 'src/common/types/request.interface';
 import { WorkoutsService } from '../service/workouts.service';
 import { CreateWorkoutDto } from '../dto/create-workout.dto';
 import { AssignWorkoutDto } from '../dto/assign-workout.dto';
+import { SaveAsTemplateDto } from '../dto/save-as-template.dto';
 import { ScheduledWorkoutsQueryDto } from '../dto/scheduled-workouts-query.dto';
 import { AddWorkoutExerciseDto } from '../dto/add-workout-exercise.dto';
 import { HistoryQueryDto } from '../dto/history-query.dto';
@@ -120,6 +121,23 @@ export class WorkoutsController {
     @Req() req: RequestWithUser,
   ) {
     return this.workoutsService.assignWorkout(id, dto, req.user.id);
+  }
+
+  /** Keeps a copy of an existing workout in the caller's template library.
+   *
+   * A literal segment under `:id`, so it cannot collide with anything -- unlike
+   * the `@Get('templates')` / `@Get(':id')` ordering noted at the top of this
+   * file, which is a real hazard.
+   */
+  @Post(':id/save-as-template')
+  @HttpCode(201)
+  @UseGuards(JwtAuthGuard)
+  async saveAsTemplate(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: SaveAsTemplateDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.workoutsService.saveAsTemplate(id, dto, req.user.id);
   }
 
   @Delete(':id')

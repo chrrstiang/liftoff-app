@@ -806,6 +806,213 @@ describe('WorkoutsService', () => {
    * and *what was written*, not that a query was scoped. The scoping that matters
    * (the roster check per target) is visible here as "nothing was written".
    */
+  /** Saving an existing workout back into the coach's template library.
+   *
+   * ⚠️ **What these can and cannot show.** `db-mock` ignores `where`, so a spec
+   * here proves *which decisions ran and what was written* — not that a query was
+   * scoped. "Coach B's template does not appear in coach A's list" and "a stranger
+   * cannot save someone else's workout" are e2e claims; the compiled-SQL pin on
+   * `templateVisibilityFilter` in `programming-access.spec.ts` is the other half.
+   */
+  describe('saveAsTemplate', () => {
+    const WORKOUT = '55555555-5555-4555-8555-555555555555';
+    const COACH = '11111111-1111-4111-8111-111111111111';
+    const OTHER_COACH = '99999999-9999-4999-8999-999999999999';
+    const ATHLETE = '22222222-2222-4222-8222-222222222222';
+
+    /** An assigned workout the caller authored — the normal source. */
+    const assigned = [{ id: WORKOUT, athleteId: ATHLETE, coachId: COACH }];
+    const sourceFields = [{ name: 'Week 3 Upper', notes: 'back off on rows', date: '2026-10-05' }];
+
+    const scriptFor = (source = sourceFields) => ({
+      // 1) loadReadableWorkout, 2) readCopyableWorkout, 3) the INSERT ... RETURNING
+      workouts: [assigned, source, [{ id: 'template-1' }]],
+      workout_exercises: [[]],
+    });
+
+    const inserted = () => harness.writes.find((w) => w.op === 'insert' && w.table === 'workouts');
+
+    it('writes a workout with no athlete, which is what makes it a template', async () => {
+      await build(scriptFor());
+
+      await expect(service.saveAsTemplate(WORKOUT, {}, COACH)).resolves.toEqual({
+        id: 'template-1',
+      });
+      expect(inserted()!.values).toMatchObject({ athleteId: null, isTemplate: true });
+    });
+
+    it('carries the source name and notes when the body gives none', async () => {
+      await build(scriptFor());
+
+      await service.saveAsTemplate(WORKOUT, {}, COACH);
+
+      expect(inserted()!.values).toMatchObject({
+        name: 'Week 3 Upper',
+        notes: 'back off on rows',
+      });
+    });
+
+    it('prefers a name from the body', async () => {
+      await build(scriptFor());
+
+      await service.saveAsTemplate(WORKOUT, { name: 'Upper A' }, COACH);
+
+      expect(inserted()!.values).toMatchObject({ name: 'Upper A' });
+    });
+
+    /** Explicit null clears; omitted keeps. Without the distinction a coach could
+     * never drop a note that referred to one athlete's week. */
+    it('clears the notes on an explicit null, rather than inheriting them', async () => {
+      await build(scriptFor());
+
+      await service.saveAsTemplate(WORKOUT, { notes: null }, COACH);
+
+      expect(inserted()!.values).toMatchObject({ notes: null });
+    });
+
+    /** `date` is meaningless on a template but the column is NOT NULL, so it is
+     * carried from the source rather than invented. */
+    it('carries the source date rather than inventing one', async () => {
+      await build(scriptFor());
+
+      await service.saveAsTemplate(WORKOUT, {}, COACH);
+
+      expect(inserted()!.values).toMatchObject({ date: '2026-10-05' });
+    });
+
+    /** ⚠️ The template is authored by whoever saved it, never by the source's
+     * coach. A co-coach may read a colleague's workout, and a template they could
+     * not then rename or delete would be worse than not having it. */
+    it('attributes the template to the caller, not the source author', async () => {
+      await build({
+        workouts: [
+          [{ id: WORKOUT, athleteId: ATHLETE, coachId: OTHER_COACH }],
+          sourceFields,
+          [{ id: 'template-1' }],
+        ],
+        // the co-coach read: a relationship with the source's athlete
+        coach_athlete_relationships: [[{ id: 'rel' }]],
+        workout_exercises: [[]],
+      });
+
+      await service.saveAsTemplate(WORKOUT, {}, COACH);
+
+      expect(inserted()!.values).toMatchObject({ coachId: COACH });
+    });
+
+    /** Duplicating a template is a different feature. Refusing is reversible;
+     * silently minting near-identical library entries is not. */
+    it('refuses a source that is already a template, before any write', async () => {
+      await build({ workouts: [[{ id: WORKOUT, athleteId: null, coachId: COACH }]] });
+
+      await expect(service.saveAsTemplate(WORKOUT, {}, COACH)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(harness.writes).toHaveLength(0);
+    });
+
+    /** ⚠️ **The hole the e2e found.** `loadReadableWorkout` admits the athlete, so
+     * the first version let them straight through — and `workouts.coach_id` is a
+     * foreign key into `coaches`, so it did not refuse them, it **500'd**.
+     * Reading your own session is not authoring a library entry. */
+    it('refuses the athlete of the source workout', async () => {
+      await build({
+        workouts: [assigned],
+        // not a coach of themselves
+        coach_athlete_relationships: [[]],
+      });
+
+      await expect(service.saveAsTemplate(WORKOUT, {}, ATHLETE)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(harness.writes).toHaveLength(0);
+    });
+
+    it('404s a caller with no claim on the source, before any write', async () => {
+      await build({
+        workouts: [[{ id: WORKOUT, athleteId: ATHLETE, coachId: OTHER_COACH }]],
+        coach_athlete_relationships: [[]],
+      });
+
+      await expect(service.saveAsTemplate(WORKOUT, {}, COACH)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(harness.writes).toHaveLength(0);
+    });
+
+    /** ⚠️ **The rule the shared copy core exists to keep in one place.** A
+     * template built from a finished session must not carry what the athlete
+     * lifted — otherwise every future athlete gets a pre-filled log. */
+    it('copies the prescription and none of the execution record', async () => {
+      await build({
+        workouts: [assigned, sourceFields, [{ id: 'template-1' }]],
+        workout_exercises: [
+          [{ id: 'we-1', exerciseId: 'ex-1', displayName: null, order: 1, notes: 'paused' }],
+          [{ id: 'new-we-1', order: 1 }],
+        ],
+        sets: [
+          [
+            {
+              workoutExerciseId: 'we-1',
+              setNumber: 1,
+              prescribedReps: 5,
+              prescribedIntensity: 'RPE 8',
+              prescribedPercent: 75,
+              suggestedLoadMin: 100,
+              suggestedLoadMax: 110,
+            },
+          ],
+        ],
+      });
+
+      await service.saveAsTemplate(WORKOUT, {}, COACH);
+
+      const setInsert = harness.writes.find((w) => w.op === 'insert' && w.table === 'sets');
+      const [copied] = setInsert!.values as Record<string, unknown>[];
+
+      expect(copied).toMatchObject({
+        prescribedReps: 5,
+        prescribedIntensity: 'RPE 8',
+        prescribedPercent: 75,
+        suggestedLoadMin: 100,
+        suggestedLoadMax: 110,
+      });
+      expect(copied).not.toHaveProperty('actualLoad');
+      expect(copied).not.toHaveProperty('actualIntensity');
+      expect(copied).not.toHaveProperty('isCompleted');
+    });
+
+    /** The per-exercise note is half the prescription and the client-side copy
+     * this replaces dropped it. */
+    it('carries per-exercise notes and display names', async () => {
+      await build({
+        workouts: [assigned, sourceFields, [{ id: 'template-1' }]],
+        workout_exercises: [
+          [
+            {
+              id: 'we-1',
+              exerciseId: 'ex-1',
+              displayName: 'Comp squat',
+              order: 1,
+              notes: 'paused',
+            },
+          ],
+          [{ id: 'new-we-1', order: 1 }],
+        ],
+        sets: [[]],
+      });
+
+      await service.saveAsTemplate(WORKOUT, {}, COACH);
+
+      const exerciseInsert = harness.writes.find(
+        (w) => w.op === 'insert' && w.table === 'workout_exercises',
+      );
+      const [copied] = exerciseInsert!.values as Record<string, unknown>[];
+
+      expect(copied).toMatchObject({ displayName: 'Comp squat', notes: 'paused', order: 1 });
+    });
+  });
+
   describe('assignWorkout', () => {
     const WORKOUT = '55555555-5555-4555-8555-555555555555';
     const COACH = '11111111-1111-4111-8111-111111111111';

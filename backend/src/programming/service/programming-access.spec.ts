@@ -6,6 +6,7 @@ import {
   historyVisibilityFilter,
   loadProgrammableWorkout,
   loadReadableWorkout,
+  templateVisibilityFilter,
 } from './programming-access';
 
 const ATHLETE = '22222222-2222-4222-8222-222222222222';
@@ -74,6 +75,42 @@ describe('historyVisibilityFilter', () => {
     const { sql, params } = compile(ATHLETE);
 
     expect(sql).not.toContain(ATHLETE);
+    expect(params).toHaveLength(1);
+  });
+});
+
+/** The template library filter, compiled the same way and for the same reason.
+ *
+ * ⚠️ **This is the only place either term is pinned.** `db-mock` ignores `where`
+ * entirely, so a service spec would pass identically with `coach_id` dropped —
+ * and dropping it means every coach's library shows every other coach's
+ * templates. Losing the `athlete_id is null` term is the other direction: the
+ * library would fill up with every session the coach has ever assigned.
+ */
+describe('templateVisibilityFilter', () => {
+  const compile = (coachId: string) =>
+    new PgDialect().sqlToQuery(templateVisibilityFilter(coachId));
+
+  it('scopes to the caller and to workouts with no athlete', () => {
+    const { sql, params } = compile(COACH_A);
+
+    expect(sql).toBe('("workouts"."coach_id" = $1 and "workouts"."athlete_id" is null)');
+    expect(params).toEqual([COACH_A]);
+  });
+
+  /** A template belongs to its coach alone — deliberately *not* the widened
+   * co-coach read that applies to assigned workouts. A template has no athlete,
+   * so there is nobody to be a co-coach of. */
+  it('does not widen to co-coaches the way the history filter does', () => {
+    const { sql } = compile(COACH_A);
+
+    expect(sql).toContain('coach_id');
+  });
+
+  it('binds the coach id rather than interpolating it', () => {
+    const { sql, params } = compile(COACH_A);
+
+    expect(sql).not.toContain(COACH_A);
     expect(params).toHaveLength(1);
   });
 });

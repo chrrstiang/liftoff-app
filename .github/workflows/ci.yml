@@ -36,6 +36,32 @@ jobs:
   backend-ci:
     runs-on: ubuntu-latest
 
+    # ⚠️ A Postgres here, not only in backend-e2e, and the reason is the gate
+    # rather than the database. `backend-e2e` skips itself when the Supabase
+    # secrets are absent or the project is paused, so a green check there is not
+    # evidence anything ran. Meanwhile the unit tier mocks Drizzle with a client
+    # that ignores `where`, fakes transactions, and passes raw `sql` through
+    # inert — so anything whose correctness *is* the SQL has nowhere to live.
+    #
+    # `*.int-spec.ts` is that place: real Postgres, no Supabase, and therefore
+    # this job — the one that always runs.
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: liftoff
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d liftoff"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres@localhost:5432/liftoff
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -66,6 +92,19 @@ jobs:
       - name: Run backend unit tests
         working-directory: ./backend
         run: npm run test
+
+      # Same chain the e2e job uses, and the same reason: `verify-port.sql` is a
+      # set of assertions about the schema, not a formality.
+      - name: Apply migrations to the integration database
+        working-directory: ./backend
+        run: |
+          npx drizzle-kit migrate
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f src/db/seed-reference-data.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f src/db/verify-port.sql
+
+      - name: Run backend integration tests
+        working-directory: ./backend
+        run: npm run test:int
 
   backend-e2e:
     runs-on: ubuntu-latest

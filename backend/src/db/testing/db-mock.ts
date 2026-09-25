@@ -37,7 +37,11 @@ export interface TestDb {
   /** Pass straight to `{ provide: DRIZZLE, useValue: harness.db }`. */
   db: Builder;
   /** Every table an insert/update/delete was issued against, in order. */
-  writes: Array<{ op: 'insert' | 'update' | 'delete'; table: string; values?: unknown }>;
+  writes: Array<{
+    op: 'insert' | 'update' | 'delete' | 'execute';
+    table: string;
+    values?: unknown;
+  }>;
   /** How many times a transaction callback has been entered. */
   transactions: number;
 }
@@ -118,6 +122,29 @@ export function makeTestDb(script: DbScript = {}): TestDb {
       const name = tableName(table);
       writes.push({ op: 'delete', table: name ?? '?' });
       return chain(name);
+    },
+
+    /** Raw SQL, keyed by a reserved queue name rather than by table.
+     *
+     * ⚠️ **There is no table to derive a name from.** A `sql` fragment is opaque
+     * here — the proxy cannot see what it touches — so `execute` draws from the
+     * `__execute` queue and is recorded as a write. Script it as
+     * `{ __execute: [[{ last_seq: 1 }]] }`.
+     *
+     * Note the shape: node-postgres returns a `QueryResult`, so a service reading
+     * `result.rows[0]` needs `{ rows: [...] }`, not a bare array. Getting that
+     * wrong here produces a spec that passes against a shape production never
+     * returns — which is the whole failure mode this mock already has with
+     * `where`, repeated one level down.
+     *
+     * **Anything whose correctness is the SQL itself belongs in an `*.int-spec.ts`
+     * against real Postgres, not here.** This exists so a service that issues raw
+     * SQL can still be unit-tested for *ordering and control flow*.
+     */
+    execute: (fragment?: unknown): unknown => {
+      writes.push({ op: 'execute', table: '__execute', values: fragment });
+      const rows = take('__execute');
+      return Promise.resolve({ rows, rowCount: rows.length });
     },
 
     /** Runs the callback immediately against the same client.

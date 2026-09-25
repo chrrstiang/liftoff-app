@@ -128,6 +128,19 @@ Anything off-allowlist throws `BadRequestException`. `PUBLIC_PROFILE_QUERY` is t
 
 **Unit** — `npm test`. Config is inline in `package.json` under `"jest"`: `rootDir: src`, `testRegex: .*\.spec\.ts$`, specs colocated next to sources. Supabase is mocked via `@nestjs/testing` provider overrides, so no DB and no server needed.
 
+**Integration** — `npm run test:int`, config `test/jest-int.json`, specs named `*.int-spec.ts` and colocated with the code they exercise. **Real Postgres, no Supabase, no HTTP server.**
+
+⚠️ **This tier exists because of a gap between the other two, not because a third was wanted.** `db-mock` ignores `where`, fakes transactions by running the callback against the same client, and passes raw `sql` fragments through inert — so anything whose correctness *is* the SQL cannot be expressed against it, and a spec that tries will pass with the logic deleted. The obvious home would be e2e, and that is the wrong one: `backend-e2e` **skips itself** when the Supabase secrets are absent or the project is paused, so a green check there is not evidence anything ran. Integration specs run in `backend-ci`, which always runs.
+
+The rule that falls out: **anything load-bearing runs unconditionally in `backend-ci`** — as a unit spec or an int spec, never only as an e2e spec.
+
+Two config details that will bite:
+
+- **`rootDir` is `..`, not `.`** — int-specs sit next to their source like unit specs, and a `rootDir` of `test/` would find none of them and exit "No tests found".
+- **The unit config carries `testPathIgnorePatterns: ["\\.int-spec\\.ts$"]`.** Its `testRegex` is `.*\.spec\.ts$`, which matches `foo.int-spec.ts` too — without the ignore, every int-spec would also run in the DB-less unit job and fail on connection refused.
+
+`src/db/testing/int-db.ts` is the harness. `makeIntDb()` reads `DATABASE_URL` (CI uses 5432, local `db:up` uses 55440 — never hardcode either) and exposes `connect()` for the cases needing two genuinely separate sessions, such as asserting one transaction blocks on another's row lock. **Use its `waitFor` rather than `sleep`**: a fixed wait is flaky on a loaded runner and asserts nothing — "it had not finished after 50ms" is not "it blocked".
+
 **E2E** — `npm run test:e2e`, config `test/jest-e2e.json`. Uses supertest against an in-process app (`app.getHttpServer()`), so no separate server process — **but it requires real Supabase credentials**, because `SupabaseService` throws at construction when env is missing.
 
 ⚠️ **E2E is not hermetic. It mutates the live project real users are in.** There is no staging project and no local database — that is a recorded tradeoff, not an oversight. `test/helpers/fixtures.ts` is what makes it survivable, and **all fixture work must go through it**:

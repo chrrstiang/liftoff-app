@@ -131,6 +131,23 @@ export type ExerciseFormSet = {
   set_number?: number;
 };
 
+/** One row the coach has picked in the workout builder.
+ *
+ * ⚠️ **Replaces `{ exercise, selectedTemplate }`, which could only describe a
+ * saved preset.** Nothing in the app ever created one of those, so the picker was
+ * permanently empty and a workout could not be built at all. The shape now
+ * carries the sets directly, which is all the builder ever read out of it —
+ * whether they came from a preset or were typed by hand.
+ *
+ * `label` is what the chip and the created exercise are named: the preset's name
+ * when one was used, the movement's own name otherwise.
+ */
+export type SelectedExercise = {
+  exerciseId: string;
+  label: string;
+  sets: ExerciseFormSet[];
+};
+
 export type ExerciseFormData = {
   name: string;
   workout_id: string;

@@ -2,7 +2,7 @@
 
 A mobile app for the powerlifting community. Two halves: coach↔athlete tooling (coaches send programming and manage a roster; athletes log workouts and message their coach) and a social layer (share lifts, meet recaps, communities, leaderboards).
 
-**Status: pre-release, but further along than it looks.** Built and working: sign up / log in, profile creation and editing, coach↔athlete relationships with invites and notifications, a coach roster, program and workout building from templates, set logging, and messaging with image attachments (polling, not realtime). The social layer (feed, communities, leaderboards) does not exist — no tables, no endpoints, no screens. Assume a feature does not exist until you've read the code.
+**Status: pre-release, but further along than it looks.** Built and working: sign up / log in, profile creation and editing, coach↔athlete relationships with invites and notifications, a coach roster, program and workout building, set logging, and messaging with image attachments (polling, not realtime). The social layer (feed, communities, leaderboards) does not exist — no tables, no endpoints, no screens. Assume a feature does not exist until you've read the code.
 
 ## Repo shape
 

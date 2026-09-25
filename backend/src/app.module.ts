@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
+import { JwtModule } from './common/validation/jwt.module';
 import { SupabaseModule } from './supabase/supabase.module';
 import { ValidatorsModule } from './common/validation/validators/validators.module';
 import { ConfigModule } from '@nestjs/config';
@@ -23,6 +24,7 @@ import { ProgrammingModule } from './programming/programming.module';
     ProgrammingModule,
     // Supabase is auth-only: JwtAuthGuard verifies tokens against it. All data
     // access goes through DbModule.
+    JwtModule,
     SupabaseModule,
     ValidatorsModule,
   ],

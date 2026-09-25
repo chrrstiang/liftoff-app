@@ -1,4 +1,5 @@
 import ExerciseSelector from "@/components/ExerciseSelector";
+import { toPrescribedSets } from "@/components/ExerciseSetsEditor";
 import {
   Button,
   EmptyState,
@@ -28,8 +29,7 @@ import { useTheme } from "@/theme/useTheme";
 import {
   AthleteProfileView,
   ExerciseFormSet,
-  ExerciseTemplate,
-  SetTemplate,
+  SelectedExercise,
   WorkoutTemplate,
 } from "@/types";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -47,11 +47,6 @@ import {
   useColorScheme,
   View,
 } from "react-native";
-
-type SelectedExercise = {
-  exercise: ExerciseTemplate;
-  selectedTemplate: { id: string; name: string; sets: SetTemplate[] };
-};
 
 /** Copying one session onto several athletes at once.
  *
@@ -277,18 +272,28 @@ function WorkoutModal({
 }: {
   visible: boolean;
   onClose: () => void;
-  onCreateWorkout: (
-    name: string,
-    date: string,
+  /** ⚠️ **One object, not positional arguments.** The previous signature took
+   * four positionals and the handler declared three, so TypeScript's
+   * arity-tolerant assignability accepted it and the last one was silently
+   * dropped. A missing key on a destructured object is a hard error instead —
+   * which matters here, because `type-check` is half the frontend's entire
+   * safety net.
+   *
+   * The dropped argument was `isTemplate`, and it is gone rather than wired up:
+   * it was passed as `true` on the path that *applies* a template to an athlete,
+   * where the result is emphatically not a template. It tracked provenance, not
+   * destination, so honouring it would have inverted the feature. */
+  onCreateWorkout: (draft: {
+    name: string;
+    date: string;
     exercises: {
       id: string;
       name: string;
       order: number;
       notes?: string;
       sets: ExerciseFormSet[];
-    }[],
-    isTemplate: boolean,
-  ) => void;
+    }[];
+  }) => void;
   isCreating: boolean;
 }) {
   const [showWorkoutForm, setShowWorkoutForm] = useState(false);
@@ -323,12 +328,6 @@ function WorkoutModal({
 
   // sets selected template - toggles selection
   const handleSelectTemplate = (template: WorkoutTemplate) => {
-    console.log(
-      "📋 [UI] Template selected:",
-      template.name,
-      "ID:",
-      template.id,
-    );
     setSelectedTemplate(selectedTemplate?.id === template.id ? null : template);
     setWorkoutName(template.name);
   };
@@ -336,13 +335,6 @@ function WorkoutModal({
   // creates workout from selected template
   const handleAddWorkoutFromTemplate = () => {
     if (!selectedTemplate || !workoutName.trim()) return;
-
-    console.log(
-      "📋 [UI] Creating workout from template:",
-      selectedTemplate.name,
-      "as:",
-      workoutName,
-    );
 
     const exercises = selectedTemplate.workout_exercises.map((we) => {
       return {
@@ -365,8 +357,11 @@ function WorkoutModal({
       };
     });
 
-    onCreateWorkout(workoutName, toLocalDateString(workoutDate), exercises, true);
-    console.log("📋 [UI] Template workout creation initiated");
+    onCreateWorkout({
+      name: workoutName,
+      date: toLocalDateString(workoutDate),
+      exercises,
+    });
     setSelectedTemplate(null);
     setSelectedExercises([]);
     setWorkoutName("");
@@ -378,35 +373,21 @@ function WorkoutModal({
   const handleCreateWorkout = () => {
     if (!workoutName.trim()) return;
 
-    console.log(
-      "💪 [UI] Creating custom workout:",
-      workoutName,
-      "with",
-      selectedExercises.length,
-      "exercises",
-    );
-
-    // Convert selected exercises to the proper format with sets
-    const exercises = selectedExercises.map((selectedExercise, index) => ({
-      id: selectedExercise.exercise.id,
-      name: selectedExercise.selectedTemplate.name,
+    /* `toPrescribedSets` stamps `set_number` from position rather than carrying
+       whatever a preset held, so removing the middle set of three cannot submit
+       1, 3 — which the API accepts and the athlete reads as a missing set. */
+    const exercises = selectedExercises.map((selected, index) => ({
+      id: selected.exerciseId,
+      name: selected.label,
       order: index + 1,
-      // Carries the same three fields as the from-template path above. It used
-      // to drop suggested_load_* here, so a coach who typed a plain kg range on
-      // a set built through the custom flow lost it on save — asymmetric with
-      // the template flow and invisible until you compared the two.
-      sets: selectedExercise.selectedTemplate.sets.map((set: SetTemplate) => ({
-        set_number: set.set_number,
-        prescribed_reps: set.prescribed_reps,
-        prescribed_intensity: set.prescribed_intensity,
-        prescribed_percent: set.prescribed_percent ?? null,
-        suggested_load_min: set.suggested_load_min ?? null,
-        suggested_load_max: set.suggested_load_max ?? null,
-      })),
+      sets: toPrescribedSets(selected.sets),
     }));
 
-    onCreateWorkout(workoutName, toLocalDateString(workoutDate), exercises, false);
-    console.log("💪 [UI] Custom workout creation initiated");
+    onCreateWorkout({
+      name: workoutName,
+      date: toLocalDateString(workoutDate),
+      exercises,
+    });
     setWorkoutName("");
     setWorkoutDate(new Date());
     setSelectedExercises([]);
@@ -421,31 +402,6 @@ function WorkoutModal({
     setSelectedTemplate(null);
     setShowWorkoutForm(false);
     onClose();
-  };
-
-  // adds exercise to selected exercises
-  const handleExerciseSelect = (
-    exercise: ExerciseTemplate,
-    selectedTemplate: { id: string; name: string; sets: SetTemplate[] },
-  ) => {
-    console.log(
-      "🏋️ [UI] Exercise selected:",
-      exercise.name,
-      "with template:",
-      selectedTemplate.name,
-    );
-    setSelectedExercises([
-      ...selectedExercises,
-      { exercise, selectedTemplate },
-    ]);
-  };
-
-  // removes exercise from selected exercises
-  const handleExerciseRemove = (exerciseId: string) => {
-    console.log("🏋️ [UI] Exercise removed:", exerciseId);
-    setSelectedExercises(
-      selectedExercises.filter((ex) => ex.exercise.id !== exerciseId),
-    );
   };
 
   return (
@@ -599,8 +555,7 @@ function WorkoutModal({
             {/* Exercise Selector */}
             <ExerciseSelector
               selectedExercises={selectedExercises}
-              onExerciseSelect={handleExerciseSelect}
-              onExerciseRemove={handleExerciseRemove}
+              onChange={setSelectedExercises}
             />
 
             <View className="py-6">
@@ -688,24 +643,19 @@ export default function ProgramPage() {
     queryFn: async () => fetchAthleteProfile(athleteId),
   });
 
-  const handleCreateWorkout = (
-    name: string,
-    date: string,
+  const handleCreateWorkout = (draft: {
+    name: string;
+    date: string;
     exercises: {
       id: string;
       name: string;
       order: number;
       notes?: string;
       sets: ExerciseFormSet[];
-    }[],
-  ) => {
+    }[];
+  }) => {
+    const { name, date, exercises } = draft;
     if (!name?.trim() || !user?.id || !athleteId) return;
-
-    console.log("💪 [PARENT] Creating workout:", {
-      name,
-      date,
-      exercise_count: exercises.length,
-    });
 
     createWorkoutMutation.mutate({
       name,

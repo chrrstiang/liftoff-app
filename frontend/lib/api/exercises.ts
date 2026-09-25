@@ -4,26 +4,41 @@ import { addWorkoutExercise } from "@/lib/api/workouts";
 
 /** The exercise library.
  *
- * ⚠️ **`createExercise` used to swallow its own failures.** Each of its three
+ * ⚠️ **`addExerciseToWorkout` used to swallow its own failures.** Each of its three
  * inserts logged the error and `return`ed `undefined` — so a failure looked
  * identical to success to the caller, and the optimistic cache update was never
  * rolled back. The exercise simply vanished on the next refetch. Errors now throw,
  * which is what the mutation's `onError` was always written to expect.
  */
 
-/** Creates an exercise and attaches it to a workout, with its sets.
+/** Adds an exercise to an existing workout, with its sets.
+ *
+ * ⚠️ **Renamed from `createExercise`, which is what it was never doing.** It does
+ * not create a library exercise — `createLibraryExercise` below does that. The old
+ * name is why the builder had no way to add a movement to the library: it looked
+ * like the function for it and was already imported.
  *
  * Three unguarded client inserts became one request. That matters beyond tidiness:
  * the writes had no transaction, so a failure on the sets left an exercise attached
  * to the workout with no sets under it — a row the UI renders as an empty exercise
  * that cannot be completed.
  */
-export async function createExercise(exerciseData: ExerciseFormData) {
+export async function addExerciseToWorkout(exerciseData: ExerciseFormData) {
   return addWorkoutExercise(exerciseData.workout_id, {
     name: exerciseData.name,
     order: exerciseData.order,
     sets: exerciseData.sets,
   });
+}
+
+/** Adds a movement to the caller's library.
+ *
+ * Idempotent on name server-side: asking twice returns the existing row rather
+ * than creating a second one. That is deliberate — duplicate exercise names split
+ * an athlete's max between them, which is what migration `0005` had to merge.
+ */
+export async function createLibraryExercise(name: string) {
+  return api.post<{ id: string; name: string }>("/exercises", { name });
 }
 
 /** The caller's exercise library, for the workout builder's picker. */

@@ -1,14 +1,18 @@
 import { Button, DataTable, EmptyState, Input, QueryError, Screen, Section, Sheet, Text } from "@/components/ui";
 import { ExerciseHistorySheet } from "@/components/ExerciseHistorySheet";
+import {
+  emptySet,
+  ExerciseSetsEditor,
+  toPrescribedSets,
+} from "@/components/ExerciseSetsEditor";
 import { useAuth } from "@/contexts/AuthContext";
-import { createExercise } from "@/lib/api/exercises";
+import { addExerciseToWorkout } from "@/lib/api/exercises";
 import { describeApiError } from "@/lib/api/client";
 import { fetchWorkoutById, updateSet } from "@/lib/api/workouts";
 import { useTheme } from "@/theme/useTheme";
 import {
   Exercise,
   ExerciseFormData,
-  ExerciseFormSet,
   Set,
   Workout,
   WorkoutExercise,
@@ -204,66 +208,11 @@ function AddExerciseModal({
     workout_id: "",
     created_by: "",
     order: 0,
-    sets: [
-      {
-        prescribed_reps: null,
-        prescribed_intensity: null,
-        prescribed_percent: null,
-        suggested_load_min: null,
-        suggested_load_max: null,
-      },
-    ],
+    sets: [emptySet()],
   });
 
-  const addSet = () => {
-    setFormData((prev) => ({
-      ...prev,
-      sets: [
-        ...prev.sets,
-        {
-          prescribed_reps: null,
-          prescribed_intensity: null,
-          prescribed_percent: null,
-          suggested_load_min: null,
-          suggested_load_max: null,
-        },
-      ],
-    }));
-  };
-
-  const updateSet = (
-    index: number,
-    field: keyof ExerciseFormSet,
-    value: string | number | null,
-  ) => {
-    const newSets = [...formData.sets];
-    newSets[index] = { ...newSets[index], [field]: value };
-    setFormData((prev) => ({ ...prev, sets: newSets }));
-  };
-
-  const removeSet = (index: number) => {
-    if (formData.sets.length === 1) return;
-
-    const newSets = formData.sets.filter((_, i) => i !== index);
-    setFormData((prev) => ({ ...prev, sets: newSets }));
-  };
-
   const handleSave = () => {
-    const formattedData = {
-      ...formData,
-      sets: formData.sets.map((set, index) => ({
-        prescribed_reps: Number(set.prescribed_reps),
-        prescribed_intensity: set.prescribed_intensity || null,
-        // `|| null` rather than `?? null` on purpose: an empty string and a typed
-        // 0 both mean "no percentage here", and Number("") is 0.
-        prescribed_percent: Number(set.prescribed_percent) || null,
-        suggested_load_min: Number(set.suggested_load_min) || null,
-        suggested_load_max: Number(set.suggested_load_max) || null,
-        set_number: index + 1,
-      })),
-    };
-
-    onSave(formattedData);
+    onSave({ ...formData, sets: toPrescribedSets(formData.sets) });
     onClose();
   };
 
@@ -289,101 +238,10 @@ function AddExerciseModal({
           />
         </View>
 
-        <View className="flex-row items-center justify-between border-t border-hairline pt-4 dark:border-hairline-dark">
-          <Text variant="overline" tone="muted">
-            Sets
-          </Text>
-          <Button label="Add set" variant="ghost" onPress={addSet} />
-        </View>
-
-        {formData.sets.map((set, index) => (
-          <View
-            key={index}
-            className="gap-3 border-t border-hairline py-4 dark:border-hairline-dark"
-          >
-            <View className="flex-row items-center justify-between">
-              <Text variant="label" tone="ink">
-                Set {index + 1}
-              </Text>
-              {formData.sets.length > 1 ? (
-                <Button
-                  label="Remove"
-                  variant="danger"
-                  onPress={() => removeSet(index)}
-                />
-              ) : null}
-            </View>
-
-            <View className="flex-row gap-2">
-              <Input
-                label="Reps"
-                className="flex-1"
-                value={set.prescribed_reps ? set.prescribed_reps.toString() : ""}
-                onChangeText={(text) =>
-                  updateSet(index, "prescribed_reps", text || null)
-                }
-                placeholder="12"
-                keyboardType="number-pad"
-              />
-              <Input
-                label="RPE"
-                className="flex-1"
-                value={set.prescribed_intensity ? set.prescribed_intensity : ""}
-                onChangeText={(text) =>
-                  updateSet(index, "prescribed_intensity", text || null)
-                }
-                placeholder="7"
-              />
-            </View>
-
-            {/* A percentage and hand-typed loads are alternatives, not a pair —
-                the server takes the percentage when both are present. Kept as a
-                full-width row above them so it reads as the choice it is rather
-                than a third load field. */}
-            <Input
-              label="% of max"
-              value={
-                set.prescribed_percent ? set.prescribed_percent.toString() : ""
-              }
-              onChangeText={(text) =>
-                updateSet(index, "prescribed_percent", text || null)
-              }
-              placeholder="75"
-              keyboardType="decimal-pad"
-            />
-
-            <View className="flex-row gap-2">
-              <Input
-                label="Load min"
-                className="flex-1"
-                value={
-                  set.suggested_load_min
-                    ? set.suggested_load_min.toString()
-                    : ""
-                }
-                onChangeText={(text) =>
-                  updateSet(index, "suggested_load_min", text || null)
-                }
-                placeholder="0"
-                keyboardType="number-pad"
-              />
-              <Input
-                label="Load max"
-                className="flex-1"
-                value={
-                  set.suggested_load_max
-                    ? set.suggested_load_max.toString()
-                    : ""
-                }
-                onChangeText={(text) =>
-                  updateSet(index, "suggested_load_max", text || null)
-                }
-                placeholder="0"
-                keyboardType="number-pad"
-              />
-            </View>
-          </View>
-        ))}
+        <ExerciseSetsEditor
+          sets={formData.sets}
+          onChange={(sets) => setFormData((prev) => ({ ...prev, sets }))}
+        />
       </ScrollView>
     </Sheet>
   );
@@ -462,7 +320,7 @@ export default function WorkoutDetails() {
   // mutation handling for exercise creation
   const addExerciseMutation = useMutation({
     mutationFn: (exerciseData: ExerciseFormData) =>
-      createExercise(exerciseData),
+      addExerciseToWorkout(exerciseData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workoutKey });
       setShowAddExerciseModal(false);
